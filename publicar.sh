@@ -12,7 +12,7 @@ URL="${URL%/}"
 rm -rf publicar
 mkdir -p publicar
 cp index.html style.css manifest.webmanifest sw.js \
-   googleSync.js app.js datos.js usuario.js mapa.js cotizador.js crm.js equipo.js tareas.js pwa.js ventana.js publicar/
+   googleSync.js app.js datos.js usuario.js mapa.js cotizador.js crm.js equipo.js tareas.js pwa.js ventana.js tema.js publicar/
 cp -R iconos marcas publicar/
 
 if [ -n "$URL" ]; then

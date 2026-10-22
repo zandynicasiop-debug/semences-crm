@@ -6,11 +6,11 @@
  * - Lo demás (el Apps Script de Google, Chat…) no pasa por aquí: siempre va a la red.
  * Al publicar cambios grandes, sube VERSION para descartar las copias viejas.
  */
-const VERSION = 'semences-v4';
+const VERSION = 'semences-v5';
 const APP = [
     './', './index.html', './style.css', './manifest.webmanifest',
     './googleSync.js', './app.js', './datos.js', './usuario.js', './mapa.js', './cotizador.js',
-    './crm.js', './equipo.js', './tareas.js', './pwa.js', './ventana.js',
+    './crm.js', './equipo.js', './tareas.js', './pwa.js', './ventana.js', './tema.js',
     './iconos/icono-192.png', './iconos/icono-512.png',
     './marcas/gautier.png', './marcas/hexagon.png', './marcas/genome.png', './marcas/fito.png'
 ];
