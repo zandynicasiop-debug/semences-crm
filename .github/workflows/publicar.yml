@@ -1,0 +1,79 @@
+# Cada vez que se suben cambios a main: compila y firma el APK y publica la app (con el APK para descargar)
+# en GitHub Pages. También se puede lanzar a mano desde la pestaña Actions › "Compilar APK y publicar la app".
+#
+# Necesita dos secretos del repositorio (Settings › Secrets and variables › Actions):
+#   SEMENCES_FIRMA  el archivo android/firma/semences.keystore en base64
+#   SEMENCES_CLAVE  el contenido de android/firma/clave.txt
+name: Compilar APK y publicar la app
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  compilar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Herramientas de Android (plataforma 34 y build-tools 34.0.0)
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0" > /dev/null
+
+      - name: Firma del APK desde los secretos
+        env:
+          FIRMA: ${{ secrets.SEMENCES_FIRMA }}
+          CLAVE: ${{ secrets.SEMENCES_CLAVE }}
+        run: |
+          if [ -z "$FIRMA" ] || [ -z "$CLAVE" ]; then
+            echo "::error::Faltan los secretos SEMENCES_FIRMA y SEMENCES_CLAVE (ver android/LEEME.md)"
+            exit 1
+          fi
+          mkdir -p android/firma
+          echo "$FIRMA" | base64 -d > android/firma/semences.keystore
+          printf '%s' "$CLAVE" > android/firma/clave.txt
+
+      - name: Compilar y firmar el APK
+        run: ANDROID_SDK="$ANDROID_HOME" ./android/build.sh
+
+      - id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Carpeta de la web, con el APK para descargar
+        run: |
+          ./publicar.sh "${{ steps.pages.outputs.base_url }}"
+          cp android/salida/Semences.apk publicar/Semences.apk
+
+      - name: APK como archivo descargable de esta ejecución
+        uses: actions/upload-artifact@v4
+        with:
+          name: Semences-apk
+          path: android/salida/Semences.apk
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: publicar
+
+  desplegar:
+    needs: compilar
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.despliegue.outputs.page_url }}
+    steps:
+      - id: despliegue
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Widget 4 x 2 de la pantalla de inicio; se redimensiona. Lo actualiza la app al abrirse y al sincronizar -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/widget_semences"
+    android:previewLayout="@layout/widget_semences"
+    android:description="@string/widget_descripcion"
+    android:widgetCategory="home_screen" />

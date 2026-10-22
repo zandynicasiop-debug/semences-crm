@@ -1,0 +1,22 @@
+# Firma del APK: NUNCA en el repositorio (en GitHub va como secreto: ver android/LEEME.md)
+android/firma/
+*.keystore
+*.jks
+
+# Lo que se genera o se descarga en el Mac
+android/salida/
+android/obra/
+android/herramientas/
+publicar/
+.herramientas/
+
+# Copias, paquetes y material de vídeo (pesados y fuera del código de la app)
+*.zip
+semences-app/
+agrosimulador-semences*/
+video-promo/
+video-gemini/
+
+# Sistema y editor
+.DS_Store
+.claude/

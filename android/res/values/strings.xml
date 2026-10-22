@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="nombre_app">Semences</string>
+    <string name="widget_descripcion">Tus tareas, las alertas del equipo y las parcelas listas para cosechar.</string>
+    <string name="widget_tareas">Tareas para ti</string>
+    <string name="widget_alertas">Alertas hoy</string>
+    <string name="widget_parcelas">Parcelas listas</string>
+    <string name="widget_vacio">Abre la app para ver tus tareas y alertas.</string>
+</resources>

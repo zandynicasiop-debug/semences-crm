@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <!-- viewport-fit=cover: en móviles con muesca (y en la app Android) la página ocupa toda la pantalla; style.css respeta los márgenes seguros -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0B1F14">
+    <!-- App instalable (PWA): manifiesto, iconos y modo pantalla completa en iPhone -->
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" type="image/png" sizes="192x192" href="iconos/icono-192.png">
+    <link rel="apple-touch-icon" href="iconos/apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Semences">
+    <!-- Vista previa al compartir el enlace (WhatsApp, Gmail…). publicar.sh pone las URL completas -->
+    <meta name="description" content="CRM interno de Semences del Caribe: clientes, procesos agronómicos, tareas, chat del equipo y la finca en 3D.">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Semences del Caribe · CRM del equipo">
+    <meta property="og:description" content="Clientes, procesos agronómicos, tareas, chat del equipo y la finca en 3D.">
+    <meta property="og:image" content="iconos/compartir.jpg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:locale" content="es_DO">
+    <title>Semences del Caribe · CRM y gestión agronómica</title>
+    <!-- Tipografías del sitio de Semences del Caribe: Lora (títulos), Raleway (cuerpo), JetBrains Mono (datos) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&family=Lora:wght@600&family=Raleway:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <!-- Three.js para el entorno 3D WebGL -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Controles de cámara (girar, acercar, desplazar) de la misma versión de Three.js -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- jsPDF para descargar las cotizaciones -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+    <div id="dashboard-container">
+        <!-- Barra superior: marca y pestañas de módulos (las del CRM las añade crm.js) -->
+        <nav id="app-nav" aria-label="Módulos">
+            <div class="brand">
+                <!-- Logo: icono Sprout de Lucide (ISC), el mismo de la cabecera del sitio -->
+                <svg class="brand-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M14 9.536V7a4 4 0 0 1 4-4h1.5a.5.5 0 0 1 .5.5V5a4 4 0 0 1-4 4 4 4 0 0 0-4 4c0 2 1 3 1 5a5 5 0 0 1-1 3"/>
+                    <path d="M4 9a5 5 0 0 1 8 4 5 5 0 0 1-8-4"/>
+                    <path d="M5 21h14"/>
+                </svg>
+                <div class="brand-texto">
+                    <h1 class="brand-nombre">Semences<span class="brand-resto"> del Caribe</span></h1>
+                    <span class="brand-sub">CRM interno · Semillas de hortalizas</span>
+                </div>
+            </div>
+            <!-- Menú de módulos: un botón con el módulo actual; las demás entradas las añade crm.js -->
+            <div class="menu-modulos">
+                <button type="button" id="btn-modulos" class="btn-modulos" aria-expanded="false" aria-controls="lista-modulos">
+                    <svg class="btn-modulos-icono" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                    <span class="solo-lector">Módulo: </span><span class="btn-modulos-texto">Simulador 3D</span>
+                    <svg class="btn-modulos-flecha" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div id="lista-modulos" class="nav-tabs lista-modulos" hidden>
+                    <button class="nav-tab" type="button" id="tab-simulador" aria-controls="mod-simulador" aria-current="true">Simulador 3D</button>
+                </div>
+            </div>
+            <!-- Responsable que usa la app en este navegador (usuario.js) -->
+            <button type="button" id="btn-responsable" class="btn-responsable" hidden></button>
+        </nav>
+
+        <div id="modules-container">
+            <!-- Módulo 1: Simulador 3D -->
+            <section id="mod-simulador" class="app-module" role="region" aria-labelledby="tab-simulador">
+                <!-- Métricas de la finca -->
+                <header id="metrics-panel">
+                    <div class="metric-card">
+                        <h2>Semillas distribuidas</h2>
+                        <p id="val-semillas">0 mil</p>
+                        <small class="metric-nota">Semillas entregadas, en miles</small>
+                    </div>
+                    <div class="metric-card">
+                        <h2>Parcelas activas</h2>
+                        <p id="val-parcelas">11 de 12</p>
+                        <small class="metric-nota" id="nota-parcelas">1 libre en preparación</small>
+                    </div>
+                    <div class="metric-card" id="tarjeta-eficiencia">
+                        <h2>Eficiencia operativa</h2>
+                        <p id="val-eficiencia">100%</p>
+                        <small class="metric-nota" id="nota-eficiencia">Todo al día</small>
+                    </div>
+                    <!-- El botón muestra el clima actual y lo cambia -->
+                    <button id="btn-toggle-clima" type="button"><span id="val-clima">Soleado ☀️</span> · Cambiar clima</button>
+                </header>
+
+                <!-- Escenario 3D -->
+                <div id="canvas-container"></div>
+
+                <!-- Panel de parcelas: lo genera app.js a partir de la lista de cultivos -->
+                <footer id="control-panel"></footer>
+            </section>
+
+            <!-- Módulos del CRM (clientes, visitas, procesos agronómicos, rendimiento): los genera crm.js -->
+        </div>
+    </div>
+
+    <!-- Diálogo de registro: crm.js le pone el formulario de cada módulo -->
+    <dialog id="dialogo-registro" class="dialogo" aria-labelledby="dialogo-titulo"></dialog>
+
+    <!-- Conector con Google Workspace (Sheets, Chat, Calendar, Meet) y avisos del navegador -->
+    <script src="googleSync.js"></script>
+    <script src="app.js"></script>
+    <!-- Base de datos compartida: Google Sheets por el Apps Script, con copia en este navegador -->
+    <script src="datos.js"></script>
+    <!-- Responsable: nombre de quien usa la app; firma registros, mensajes y cotizaciones -->
+    <script src="usuario.js"></script>
+    <!-- Mapa interactivo: información editable de edificios y parcelas -->
+    <script src="mapa.js"></script>
+    <!-- Cotizador de la ficha de las oficinas (precios de la propia ficha, descarga en PDF) -->
+    <script src="cotizador.js"></script>
+    <script src="crm.js"></script>
+    <!-- Chat del equipo y alertas: en la app (base compartida) y replicados en Google Chat -->
+    <script src="equipo.js"></script>
+    <!-- Tareas del equipo (base compartida) -->
+    <script src="tareas.js"></script>
+    <!-- App instalable y sin conexión (service worker en sw.js) -->
+    <script src="pwa.js"></script>
+    <!-- Ventana flotante con la finca 3D para laptop y ordenador (Chrome y Edge) -->
+    <script src="ventana.js"></script>
+</body>
+</html>
