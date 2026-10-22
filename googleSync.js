@@ -10,12 +10,14 @@
  */
 /**
  * Configuración de la integración. Con url vacía no se envía nada fuera del navegador.
- * El token tiene que ser el mismo que CONFIG.TOKEN en apps-script/Code.gs. Va en el código de la
- * página, así que cualquiera que la abra puede verlo: frena envíos al azar, no a alguien decidido.
+ * url y token no se guardan en el repositorio (es público): al publicar, GitHub los pone desde los
+ * secretos SEMENCES_URL y SEMENCES_TOKEN (.github/workflows/publicar.yml). El token tiene que ser el
+ * mismo que la propiedad TOKEN del Apps Script. Va en el código de la página, así que quien abra la app
+ * puede verlo: frena envíos al azar; la protección de verdad es el inicio de sesión con Google.
  */
 const CONFIG_GOOGLE = {
-    url: '', // Pega aquí la URL del Web App de Apps Script que termina en /exec
-    token: 'semences-caribe-secret-token-2026',
+    url: '', // URL del Web App de Apps Script (termina en /exec)
+    token: '',
     // Inicio de sesión con Google: ID de cliente OAuth (tipo "Aplicación web") de Google Cloud, termina en
     // .apps.googleusercontent.com. Vacío: sin inicio de sesión (cada persona escribe su nombre).
     // Tiene que ser el mismo que CONFIG.CLIENT_ID en Code.gs. Ver apps-script/DESPLIEGUE.md.

@@ -15,19 +15,24 @@ Como el script está vinculado a la hoja, puedes dejar `SHEET_ID` vacío. Si pre
 
 1. En Google Chat, abre el espacio donde quieres recibir los avisos.
 2. Nombre del espacio › **Apps e integraciones** › **Webhooks** › **Añadir webhook**. Ponle nombre (por ejemplo "AgroSimulador") y guarda.
-3. Copia la URL del webhook y pégala en `CHAT_WEBHOOK` dentro de `CONFIG`.
+3. Copia la URL del webhook: va en la propiedad del script `CHAT_WEBHOOK` (paso 3).
 
 Los webhooks entrantes solo están disponibles en cuentas de Google Workspace, no en cuentas personales de Gmail.
 
 ## 3. Rellenar la configuración
 
-En `CONFIG`, al principio de `Code.gs`:
+El repositorio es público, así que lo secreto no va en `Code.gs`. Se guarda en **Configuración del proyecto** (rueda dentada) › **Propiedades del script** › **Añadir propiedad del script**:
+
+| Propiedad | Qué poner |
+|---|---|
+| `TOKEN` | La clave de la app. Es la misma que el secreto `SEMENCES_TOKEN` de GitHub; en el Mac está en `android/firma/token-app.txt` (fuera del repositorio). Sin ella, el Web App rechaza todos los envíos. |
+| `CHAT_WEBHOOK` | La URL del paso 2. |
+
+Y en `CONFIG`, al principio de `Code.gs` (no son secretos):
 
 | Campo | Qué poner |
 |---|---|
-| `TOKEN` | Ya trae la misma clave que la app (`semences-caribe-secret-token-2026`). Si la cambias, cámbiala también en `googleSync.js`. |
 | `SHEET_ID` | Vacío si el script está en la hoja; si no, el ID de la hoja. |
-| `CHAT_WEBHOOK` | La URL del paso 2. |
 | `CALENDAR_ID` | `primary` para tu calendario, o el ID de un calendario compartido (Configuración del calendario › Integrar el calendario). |
 
 ## 4. Probar desde el editor
@@ -40,7 +45,7 @@ En `CONFIG`, al principio de `Code.gs`:
 
 1. **Implementar › Nueva implementación** › tipo **Aplicación web**.
 2. **Ejecutar como:** Yo (tu cuenta). **Quién tiene acceso:** Cualquier usuario.
-   - Hace falta "Cualquier usuario" porque la página envía sin iniciar sesión en Google. Por eso existe el `TOKEN`: los envíos sin la clave correcta se rechazan.
+   - Hace falta "Cualquier usuario" porque la página envía sin iniciar sesión en Google. Por eso existe el `TOKEN`: los envíos sin la clave correcta se rechazan. La clave va en el código de la app publicada, así que la protección de verdad es el inicio de sesión con Google (más abajo).
 3. Pulsa **Implementar** y copia la **URL de la aplicación web** (termina en `/exec`).
 4. Ábrela en el navegador: debe mostrar `{"ok":true,"servicio":"AgroSimulador · Semences del Caribe"}`.
 
@@ -48,18 +53,22 @@ Cada vez que cambies `Code.gs`, publica los cambios en **Implementar › Gestion
 
 ## 6. Conectar la app
 
-En `googleSync.js`, al principio del archivo:
+La URL y la clave no se escriben en `googleSync.js` (el repositorio es público). Se guardan como secretos del repositorio de GitHub y la publicación automática (`.github/workflows/publicar.yml`) los pone en la app y en el APK:
 
-```js
-const CONFIG_GOOGLE = {
-    url: 'https://script.google.com/macros/s/…/exec',  // URL del paso 5
-    token: 'semences-caribe-secret-token-2026',        // La misma que CONFIG.TOKEN en Code.gs
-    cadaSegundosSheets: 30,
-    hitoSemillasMiles: 500
-};
+| Secreto | Valor |
+|---|---|
+| `SEMENCES_URL` | La URL del paso 5 (termina en `/exec`). |
+| `SEMENCES_TOKEN` | La misma clave que la propiedad `TOKEN` del paso 3. |
+
+Desde la carpeta del proyecto, en el Mac:
+
+```bash
+gh secret set SEMENCES_URL
+gh secret set SEMENCES_TOKEN < android/firma/token-app.txt
+gh workflow run publicar.yml
 ```
 
-Recarga la página. Desde ese momento:
+(`gh secret set SEMENCES_URL` pide que pegues la URL.) En unos 2 minutos la app publicada ya está conectada. Desde ese momento:
 
 - **Sheets:** cada 30 s de simulación se añade una fila con fecha, semillas (en miles), parcelas activas y totales, eficiencia, alertas pendientes y vencidas, y clima.
 - **Chat:** llegan mensajes cuando una parcela está lista para cosechar, cuando su alerta vence sin tractor ("Cosecha atrasada · …") y cuando cambia el clima.

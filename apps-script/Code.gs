@@ -13,16 +13,22 @@
  * Instrucciones de despliegue: apps-script/DESPLIEGUE.md
  */
 
+// Lo secreto no va en el código (el repositorio es público): se guarda en las propiedades del script
+// (Configuración del proyecto › Propiedades del script): TOKEN y CHAT_WEBHOOK. Ver DESPLIEGUE.md.
+const PROPIEDADES = PropertiesService.getScriptProperties();
+
 // ===== Configuración: rellena estos valores antes de desplegar =====
 const CONFIG = {
-  // Clave compartida: la misma que CONFIG_GOOGLE.token en googleSync.js. Envíos sin ella se rechazan.
-  TOKEN: 'semences-caribe-secret-token-2026',
+  // Clave compartida: la misma que el secreto SEMENCES_TOKEN de GitHub, que se pone en googleSync.js al
+  // publicar. Sin TOKEN en las propiedades del script se rechaza todo.
+  TOKEN: PROPIEDADES.getProperty('TOKEN') || '',
   // ID de la hoja de cálculo (lo que va entre /d/ y /edit en su URL). Vacío: la hoja a la que está
   // vinculado este script (si se creó desde Extensiones › Apps Script dentro de la hoja).
   SHEET_ID: '',
   HOJA_METRICAS: 'Métricas',
-  // Webhook entrante del espacio de Google Chat (Configuración del espacio › Apps e integraciones › Webhooks)
-  CHAT_WEBHOOK: '',
+  // Webhook entrante del espacio de Google Chat (Configuración del espacio › Apps e integraciones › Webhooks),
+  // en la propiedad del script CHAT_WEBHOOK
+  CHAT_WEBHOOK: PROPIEDADES.getProperty('CHAT_WEBHOOK') || '',
   // Calendario donde se crean eventos y reuniones. 'primary' es el calendario de quien despliega.
   CALENDAR_ID: 'primary',
   ZONA_HORARIA: 'America/Santo_Domingo',
@@ -50,7 +56,7 @@ function doPost(e) {
   } catch (error) {
     return responder({ ok: false, error: 'El cuerpo no es JSON válido' });
   }
-  if (datos.token !== CONFIG.TOKEN) {
+  if (!CONFIG.TOKEN || datos.token !== CONFIG.TOKEN) {
     return responder({ ok: false, error: 'Clave no válida' });
   }
   if (CONFIG.CLIENT_ID) {

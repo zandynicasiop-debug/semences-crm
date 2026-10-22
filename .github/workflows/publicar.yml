@@ -1,9 +1,11 @@
 # Cada vez que se suben cambios a main: compila y firma el APK y publica la app (con el APK para descargar)
 # en GitHub Pages. También se puede lanzar a mano desde la pestaña Actions › "Compilar APK y publicar la app".
 #
-# Necesita dos secretos del repositorio (Settings › Secrets and variables › Actions):
+# Secretos del repositorio (Settings › Secrets and variables › Actions):
 #   SEMENCES_FIRMA  el archivo android/firma/semences.keystore en base64
 #   SEMENCES_CLAVE  el contenido de android/firma/clave.txt
+#   SEMENCES_URL    URL del Web App de Apps Script (termina en /exec)        } conexión con Google;
+#   SEMENCES_TOKEN  la misma clave que la propiedad TOKEN del Apps Script   } sin ellos, la app va sin ella
 name: Compilar APK y publicar la app
 
 on:
@@ -46,6 +48,26 @@ jobs:
           mkdir -p android/firma
           echo "$FIRMA" | base64 -d > android/firma/semences.keystore
           printf '%s' "$CLAVE" > android/firma/clave.txt
+
+      - name: Conexión con Google (URL del Apps Script y su clave, desde los secretos)
+        env:
+          URL_APPS_SCRIPT: ${{ secrets.SEMENCES_URL }}
+          TOKEN_APP: ${{ secrets.SEMENCES_TOKEN }}
+        run: |
+          if [ -z "$URL_APPS_SCRIPT" ] || [ -z "$TOKEN_APP" ]; then
+            echo "::warning::Sin SEMENCES_URL o SEMENCES_TOKEN: la app se publica sin conexión con Google"
+            exit 0
+          fi
+          python3 - <<'PY'
+          import json, os
+          ruta = 'googleSync.js'
+          js = open(ruta, encoding='utf-8').read()
+          for campo, valor in (('url', os.environ['URL_APPS_SCRIPT']), ('token', os.environ['TOKEN_APP'])):
+              hueco = f"    {campo}: '',"
+              assert hueco in js, f'No encuentro {hueco!r} en googleSync.js'
+              js = js.replace(hueco, f"    {campo}: {json.dumps(valor.strip())},", 1)
+          open(ruta, 'w', encoding='utf-8').write(js)
+          PY
 
       - name: Compilar y firmar el APK
         run: ANDROID_SDK="$ANDROID_HOME" ./android/build.sh
