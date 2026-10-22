@@ -50,6 +50,12 @@ jobs:
       - name: Compilar y firmar el APK
         run: ANDROID_SDK="$ANDROID_HOME" ./android/build.sh
 
+      - name: APK como archivo descargable de esta ejecución
+        uses: actions/upload-artifact@v4
+        with:
+          name: Semences-apk
+          path: android/salida/Semences.apk
+
       - id: pages
         uses: actions/configure-pages@v5
 
@@ -57,12 +63,6 @@ jobs:
         run: |
           ./publicar.sh "${{ steps.pages.outputs.base_url }}"
           cp android/salida/Semences.apk publicar/Semences.apk
-
-      - name: APK como archivo descargable de esta ejecución
-        uses: actions/upload-artifact@v4
-        with:
-          name: Semences-apk
-          path: android/salida/Semences.apk
 
       - uses: actions/upload-pages-artifact@v3
         with:
