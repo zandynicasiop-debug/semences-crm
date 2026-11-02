@@ -7,7 +7,7 @@
  */
 import mysql from 'mysql2/promise';
 
-export const MODULOS_CRM = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'sitios', 'mensajes', 'tareas'];
+export const MODULOS_CRM = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'sitios', 'mensajes', 'tareas'];
 
 const ESQUEMA = [
     `CREATE TABLE IF NOT EXISTS usuarios (

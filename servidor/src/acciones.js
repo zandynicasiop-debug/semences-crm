@@ -14,6 +14,7 @@ import { pestanasDe } from './exportar.js';
 import { normalizarTelefono, suscripcionValida } from './avisos.js';
 import { conReintentos } from './reintentos.js';
 import { encolar, estadoCola } from './cola.js';
+import { avisarEnvio, actualizarEnvio } from './envios.js';
 
 export function errorApp(mensaje, estado = 400, codigo = 'datos') {
     const error = new Error(mensaje);
@@ -113,6 +114,13 @@ export async function avisarGerminacionBaja({ pool, config, avisos, usuario }, g
     return enviados;
 }
 
+// Envíos registrados o con estado cambiado a mano: aviso a quien le toca (envios.js)
+async function avisarEnvios(contexto, guardados) {
+    for (const { modulo, registro, anterior } of guardados) {
+        if (modulo === 'envios') await avisarEnvio(contexto, registro, anterior, contexto.usuario.id);
+    }
+}
+
 function comprobarCambios(lista, nombre) {
     if (lista === undefined) return [];
     if (!Array.isArray(lista)) throw errorApp(`"${nombre}" debe ser una lista`);
@@ -132,6 +140,7 @@ export const ACCIONES = {
         }
         const { datos: todo, guardados } = await db.sincronizar(pool, { guardar, eliminar }, usuario, (modulo, registro) => puedeEscribir(ambito, modulo, registro));
         await avisarGerminacionBaja(contexto, guardados);
+        await avisarEnvios(contexto, guardados);
         return { ok: true, datos: filtrarDatos(todo, ambito), hora: new Date().toISOString() };
     },
 
@@ -140,6 +149,7 @@ export const ACCIONES = {
         if (JSON.stringify(datos.registro || {}).length > MAX_REGISTRO) throw errorApp('El registro es demasiado grande');
         const { guardados } = await db.sincronizar(pool, { guardar: [{ modulo: datos.modulo, registro: datos.registro }] }, usuario, (m, r) => puedeEscribir(ambito, m, r));
         await avisarGerminacionBaja(contexto, guardados);
+        await avisarEnvios(contexto, guardados);
         return { ok: true };
     },
 
@@ -289,6 +299,19 @@ export const ACCIONES = {
         }
         if (datos.operacion === 'consultar') return { ok: true, activo: await tieneSuscripcion(pool, usuario.id, endpoint) };
         throw errorApp('Operación desconocida (alta, baja o consultar)');
+    },
+
+    // Consultar ya el estado de un envío en DHL o FedEx (solo administración, dentro de su ámbito)
+    async rastrear(datos, contexto) {
+        const envio = await db.leerRegistro(contexto.pool, 'envios', String(datos.id || ''));
+        if (!envio) throw errorApp('Ese envío no existe', 404);
+        if (!puedeEscribir(contexto.ambito, 'envios', envio)) throw errorApp('Solo administración puede actualizar envíos de su país y casa', 403, 'permiso');
+        if (!contexto.transportistas || !contexto.transportistas.activo(envio.transportista)) {
+            throw errorApp(`El rastreo automático de ${envio.transportista || 'ese transportista'} no está configurado en el servidor`, 503, 'configuracion');
+        }
+        const actualizado = await actualizarEnvio(contexto, envio);
+        if (!actualizado) throw errorApp('El transportista no encontró esa guía', 404);
+        return { ok: true, envio: actualizado };
     },
 
     // Recibir o no el resumen de la mañana ({ activo: true | false })

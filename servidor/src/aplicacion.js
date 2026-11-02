@@ -53,7 +53,7 @@ function leerEstado(config, estado) {
 // Lo único que puede hacer quien aún no está aprobado
 const SIN_APROBAR = ['sala', 'telefono', 'push'];
 
-export function crearApp({ config, pool, google, avisos, registrar = console }) {
+export function crearApp({ config, pool, google, avisos, transportistas = null, registrar = console }) {
     const app = express();
     app.disable('x-powered-by');
     app.set('trust proxy', 1); // Detrás del proxy de cPanel (Passenger): la IP real viene en X-Forwarded-For
@@ -207,7 +207,7 @@ export function crearApp({ config, pool, google, avisos, registrar = console }) 
                     ? 'Tu solicitud de acceso fue rechazada. Habla con un administrador.'
                     : 'Estás en la sala de espera: un Master tiene que aprobar tu acceso.', 403, req.ambito.estado === 'rechazado' ? 'rechazado' : 'espera');
             }
-            res.json(await accion(datos, { pool, config, google, avisos, usuario: req.usuario, ambito: req.ambito }));
+            res.json(await accion(datos, { pool, config, google, avisos, transportistas, usuario: req.usuario, ambito: req.ambito }));
         } catch (error) {
             next(error);
         }

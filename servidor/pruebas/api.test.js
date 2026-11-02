@@ -12,6 +12,7 @@ import { crearAvisos } from '../src/avisos.js';
 import { crearApp } from '../src/aplicacion.js';
 import { repasar, INTENTOS } from '../src/cola.js';
 import { enviarResumenes } from '../src/resumen.js';
+import { actualizarEnvio } from '../src/envios.js';
 
 const BASES = (process.env.PRUEBA_BASES || '127.0.0.1:33061,127.0.0.1:33062').split(',');
 
@@ -208,7 +209,7 @@ for (const base of BASES) {
             assert.equal(r.json.datos.clientes[0].nombre, 'Finca Ñame');
             assert.equal(r.json.datos.clientes[0].cuenta, 'ana@semillasdata.com');
             assert.equal(r.json.datos.clientes[0].semillas, 25);
-            assert.deepEqual(Object.keys(r.json.datos).sort(), ['agronomia', 'clientes', 'germinador', 'mensajes', 'rendimiento', 'sitios', 'tareas', 'visitas']);
+            assert.deepEqual(Object.keys(r.json.datos).sort(), ['agronomia', 'clientes', 'envios', 'germinador', 'mensajes', 'rendimiento', 'sitios', 'tareas', 'visitas']);
 
             const otra = await accion(sesiones.jefa, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: { id: 'c1', nombre: 'Finca Ñame (editada)' } }], eliminar: [{ modulo: 'tareas', id: 't1' }] });
             assert.equal(otra.json.datos.clientes.length, 1);
@@ -290,7 +291,7 @@ for (const base of BASES) {
             assert.equal(r.json.enlace, 'https://docs.google.com/spreadsheets/d/hoja-1/edit');
             const { pestanas, hojaId } = google.llamadas.at(-1).datos;
             assert.equal(hojaId, '');
-            assert.deepEqual(pestanas.map(p => p.nombre), ['Clientes', 'Visitas', 'Procesos agronómicos', 'Rendimiento', 'Germinador', 'Tareas']);
+            assert.deepEqual(pestanas.map(p => p.nombre), ['Clientes', 'Visitas', 'Procesos agronómicos', 'Rendimiento', 'Germinador', 'Envíos', 'Tareas']);
             const [cabecera, ...filas] = pestanas[0].filas;
             assert.deepEqual(cabecera.slice(0, 3), ['Nombre', 'Correo', 'Teléfono']);
             assert.ok(cabecera.includes('nuevoCampo') && cabecera.includes('Registró') && !cabecera.includes('_pendiente') && !cabecera.includes('clienteId'));
@@ -595,7 +596,7 @@ for (const base of BASES) {
 
             // Luis: vendedor, RD + Gautier
             const luis = (await accion(sesiones.luis, { accion: 'sincronizar' })).json.datos;
-            assert.deepEqual(Object.keys(luis).sort(), ['clientes', 'mensajes', 'sitios', 'tareas', 'visitas']);
+            assert.deepEqual(Object.keys(luis).sort(), ['clientes', 'envios', 'mensajes', 'sitios', 'tareas', 'visitas']);
             assert.deepEqual(luis.clientes.map(c => c.id), ['rd-g']);
             assert.equal(luis.tareas.length, 1); // Las tareas son de todo el equipo
             // No puede crear fuera de su ámbito, ni en módulos que no son suyos, ni pisar ni borrar lo ajeno
@@ -765,6 +766,47 @@ for (const base of BASES) {
             assert.equal((await pool.query('SELECT COUNT(*) n FROM cola_avisos'))[0][0].n, 0);
             // El vendedor no ve el germinador
             assert.ok(!('germinador' in (await accion(sesiones.luis, { accion: 'sincronizar' })).json.datos));
+        });
+
+        test('envíos: solo administración registra; avisa al vendedor del cliente y al plantulador', async () => {
+            await pool.query('DELETE FROM cola_avisos');
+            const sesionPlantu = (await entrarComo('codigo-plantu')).json.sesion;
+            const envio = { id: 'env-1', transportista: 'DHL', guia: 'JD014600006', clienteId: 'rd-g', cliente: 'Finca RD Gautier', pais: 'RD', casa: 'Gautier Semences', estado: 'Registrado', contenido: 'Tomate Hexagon', semillasMiles: 25 };
+            // Ni el vendedor ni el plantulador pueden registrarlo; ana (administrativa con todo) sí
+            assert.equal((await accion(sesiones.luis, { accion: 'sincronizar', guardar: [{ modulo: 'envios', registro: envio }] })).estado, 403);
+            assert.equal((await accion(sesionPlantu, { accion: 'sincronizar', guardar: [{ modulo: 'envios', registro: envio }] })).estado, 403);
+            assert.equal((await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'envios', registro: envio }] })).estado, 200);
+            // Registrado: al plantulador de RD + Gautier (preparar el germinador) y al vendedor asignado (Luis)
+            let [wa] = await pool.query("SELECT destino, texto FROM cola_avisos WHERE canal = 'whatsapp' ORDER BY destino");
+            assert.deepEqual(wa.map(w => w.destino).sort(), ['18095551001', '18295550202']);
+            assert.match(wa[0].texto, /📦 Envío DHL JD014600006 · Finca RD Gautier\nRegistrado — Tomate Hexagon, 25 mil semillas/);
+            // Lo ven (sin poder cambiarlo) el vendedor y el plantulador; el técnico no
+            assert.equal((await accion(sesiones.luis, { accion: 'sincronizar' })).json.datos.envios[0].guia, 'JD014600006');
+            assert.equal((await accion(sesionPlantu, { accion: 'sincronizar' })).json.datos.envios.length, 1);
+            assert.equal((await llamar('/api/yo', { metodo: 'GET', sesion: sesiones.luis })).json.usuario.lectura[0], 'envios');
+            // Mismo estado: sin aviso. En tránsito: solo al vendedor
+            await pool.query('DELETE FROM cola_avisos');
+            await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'envios', registro: { ...envio, notas: 'x' } }] });
+            assert.equal((await pool.query('SELECT COUNT(*) n FROM cola_avisos'))[0][0].n, 0);
+            await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'envios', registro: { ...envio, estado: 'En tránsito' } }] });
+            [wa] = await pool.query("SELECT destino FROM cola_avisos WHERE canal = 'whatsapp'");
+            assert.deepEqual(wa.map(w => w.destino), ['18295550202']);
+            // Sin claves de DHL, "rastrear" lo dice
+            assert.equal((await accion(sesiones.ana, { accion: 'rastrear', id: 'env-1' })).estado, 503);
+            assert.equal((await accion(sesiones.luis, { accion: 'rastrear', id: 'env-1' })).estado, 403);
+
+            // Rastreo automático: DHL dice "retenido en aduana" → se guarda con su historial y avisa a la jefa (Master)
+            await pool.query('DELETE FROM cola_avisos');
+            await pool.query("UPDATE usuarios SET telefono = '18095550101' WHERE email = 'jefa@gmail.com'");
+            const transportistas = { activo: () => true, consultar: async () => ({ estado: 'Retenido en aduana', detalle: 'On hold at customs', ubicacion: 'SANTO DOMINGO', eta: '2026-11-06' }) };
+            const [[fila]] = await pool.query("SELECT datos FROM registros WHERE modulo = 'envios' AND id = 'env-1'");
+            const actualizado = await actualizarEnvio({ pool, config, avisos, transportistas }, JSON.parse(fila.datos));
+            assert.equal(actualizado.estado, 'Retenido en aduana');
+            assert.equal(actualizado.historial.at(-1).ubicacion, 'SANTO DOMINGO');
+            [wa] = await pool.query("SELECT destino, texto FROM cola_avisos WHERE canal = 'whatsapp' ORDER BY destino");
+            assert.ok(wa.some(w => w.destino === '18095550101'), JSON.stringify(wa));
+            assert.ok(!wa.some(w => w.destino === '18095551001')); // Al plantulador no le toca la aduana
+            assert.match(wa[0].texto, /Retenido en aduana · SANTO DOMINGO · llegada estimada 6\/11/);
         });
 
         test('rechazar a alguien lo saca: sesiones fuera y sin avisos', async () => {

@@ -120,7 +120,7 @@ function guardarMetricas(datos) {
 // ----- Base de datos compartida: una pestaña por módulo ("CRM · clientes", ...), una fila por registro -----
 // La columna "id" identifica cada registro. Todas las celdas se guardan como texto plano para que
 // Sheets no convierta fechas ni números; la app recupera los tipos al leer.
-const MODULOS_CRM = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'sitios', 'mensajes', 'tareas']; // sitios: fichas del mapa · mensajes: chat · tareas: tareas del equipo · mensajes: chat del equipo
+const MODULOS_CRM = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'sitios', 'mensajes', 'tareas']; // sitios: fichas del mapa · mensajes: chat · tareas: tareas del equipo · mensajes: chat del equipo
 
 // ----- Inicio de sesión con Google: verificación del ID token y lista de cuentas autorizadas -----
 // Devuelve { ok: true, email } o { ok: false, codigo: 'sesion' | 'acceso', error }

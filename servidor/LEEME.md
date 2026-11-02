@@ -124,14 +124,28 @@ Cada persona escribe su WhatsApp en la app (menú › Cuenta). Los administrador
 
   | Cargo | Módulos |
   |---|---|
-  | Vendedor | Clientes, visitas, tareas y chat |
+  | Vendedor | Clientes, visitas, tareas y chat; ve los envíos |
   | Técnico | Procesos agronómicos, rendimiento, visitas, tareas y chat (de los clientes, solo el nombre) |
-  | Administrativo | Todo |
+  | Plantulador | Germinador, tareas y chat (de los clientes, solo el nombre); ve los envíos |
+  | Administrativo | Todo, y es quien registra los envíos |
   | Master | Todo, más la sala de espera y los accesos |
 
 - **Ámbito:** clientes, visitas, procesos y rendimientos llevan su propio **país** y **casa comercial** (al elegir el cliente se proponen los suyos). Cada persona solo ve y escribe registros de sus países **y** sus casas. Lo que no tiene país o casa (datos de antes) solo lo ve quien tiene todo.
 - **Lo comprueba el servidor:** lo que no se puede ver no sale de la base (tampoco en la exportación a Sheets ni en los reportes), y un cambio fuera del ámbito se rechaza entero; la app lo descarta y avisa.
 - **Quién puede pedir acceso:** con la pantalla de consentimiento **Interna** de Google, solo las cuentas del Workspace de la empresa. Para admitir Gmail personales habría que pasarla a **Externa**, y Google exige entonces verificar la app (los permisos de Gmail y Drive pasan una revisión de seguridad).
+
+## Envíos (DHL y FedEx)
+
+Módulo **Envíos**: guías de semilla con cliente, país, casa comercial, transportista, número de guía, contenido, estado, ubicación y llegada estimada. **Solo administrativos y Master** los registran o cambian; **vendedores y plantuladores los ven** (solo lectura) dentro de su país y casa. Cada guía enlaza a la página de rastreo de DHL o FedEx.
+
+**Rastreo automático (opcional, con las API oficiales):** con `DHL_API_KEY` (developer.dhl.com › *Shipment Tracking - Unified*) y/o `FEDEX_CLIENT_ID` y `FEDEX_CLIENT_SECRET` (developer.fedex.com › *Track API*), el servidor consulta cada guía no entregada cada `RASTREO_MINUTOS` (60 por defecto) y actualiza estado, ubicación, llegada estimada e historial. Sin claves, el estado se pone a mano.
+
+**Avisos (push y WhatsApp) cuando cambia el estado**, solo a quien ve el envío y le toca:
+- al **vendedor asignado** al cliente, en cada cambio;
+- a los **plantuladores** de ese país y casa cuando se registra, sale a reparto o se entrega (para preparar el germinador);
+- a **administración** de ese ámbito si queda retenido en aduana o con una incidencia.
+
+En el resumen de Borja salen los envíos que llegan hoy, salen a reparto o tienen un problema (al vendedor, solo los de sus clientes).
 
 ## Tablero del equipo
 
@@ -186,4 +200,4 @@ Es privado: se arma con el mismo filtro de cargo, país y casa comercial que la 
 | `GET /api/auth/google/vuelta` | Google vuelve aquí; redirige a la app con un código de un solo uso (2 min) |
 | `POST /api/auth/canjear` | `{ codigo, verificador }` → `{ sesion, usuario }` |
 | `GET /api/yo` · `POST /api/salir` | La persona de la sesión · cerrar sesión |
-| `POST /api/accion` | `{ accion, … }`: `sincronizar`, `crm`, `sheets`, `chat`, `avisar`, `calendar` (con `invitados`, `conMeet`, `whatsapp`), `disponibilidad`, `meet`, `correo` (con `whatsapp`), `reporte`, `exportar`, `push`, `telefono`, `equipo`, `sala`, `accesos`, `presencia`, `directo`, `bandeja`, `pasarCliente`, `resumen`. Sin aprobar solo se admiten `sala`, `telefono` y `push` |
+| `POST /api/accion` | `{ accion, … }`: `sincronizar`, `crm`, `sheets`, `chat`, `avisar`, `calendar` (con `invitados`, `conMeet`, `whatsapp`), `disponibilidad`, `meet`, `correo` (con `whatsapp`), `reporte`, `exportar`, `push`, `telefono`, `equipo`, `sala`, `accesos`, `presencia`, `directo`, `bandeja`, `pasarCliente`, `resumen`, `rastrear`. Sin aprobar solo se admiten `sala`, `telefono` y `push` |

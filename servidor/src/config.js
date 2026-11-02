@@ -42,6 +42,14 @@ export function leerConfig(entorno = process.env) {
         entradasPorMinuto: Number(entorno.ENTRADAS_POR_MINUTO) || 20,
         zonaHoraria: entorno.ZONA_HORARIA || 'America/Santo_Domingo',
         minutosReunion: Number(entorno.MINUTOS_REUNION) || 30,
+        // Envíos: API oficiales de rastreo (opcionales) y cada cuántos minutos se consulta cada guía activa
+        envios: {
+            dhlClave: entorno.DHL_API_KEY || '',
+            fedexId: entorno.FEDEX_CLIENT_ID || '',
+            fedexSecreto: entorno.FEDEX_CLIENT_SECRET || '',
+            fedexUrl: String(entorno.FEDEX_URL || 'https://apis.fedex.com').replace(/\/+$/, ''),
+            cadaMinutos: Math.max(15, Number(entorno.RASTREO_MINUTOS) || 60)
+        },
         // Germinador: por debajo de este % de germinación se avisa al equipo técnico del lote
         umbralGerminacion: Number(entorno.UMBRAL_GERMINACION) || 85,
 

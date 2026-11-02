@@ -26,6 +26,18 @@ const FASE_CONTEO_GERMINACION = 'Fin de germinación';
 // Marcas que representa Semences del Caribe (las de los carteles de la finca)
 const MARCAS = ['Gautier Semences', 'Hexagon Seeds', 'Genome Seeds', 'Fitó', 'Varias marcas'];
 
+// Envíos de semilla (solo administración los registra; vendedores y plantuladores los ven)
+const ESTADOS_ENVIO = ['Registrado', 'En tránsito', 'Retenido en aduana', 'En reparto', 'Entregado', 'Incidencia'];
+const TRANSPORTISTAS = ['DHL', 'FedEx', 'Otro'];
+// Página pública de rastreo de cada transportista
+function enlaceRastreo(r) {
+    const guia = encodeURIComponent(String(r.guia || ''));
+    if (!/^[A-Za-z0-9-]{6,40}$/.test(String(r.guia || ''))) return '';
+    if (r.transportista === 'DHL') return `https://www.dhl.com/do-es/home/rastreo.html?tracking-id=${guia}`;
+    if (r.transportista === 'FedEx') return `https://www.fedex.com/fedextrack/?trknbr=${guia}`;
+    return '';
+}
+
 // Germinador: estados de un lote de plantulación
 const ESTADOS_LOTE = ['En cámara', 'Listo para trasplante', 'Despachado', 'Descartado'];
 const UMBRAL_GERMINACION = 85; // Por debajo, el lote se marca (y el backend avisa al equipo técnico del lote)
@@ -178,6 +190,37 @@ const MODULOS_CRM = {
             { titulo: 'Registró', valor: r => r.responsable }
         ]
     },
+    envios: {
+        pestana: 'Envíos',
+        titulo: 'Envíos de semilla',
+        subtitulo: 'Guías de DHL y FedEx que registra administración. Con el rastreo automático activado, el estado se actualiza solo; cuando cambia, se avisa al vendedor del cliente y, al registrarse, salir a reparto o entregarse, al plantulador.',
+        nuevo: 'Registrar envío',
+        vacio: 'Todavía no hay envíos registrados.',
+        campos: [
+            { id: 'clienteId', etiqueta: 'Cliente', tipo: 'cliente', requerido: true },
+            ...CAMPOS_AMBITO,
+            { id: 'transportista', etiqueta: 'Transportista', tipo: 'select', opciones: TRANSPORTISTAS, requerido: true },
+            { id: 'guia', etiqueta: 'Número de guía', tipo: 'text', requerido: true, ejemplo: 'JD014600006', patron: /^[A-Za-z0-9-]{6,40}$/, mensajePatron: 'La guía lleva de 6 a 40 letras, números o guiones, sin espacios.' },
+            { id: 'contenido', etiqueta: 'Contenido (variedad)', tipo: 'text', lista: 'lista-variedades' },
+            { id: 'semillasMiles', etiqueta: 'Semillas (miles)', tipo: 'number', min: 0, paso: 'any' },
+            { id: 'estado', etiqueta: 'Estado', tipo: 'select', opciones: ESTADOS_ENVIO, requerido: true },
+            { id: 'ubicacion', etiqueta: 'Ubicación actual', tipo: 'text' },
+            { id: 'eta', etiqueta: 'Llegada estimada', tipo: 'date' },
+            { id: 'notas', etiqueta: 'Notas', tipo: 'textarea' }
+        ],
+        columnas: [
+            { titulo: 'Guía', valor: r => r.guia, enlace: r => enlaceRastreo(r) },
+            { titulo: 'Transportista', valor: r => r.transportista },
+            { titulo: 'Cliente', valor: r => nombreCliente(r), expediente: true, sinCliente: true },
+            { titulo: 'Estado', valor: r => r.estado, etiqueta: true },
+            { titulo: 'Ubicación', valor: r => r.ubicacion },
+            { titulo: 'Llegada estimada', valor: r => formatearFecha(r.eta), orden: r => r.eta || r.creado },
+            { titulo: 'Contenido', valor: r => [r.contenido, r.semillasMiles && `${numero(r.semillasMiles)} mil semillas`].filter(Boolean).join(' · ') },
+            { titulo: 'Último rastreo', valor: r => r.rastreado ? new Date(r.rastreado).toLocaleString('es-DO', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '' },
+            ...COLUMNAS_AMBITO,
+            { titulo: 'Registró', valor: r => r.responsable }
+        ]
+    },
     germinador: {
         pestana: 'Germinador',
         titulo: 'Germinador: lotes de plantulación',
@@ -217,7 +260,9 @@ const MODULOS_CRM = {
 };
 
 // Módulos cuyos registros pertenecen a un cliente
-const MODULOS_DEL_CLIENTE = ['agronomia', 'visitas', 'rendimiento', 'germinador'];
+const MODULOS_DEL_CLIENTE = ['agronomia', 'visitas', 'rendimiento', 'germinador', 'envios'];
+// Módulos que el cargo solo puede ver (sin crear, cambiar ni eliminar)
+const soloLectura = (modulo) => { const a = ambitoCRM(); return Boolean(a && !a.modulos.includes(modulo) && (a.lectura || []).includes(modulo)); };
 
 // ----- Utilidades -----
 const soloDigitos = (texto) => String(texto || '').replace(/\D/g, '');
@@ -430,7 +475,10 @@ class CRM {
         const ambito = ambitoCRM();
         Object.keys(MODULOS_CRM).forEach(modulo => {
             const pestana = document.getElementById(`tab-${modulo}`);
-            if (pestana) pestana.hidden = Boolean(ambito && !ambito.modulos.includes(modulo));
+            if (pestana) pestana.hidden = Boolean(ambito && !ambito.modulos.includes(modulo) && !(ambito.lectura || []).includes(modulo));
+            // Solo lectura: sin botón de registrar (y las tablas, sin "Eliminar")
+            const nuevo = document.getElementById(`nuevo-${modulo}`);
+            if (nuevo) nuevo.hidden = soloLectura(modulo);
         });
         const abierta = this.tablist.querySelector('[aria-current="true"]');
         if (abierta && abierta.hidden && this.activarPestana) this.activarPestana(document.getElementById('tab-simulador'));
@@ -470,6 +518,7 @@ class CRM {
         boton.type = 'button';
         boton.className = 'btn-primary';
         boton.textContent = def.nuevo;
+        boton.id = `nuevo-${modulo}`;
         boton.addEventListener('click', () => this.abrirFormulario(modulo));
         cabecera.append(textos, boton);
 
@@ -696,7 +745,7 @@ class CRM {
             const filas = [...registros];
             if (columnaOrden) filas.sort((a, b) => String(columnaOrden.orden(b)).localeCompare(String(columnaOrden.orden(a))));
             else filas.reverse();
-            if (filas.length) contenido.appendChild(this.construirTabla(modulo, filas));
+            if (filas.length) contenido.appendChild(this.construirTabla(modulo, filas, { conAcciones: !soloLectura(modulo) }));
         }
 
         const total = registros.length;
@@ -1109,6 +1158,16 @@ class CRM {
                 : this.textoVacio('Aún no tiene lotes en el germinador.'));
         }
 
+        if (!ambito || ambito.modulos.includes('envios') || (ambito.lectura || []).includes('envios')) {
+            const envios = this.delCliente('envios', clienteId);
+            if (envios.length || (ambito && ambito.modulos.includes('envios'))) {
+                const sEnv = seccion('Envíos', envios.length);
+                sEnv.appendChild(envios.length
+                    ? this.envolverTabla(this.construirTabla('envios', envios, { titulo: `Envíos a ${cliente.nombre}`, dentroDeCliente: true, conAcciones: false }))
+                    : this.textoVacio('Aún no tiene envíos.'));
+            }
+        }
+
         this.dialogo.classList.add('dialogo-ancho');
         this.dialogo.innerHTML = '';
         this.dialogo.appendChild(caja);
@@ -1348,6 +1407,9 @@ class CRM {
             }
             if (campo.tipo === 'tel' && valor !== '' && soloDigitos(valor).length < 10) {
                 return fallo(control, 'El número necesita al menos 10 dígitos, por ejemplo 809 555 1234.');
+            }
+            if (campo.patron && valor !== '' && !campo.patron.test(valor)) {
+                return fallo(control, campo.mensajePatron || `Revisa ${campo.etiqueta.toLowerCase()}.`);
             }
             if (campo.tipo === 'email' && valor !== '' && !/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(valor)) {
                 return fallo(control, 'Escribe un correo válido, por ejemplo cliente@ejemplo.com.');
