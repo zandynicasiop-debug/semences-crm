@@ -18,6 +18,7 @@ import crypto from 'node:crypto';
 import * as cuentas from './cuentas.js';
 import { ACCIONES, errorApp } from './acciones.js';
 import { estadoCola } from './cola.js';
+import { ambitoDe } from './permisos.js';
 
 // Límite sencillo de peticiones por IP (en memoria: basta para un solo proceso)
 function limitador(maximo, ventanaMs) {
@@ -48,6 +49,9 @@ function leerEstado(config, estado) {
     const valor = JSON.parse(Buffer.from(datos, 'base64url').toString());
     return Date.now() - valor.t < 10 * 60000 ? valor : null;
 }
+
+// Lo único que puede hacer quien aún no está aprobado
+const SIN_APROBAR = ['sala', 'telefono', 'push'];
 
 export function crearApp({ config, pool, google, avisos, registrar = console }) {
     const app = express();
@@ -87,6 +91,7 @@ export function crearApp({ config, pool, google, avisos, registrar = console }) 
                 return res.status(403).json({ ok: false, codigo: 'acceso', error: `La cuenta ${usuario.email} ya no está autorizada.` });
             }
             req.usuario = usuario;
+            req.ambito = ambitoDe(usuario, config);
             req.sesion = sesion;
             next();
         } catch (error) {
@@ -196,7 +201,13 @@ export function crearApp({ config, pool, google, avisos, registrar = console }) 
             const datos = req.body && typeof req.body === 'object' ? req.body : {};
             const accion = Object.hasOwn(ACCIONES, datos.accion) ? ACCIONES[datos.accion] : null;
             if (!accion) throw errorApp(`Acción desconocida: ${datos.accion}`);
-            res.json(await accion(datos, { pool, config, google, avisos, usuario: req.usuario }));
+            // En la sala de espera (o rechazado) solo se puede dejar el teléfono y activar avisos
+            if (req.ambito.estado !== 'aprobado' && !SIN_APROBAR.includes(datos.accion)) {
+                throw errorApp(req.ambito.estado === 'rechazado'
+                    ? 'Tu solicitud de acceso fue rechazada. Habla con un administrador.'
+                    : 'Estás en la sala de espera: un Master tiene que aprobar tu acceso.', 403, req.ambito.estado === 'rechazado' ? 'rechazado' : 'espera');
+            }
+            res.json(await accion(datos, { pool, config, google, avisos, usuario: req.usuario, ambito: req.ambito }));
         } catch (error) {
             next(error);
         }

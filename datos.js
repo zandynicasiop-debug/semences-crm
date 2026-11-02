@@ -51,6 +51,14 @@ class BaseDatos {
     }
 
     // Las fichas del mapa se guardaban antes como { id: texto }: pasan a ser registros normales
+    // Al cerrar sesión con el backend: lo de esta cuenta no se queda en el navegador para la siguiente
+    olvidarTodo() {
+        MODULOS_DATOS.forEach(m => { this.datos[m] = []; });
+        this.borrados = [];
+        this.guardarLocal();
+        this.avisar('sincronizado'); // Las pantallas se repintan vacías
+    }
+
     migrarFichasMapa() {
         const antiguas = this.leerLocal('sdc_sitios_mapa', null);
         if (!antiguas || Array.isArray(antiguas)) return;
@@ -167,6 +175,16 @@ class BaseDatos {
         const respuesta = await this.conector.sincronizarDatos({ guardar, eliminar });
         this.sincronizando = false;
 
+        // El backend rechazó los cambios por permisos (país, casa comercial o módulo): no se reintentan para
+        // siempre. Se descartan y se vuelve a pedir lo que hay en el servidor
+        if (respuesta && respuesta.codigo === 'permiso') {
+            MODULOS_DATOS.forEach(m => { this.datos[m] = this.datos[m].filter(r => r._remoto && !r._pendiente); });
+            this.borrados = [];
+            this.guardarLocal();
+            if (window.equipo) window.equipo.mostrarAviso(`${respuesta.error}. Esos cambios no se guardaron.`, 'error');
+            this.programar(300);
+            return;
+        }
         if (!respuesta || !respuesta.ok || !respuesta.datos) {
             this.error = (respuesta && respuesta.error) || 'Sin conexión con la hoja';
             // Sesión de Google caducada o cuenta sin permiso: el responsable (usuario.js) pide entrar de nuevo

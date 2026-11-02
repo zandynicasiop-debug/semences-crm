@@ -6,6 +6,7 @@
  */
 import crypto from 'node:crypto';
 import { aleatorio, huella, cifrar, descifrar } from './cifrado.js';
+import { ambitoDe } from './permisos.js';
 
 const ahoraMas = (ms) => new Date(Date.now() + ms);
 
@@ -33,6 +34,8 @@ export async function guardarUsuario(pool, config, { email, nombre, foto, tokenR
              permisos_google = IF(VALUES(token_google) IS NULL, permisos_google, VALUES(permisos_google))`,
         [correo, String(nombre || '').slice(0, 200), String(foto || '').slice(0, 1000), cifrado, cifrado ? permisos || '' : null]
     );
+    // Los Master (ADMINS) quedan siempre aprobados también en la base (así se ordenan y cuentan bien)
+    if (esAdmin(config, correo)) await pool.query("UPDATE usuarios SET estado = 'aprobado' WHERE email = ?", [correo]);
     const [filas] = await pool.query('SELECT * FROM usuarios WHERE email = ?', [correo]);
     return filas[0];
 }
@@ -107,11 +110,13 @@ export async function canjearCodigo(pool, codigo, verificador) {
     }
 }
 
-// Teléfonos para los avisos por WhatsApp: los de la tabla equipo y los que cada persona guardó
-export async function telefonosDelEquipo(pool) {
+// Teléfonos para los avisos por WhatsApp: los de la tabla equipo y los del equipo aprobado (y los Master).
+// Quien está en la sala de espera o fue rechazado no recibe avisos del equipo
+export async function telefonosDelEquipo(pool, config) {
     const [filas] = await pool.query(
         `SELECT telefono FROM equipo WHERE telefono <> ''
-         UNION SELECT telefono FROM usuarios WHERE telefono <> ''`);
+         UNION SELECT telefono FROM usuarios WHERE telefono <> '' AND (estado = 'aprobado' OR email IN (?))`,
+        [config.google.admins.length ? config.google.admins : ['']]);
     return [...new Set(filas.map(f => f.telefono))];
 }
 
@@ -119,13 +124,15 @@ export async function guardarTelefono(pool, usuarioId, telefono) {
     await pool.query('UPDATE usuarios SET telefono = ? WHERE id = ?', [telefono, usuarioId]);
 }
 
-// Vista pública de la persona (lo que se devuelve a la app)
+// Vista pública de la persona (lo que se devuelve a la app), con su estado y su ámbito
 export const publico = (usuario, config) => ({
     email: usuario.email,
     nombre: usuario.nombre,
     foto: usuario.foto,
     telefono: usuario.telefono,
     admin: esAdmin(config, usuario.email),
+    ...ambitoDe(usuario, config),
+    solicitado: Boolean(usuario.solicitado),
     googleConectado: Boolean(usuario.token_google),
     hojaExportacion: usuario.hoja_exportacion ? `https://docs.google.com/spreadsheets/d/${usuario.hoja_exportacion}/edit` : '',
     permisos: String(usuario.permisos_google || '').split(' ').filter(Boolean)
@@ -145,10 +152,20 @@ export async function borrarSuscripcion(pool, usuarioId, endpoint) {
     await pool.query('DELETE FROM push_suscripciones WHERE huella = ? AND usuario_id = ?', [huella(endpoint), usuarioId]);
 }
 
-// Huellas de las suscripciones del equipo, menos las de quien avisa (ya sabe lo que mandó)
-export async function suscripcionesDelEquipo(pool, excepto) {
-    const [filas] = await pool.query('SELECT huella FROM push_suscripciones WHERE usuario_id <> ?', [excepto || 0]);
+// Huellas de las suscripciones del equipo aprobado (y de los Master), menos las de quien avisa
+export async function suscripcionesDelEquipo(pool, config, excepto) {
+    const [filas] = await pool.query(
+        `SELECT p.huella FROM push_suscripciones p JOIN usuarios u ON u.id = p.usuario_id
+         WHERE p.usuario_id <> ? AND (u.estado = 'aprobado' OR u.email IN (?))`, [excepto || 0, config.google.admins.length ? config.google.admins : ['']]);
     return filas.map(f => f.huella);
+}
+
+// Suscripciones y teléfono de unas personas concretas (avisos directos o a los Master)
+export async function destinosDe(pool, usuarioIds) {
+    if (!usuarioIds.length) return { huellas: [], telefonos: [] };
+    const [subs] = await pool.query('SELECT huella FROM push_suscripciones WHERE usuario_id IN (?)', [usuarioIds]);
+    const [tels] = await pool.query("SELECT telefono FROM usuarios WHERE id IN (?) AND telefono <> ''", [usuarioIds]);
+    return { huellas: subs.map(f => f.huella), telefonos: [...new Set(tels.map(f => f.telefono))] };
 }
 
 export async function tieneSuscripcion(pool, usuarioId, endpoint) {

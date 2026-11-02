@@ -25,6 +25,8 @@ try {
         await pool.query('DELETE FROM equipo WHERE email = ?', [correo]);
         await pool.query('DELETE s FROM sesiones s JOIN usuarios u ON u.id = s.usuario_id WHERE u.email = ?', [correo]);
         await pool.query('DELETE p FROM push_suscripciones p JOIN usuarios u ON u.id = p.usuario_id WHERE u.email = ?', [correo]);
+        // Y vuelve a la sala de espera: si un día puede entrar otra vez, un Master decide su acceso
+        await pool.query("UPDATE usuarios SET estado = 'pendiente', cargo = NULL, paises = '[]', casas = '[]' WHERE email = ?", [correo]);
         console.log(`Quitado: ${correo}`);
     } else if (operacion !== 'listar') {
         throw new Error('Uso: listar | agregar <correo> [nombre] [teléfono] | quitar <correo>');

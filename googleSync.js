@@ -64,7 +64,7 @@ class GoogleWorkspaceConnector {
                 body: metodo === 'GET' ? undefined : JSON.stringify(cuerpo || {})
             });
             const datos = await respuesta.json();
-            if (datos && datos.codigo && ['sesion', 'acceso', 'google'].includes(datos.codigo) && window.responsable) {
+            if (datos && datos.codigo && ['sesion', 'acceso', 'google', 'espera', 'rechazado'].includes(datos.codigo) && window.responsable) {
                 window.responsable.rechazado(datos.codigo, datos.error);
             }
             return datos;

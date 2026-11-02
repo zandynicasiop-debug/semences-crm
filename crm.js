@@ -39,6 +39,26 @@ const ESTADOS_CULTIVO = [
  * Tipos de campo: text, tel, date, number, select, textarea y cliente (lista de clientes registrados).
  * lista: id de un <datalist> con sugerencias. sinCliente: la columna se oculta dentro de un expediente.
  */
+/**
+ * País y casa comercial de cada registro (solo con el backend y una cuenta aprobada). Las opciones son
+ * las que el Master asignó a la persona; el servidor rechaza cualquier otra.
+ */
+const NOMBRE_PAIS = { RD: 'República Dominicana', VE: 'Venezuela' };
+function ambitoCRM() {
+    const a = window.responsable && window.responsable.ambito;
+    return a && a.estado === 'aprobado' ? a : null;
+}
+const CAMPOS_AMBITO = [
+    { id: 'pais', etiqueta: 'País', tipo: 'select', requerido: true, ambito: true, opciones: () => (ambitoCRM() || { paises: [] }).paises.map(p => [p, NOMBRE_PAIS[p] || p]) },
+    { id: 'casa', etiqueta: 'Casa comercial', tipo: 'select', requerido: true, ambito: true, opciones: () => (ambitoCRM() || { casas: [] }).casas }
+];
+const COLUMNAS_AMBITO = [
+    { titulo: 'País', valor: r => NOMBRE_PAIS[r.pais] || r.pais, soloAmbito: true },
+    { titulo: 'Casa comercial', valor: r => r.casa, soloAmbito: true }
+];
+const camposDe = (modulo) => MODULOS_CRM[modulo].campos.filter(c => !c.ambito || ambitoCRM());
+const columnasDe = (modulo) => MODULOS_CRM[modulo].columnas.filter(c => !c.soloAmbito || ambitoCRM());
+
 const MODULOS_CRM = {
     clientes: {
         pestana: 'Clientes',
@@ -47,6 +67,7 @@ const MODULOS_CRM = {
         vacio: 'Todavía no hay clientes. Registra el primero: sus visitas, procesos y rendimientos quedarán en su expediente.',
         campos: [
             { id: 'nombre', etiqueta: 'Nombre', tipo: 'text', requerido: true, autocomplete: 'name' },
+            ...CAMPOS_AMBITO,
             { id: 'telefono', etiqueta: 'Teléfono', tipo: 'tel', ejemplo: '809 555 1234' },
             { id: 'whatsapp', etiqueta: 'WhatsApp', tipo: 'tel', ejemplo: '829 555 1234' },
             { id: 'correo', etiqueta: 'Correo', tipo: 'email', ejemplo: 'cliente@ejemplo.com', autocomplete: 'email' },
@@ -62,6 +83,8 @@ const MODULOS_CRM = {
             { titulo: 'Ubicación', valor: r => r.ubicacion },
             { titulo: 'Marca', valor: r => r.marca },
             { titulo: 'Próx. seguimiento', valor: r => formatearFecha(r.seguimiento), orden: r => r.seguimiento },
+            ...COLUMNAS_AMBITO,
+            { titulo: 'Asignado a', valor: r => r.asignadoNombre, soloAmbito: true },
             { titulo: 'Procesos', valor: r => resumenCliente(r.id), dato: true },
             { titulo: 'Registró', valor: r => r.responsable }
         ]
@@ -73,6 +96,7 @@ const MODULOS_CRM = {
         vacio: 'Todavía no hay visitas registradas.',
         campos: [
             { id: 'clienteId', etiqueta: 'Cliente', tipo: 'cliente', requerido: true },
+            ...CAMPOS_AMBITO,
             { id: 'fecha', etiqueta: 'Fecha', tipo: 'date', requerido: true, hoy: true },
             { id: 'ubicacion', etiqueta: 'Ubicación', tipo: 'text', ejemplo: 'Finca, municipio o parcela' },
             { id: 'estado', etiqueta: 'Estado del cultivo', tipo: 'select', opciones: ESTADOS_CULTIVO, requerido: true },
@@ -84,6 +108,7 @@ const MODULOS_CRM = {
             { titulo: 'Ubicación', valor: r => r.ubicacion },
             { titulo: 'Estado del cultivo', valor: r => r.estado, etiqueta: true },
             { titulo: 'Comentarios', valor: r => r.comentarios, largo: true },
+            ...COLUMNAS_AMBITO,
             { titulo: 'Registró', valor: r => r.responsable }
         ]
     },
@@ -96,6 +121,7 @@ const MODULOS_CRM = {
         agruparPorCliente: true,
         campos: [
             { id: 'clienteId', etiqueta: 'Cliente', tipo: 'cliente', requerido: true },
+            ...CAMPOS_AMBITO,
             { id: 'lote', etiqueta: 'Lote o parcela', tipo: 'text', requerido: true, lista: 'lista-parcelas' },
             { id: 'variedad', etiqueta: 'Variedad', tipo: 'text', requerido: true, lista: 'lista-variedades', falta: 'Escribe la variedad sembrada.' },
             { id: 'proceso', etiqueta: 'Fase', tipo: 'select', opciones: FASES_AGRONOMICAS, requerido: true },
@@ -114,6 +140,7 @@ const MODULOS_CRM = {
             { titulo: 'Germinación', valor: r => porcentaje(r.germinacion), dato: true },
             { titulo: 'Fechas', valor: r => `${formatearFecha(r.fechaInicio)} – ${r.fechaFin ? formatearFecha(r.fechaFin) : 'pendiente'}` },
             { titulo: 'Comentarios', valor: r => r.comentarios, largo: true },
+            ...COLUMNAS_AMBITO,
             { titulo: 'Registró', valor: r => r.responsable }
         ],
         // Dentro de un cliente: por lote y, en cada lote, de la fecha más antigua a la más reciente
@@ -127,6 +154,7 @@ const MODULOS_CRM = {
         vacio: 'Todavía no hay rendimientos registrados.',
         campos: [
             { id: 'clienteId', etiqueta: 'Cliente', tipo: 'cliente' },
+            ...CAMPOS_AMBITO,
             { id: 'lote', etiqueta: 'Parcela o lote', tipo: 'text', requerido: true, lista: 'lista-parcelas' },
             { id: 'fecha', etiqueta: 'Fecha', tipo: 'date', requerido: true, hoy: true },
             { id: 'rendimientoPlanta', etiqueta: 'Rendimiento por planta (unidades)', tipo: 'number', min: 0, paso: 'any' },
@@ -142,6 +170,7 @@ const MODULOS_CRM = {
             { titulo: 'Canastos', valor: r => numero(r.canastos), dato: true },
             { titulo: 'Unidades totales', valor: r => numero(r.unidades), dato: true },
             { titulo: 'Detalles', valor: r => r.detalles, largo: true },
+            ...COLUMNAS_AMBITO,
             { titulo: 'Registró', valor: r => r.responsable }
         ]
     }
@@ -220,10 +249,12 @@ class CRM {
         this.crearListas();
         Object.keys(MODULOS_CRM).forEach(m => this.crearModulo(m));
         this.iniciarPestanas();
+        // Con el backend: el cargo decide los módulos; el ámbito, las columnas y opciones de país y casa
+        window.addEventListener('sdc-ambito', () => this.aplicarAmbito());
         // El CRM se crea en "load": la opción se añade justo después, cuando tema.js ya puso la suya
         setTimeout(() => this.crearOpcionExportar());
         this.crearIndicadorSync();
-        this.renderTodo();
+        this.aplicarAmbito(); // También pinta las tablas
 
         // Cuando llegan datos de la hoja (o cambian aquí), se repintan tablas, listas y el expediente abierto
         this.db.alCambiar((motivo) => {
@@ -352,6 +383,18 @@ class CRM {
             o.value = v;
             lista.appendChild(o);
         });
+    }
+
+    // Oculta las pestañas de los módulos que el cargo no incluye; si la abierta queda oculta, vuelve al simulador
+    aplicarAmbito() {
+        const ambito = ambitoCRM();
+        Object.keys(MODULOS_CRM).forEach(modulo => {
+            const pestana = document.getElementById(`tab-${modulo}`);
+            if (pestana) pestana.hidden = Boolean(ambito && !ambito.modulos.includes(modulo));
+        });
+        const abierta = this.tablist.querySelector('[aria-current="true"]');
+        if (abierta && abierta.hidden && this.activarPestana) this.activarPestana(document.getElementById('tab-simulador'));
+        this.renderTodo();
     }
 
     // ----- Pestaña y panel de un módulo -----
@@ -485,7 +528,7 @@ class CRM {
      */
     construirTabla(modulo, filas, { titulo, dentroDeCliente = false, conAcciones = true } = {}) {
         const def = MODULOS_CRM[modulo];
-        const columnas = def.columnas.filter(c => !(dentroDeCliente && c.sinCliente));
+        const columnas = columnasDe(modulo).filter(c => !(dentroDeCliente && c.sinCliente));
         const tabla = document.createElement('table');
         const caption = document.createElement('caption');
         caption.className = 'solo-lector';
@@ -1063,7 +1106,7 @@ class CRM {
             return;
         }
 
-        def.campos.forEach(campo => {
+        camposDe(modulo).forEach(campo => {
             const grupo = document.createElement('div');
             grupo.className = 'form-group';
             const id = `campo-${modulo}-${campo.id}`;
@@ -1079,7 +1122,7 @@ class CRM {
                 control = document.createElement('select');
                 const opciones = campo.tipo === 'cliente'
                     ? [...this.datos.clientes].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')).map(c => [c.id, c.nombre])
-                    : campo.opciones.map(o => [o, o]);
+                    : (typeof campo.opciones === 'function' ? campo.opciones() : campo.opciones).map(o => Array.isArray(o) ? o : [o, o]);
                 if (campo.vacia) {
                     const vacia = document.createElement('option');
                     vacia.value = '';
@@ -1137,6 +1180,20 @@ class CRM {
             });
             form.addEventListener('change', mostrar);
             mostrar();
+        }
+
+        // Al elegir el cliente, el país y la casa comercial del registro pasan a ser los de su ficha
+        if (form.elements.clienteId && form.elements.pais && form.elements.casa) {
+            const heredar = () => {
+                const c = this.cliente(form.elements.clienteId.value);
+                if (!c) return;
+                [['pais', c.pais], ['casa', c.casa]].forEach(([campo, valor]) => {
+                    const control = form.elements[campo];
+                    if (valor && [...control.options].some(o => o.value === valor)) control.value = valor;
+                });
+            };
+            form.elements.clienteId.addEventListener('change', heredar);
+            heredar();
         }
 
         // Al elegir el cliente se completa la ubicación de la visita con la de su ficha
@@ -1201,7 +1258,7 @@ class CRM {
             this.mostrarError(control, mensaje);
             if (!primero) primero = control;
         };
-        MODULOS_CRM[modulo].campos.forEach(campo => {
+        camposDe(modulo).forEach(campo => {
             const control = form.elements[campo.id];
             const valor = control.value.trim();
             this.limpiarError(control);
@@ -1241,7 +1298,7 @@ class CRM {
     guardar(modulo, form) {
         // Quién lo registró: el responsable de este navegador (usuario.js)
         const registro = { id: nuevoId(), creado: new Date().toISOString(), responsable: window.responsable ? window.responsable.nombre : '' };
-        MODULOS_CRM[modulo].campos.forEach(campo => {
+        camposDe(modulo).forEach(campo => {
             const visible = !campo.soloSi || campo.soloSi(form.elements);
             const v = visible ? form.elements[campo.id].value.trim() : '';
             registro[campo.id] = campo.tipo === 'number' && v !== '' ? Number(v) : v;

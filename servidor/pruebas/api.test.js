@@ -100,7 +100,7 @@ for (const base of BASES) {
                 try { pool = await conectar(config.mysql); break; } catch (e) { if (i > 60) throw e; await new Promise(r => setTimeout(r, 1000)); }
             }
             // Base limpia: se borran las tablas y conectar() las vuelve a crear
-            for (const tabla of ['sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
+            for (const tabla of ['sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'directos', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
             await pool.end();
             pool = await conectar(config.mysql);
 
@@ -153,11 +153,18 @@ for (const base of BASES) {
             assert.equal(ana.json.usuario.email, 'ana@semillasdata.com');
             assert.equal(ana.json.usuario.admin, false);
             assert.equal(ana.json.usuario.googleConectado, true);
+            assert.equal(ana.json.usuario.estado, 'pendiente'); // Todo el que no es Master empieza en la sala de espera
             sesiones.ana = ana.json.sesion;
 
             const jefa = await entrarComo('codigo-jefa');
             assert.equal(jefa.json.usuario.admin, true);
+            assert.equal(jefa.json.usuario.estado, 'aprobado');
+            assert.equal(jefa.json.usuario.cargo, 'master');
             sesiones.jefa = jefa.json.sesion;
+
+            // La jefa (Master) aprueba a Ana con todo, para el resto de pruebas
+            const aprobada = await accion(sesiones.jefa, { accion: 'accesos', operacion: 'aprobar', email: 'ana@semillasdata.com', cargo: 'administrativo', paises: ['RD', 'VE'], casas: ['Gautier Semences', 'Hexagon Seeds', 'Genome Seeds', 'Fitó'] });
+            assert.equal(aprobada.estado, 200);
 
             assert.match((await entrarComo('codigo-intrusa')).error, /no está autorizada/);
             assert.match((await entrarComo('codigo-sinverificar')).error, /verificado/);
@@ -339,6 +346,7 @@ for (const base of BASES) {
             assert.deepEqual(guardado.json.equipo, [{ email: 'externa@gmail.com', nombre: 'Externa', telefono: '18095551234', notas: '' }]);
             const externa = await entrarComo('codigo-externa');
             assert.equal(externa.estado, 200);
+            await accion(sesiones.jefa, { accion: 'accesos', operacion: 'aprobar', email: 'externa@gmail.com', cargo: 'vendedor', paises: ['RD'], casas: ['Fitó'] });
             await accion(sesiones.jefa, { accion: 'equipo', operacion: 'quitar', email: 'externa@gmail.com' });
             assert.equal((await accion(externa.json.sesion, { accion: 'sincronizar' })).estado, 401);
         });
@@ -463,6 +471,7 @@ for (const base of BASES) {
             const externa = await entrarComo('codigo-externa').catch(() => null);
             await accion(sesiones.jefa, { accion: 'equipo', operacion: 'guardar', email: 'externa@gmail.com' });
             const dentro = await entrarComo('codigo-externa');
+            await accion(sesiones.jefa, { accion: 'accesos', operacion: 'aprobar', email: 'externa@gmail.com', cargo: 'vendedor', paises: ['RD'], casas: ['Fitó'] });
             await accion(dentro.json.sesion, { accion: 'push', operacion: 'alta', suscripcion: suscripcion(5) });
             await accion(sesiones.jefa, { accion: 'equipo', operacion: 'quitar', email: 'externa@gmail.com' });
             const [quedan] = await pool.query('SELECT endpoint FROM push_suscripciones WHERE endpoint = ?', [suscripcion(5).endpoint]);
@@ -522,6 +531,139 @@ for (const base of BASES) {
             for (let i = 0; i < 5; i++) estados.push((await fetch(`${base}/api/auth/canjear`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status);
             await new Promise(r => otro.close(r));
             assert.deepEqual(estados, [401, 401, 401, 429, 429]);
+        });
+
+        test('sala de espera: sin aprobar solo se deja el teléfono; al Master le llega el aviso', async () => {
+            await pool.query('DELETE FROM cola_avisos');
+            await pool.query("UPDATE usuarios SET telefono = '18095550101' WHERE email = 'jefa@gmail.com'");
+            google.identidades['codigo-luis'] = { email: 'luis@semillasdata.com', verificado: true, dominio: 'semillasdata.com', nombre: 'Luis', foto: 'https://lh3.googleusercontent.com/luis', tokenRefresco: 'r-luis', permisos: '' };
+            const luis = await entrarComo('codigo-luis');
+            sesiones.luis = luis.json.sesion;
+            assert.equal(luis.json.usuario.estado, 'pendiente');
+            assert.deepEqual(luis.json.usuario.modulos, []);
+            const bloqueado = await accion(sesiones.luis, { accion: 'sincronizar' });
+            assert.equal(bloqueado.estado, 403);
+            assert.equal(bloqueado.json.codigo, 'espera');
+            assert.equal((await accion(sesiones.luis, { accion: 'sala', telefono: '123' })).estado, 400);
+            const sala = await accion(sesiones.luis, { accion: 'sala', telefono: '829 555 0202' });
+            assert.equal(sala.json.usuario.solicitado, true);
+            await accion(sesiones.luis, { accion: 'sala', telefono: '829 555 0202' }); // La segunda vez no avisa otra vez
+            const [avisosMaster] = await pool.query("SELECT destino, texto FROM cola_avisos WHERE canal = 'whatsapp'");
+            assert.equal(avisosMaster.length, 1);
+            assert.equal(avisosMaster[0].destino, '18095550101');
+            assert.match(avisosMaster[0].texto, /Nueva solicitud de acceso\nLuis \(luis@semillasdata.com\)/);
+            // Solo un Master gestiona los accesos
+            assert.equal((await accion(sesiones.ana, { accion: 'accesos', operacion: 'listar' })).estado, 403);
+            const lista = await accion(sesiones.jefa, { accion: 'accesos', operacion: 'listar' });
+            assert.equal(lista.json.personas[0].email, 'luis@semillasdata.com'); // Los pendientes primero
+            assert.deepEqual(lista.json.opciones.cargos, ['vendedor', 'tecnico', 'administrativo']);
+            // Aprobación incompleta o con valores inventados: no
+            for (const malo of [{ cargo: 'master', paises: ['RD'], casas: ['Fitó'] }, { cargo: 'vendedor', paises: [], casas: ['Fitó'] }, { cargo: 'vendedor', paises: ['XX'], casas: ['Fitó'] }, { cargo: 'jefe', paises: ['RD'], casas: ['Fitó'] }]) {
+                assert.equal((await accion(sesiones.jefa, { accion: 'accesos', operacion: 'aprobar', email: 'luis@semillasdata.com', ...malo })).estado, 400, JSON.stringify(malo));
+            }
+            assert.equal((await accion(sesiones.jefa, { accion: 'accesos', operacion: 'aprobar', email: 'jefa@gmail.com', cargo: 'vendedor', paises: ['RD'], casas: ['Fitó'] })).estado, 400);
+            await pool.query('DELETE FROM cola_avisos');
+            await accion(sesiones.jefa, { accion: 'accesos', operacion: 'aprobar', email: 'luis@semillasdata.com', cargo: 'vendedor', paises: ['RD'], casas: ['Gautier Semences'] });
+            const [[aviso]] = await pool.query("SELECT destino, texto FROM cola_avisos WHERE canal = 'whatsapp'");
+            assert.equal(aviso.destino, '18295550202');
+            assert.match(aviso.texto, /Acceso aprobado/);
+            const yo = (await llamar('/api/yo', { metodo: 'GET', sesion: sesiones.luis })).json.usuario;
+            assert.deepEqual([yo.estado, yo.cargo, yo.paises, yo.casas], ['aprobado', 'vendedor', ['RD'], ['Gautier Semences']]);
+            assert.deepEqual(yo.modulos, ['clientes', 'visitas', 'tareas', 'mensajes', 'sitios']);
+        });
+
+        test('ámbito: cada quien ve y escribe solo su país, su casa comercial y los módulos de su cargo', async () => {
+            await pool.query('DELETE FROM registros');
+            const base = [
+                { modulo: 'clientes', registro: { id: 'rd-g', nombre: 'Finca RD Gautier', pais: 'RD', casa: 'Gautier Semences', telefono: '809' } },
+                { modulo: 'clientes', registro: { id: 'rd-f', nombre: 'Finca RD Fitó', pais: 'RD', casa: 'Fitó' } },
+                { modulo: 'clientes', registro: { id: 've-g', nombre: 'Finca VE Gautier', pais: 'VE', casa: 'Gautier Semences' } },
+                { modulo: 'clientes', registro: { id: 'viejo', nombre: 'Sin país ni casa' } },
+                { modulo: 'agronomia', registro: { id: 'p1', clienteId: 'rd-g', pais: 'RD', casa: 'Gautier Semences', proceso: 'Siembra' } },
+                { modulo: 'tareas', registro: { id: 't-equipo', titulo: 'Reunión del lunes' } }
+            ];
+            assert.equal((await accion(sesiones.ana, { accion: 'sincronizar', guardar: base })).estado, 200);
+
+            // Luis: vendedor, RD + Gautier
+            const luis = (await accion(sesiones.luis, { accion: 'sincronizar' })).json.datos;
+            assert.deepEqual(Object.keys(luis).sort(), ['clientes', 'mensajes', 'sitios', 'tareas', 'visitas']);
+            assert.deepEqual(luis.clientes.map(c => c.id), ['rd-g']);
+            assert.equal(luis.tareas.length, 1); // Las tareas son de todo el equipo
+            // No puede crear fuera de su ámbito, ni en módulos que no son suyos, ni pisar ni borrar lo ajeno
+            for (const op of [
+                { guardar: [{ modulo: 'clientes', registro: { id: 'nuevo', nombre: 'X', pais: 'VE', casa: 'Gautier Semences' } }] },
+                { guardar: [{ modulo: 'clientes', registro: { id: 'nuevo', nombre: 'X' } }] },
+                { guardar: [{ modulo: 'agronomia', registro: { id: 'p2', pais: 'RD', casa: 'Gautier Semences' } }] },
+                { guardar: [{ modulo: 'clientes', registro: { id: 'rd-f', nombre: 'Lo cambio a mi casa', pais: 'RD', casa: 'Gautier Semences' } }] },
+                { eliminar: [{ modulo: 'clientes', id: 've-g' }] }
+            ]) {
+                const r = await accion(sesiones.luis, { accion: 'sincronizar', ...op });
+                assert.equal(r.estado, 403, JSON.stringify(op));
+                assert.equal(r.json.codigo, 'permiso');
+            }
+            assert.equal((await accion(sesiones.luis, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: { id: 'mio', nombre: 'Nuevo de Luis', pais: 'RD', casa: 'Gautier Semences' } }] })).estado, 200);
+            assert.equal((await accion(sesiones.luis, { accion: 'crm', modulo: 'clientes', registro: { id: 'otro', nombre: 'X', pais: 'VE', casa: 'Fitó' } })).estado, 403);
+
+            // Técnico de RD + Gautier: procesos sí; de los clientes solo el nombre
+            google.identidades['codigo-tec'] = { email: 'tec@semillasdata.com', verificado: true, dominio: 'semillasdata.com', nombre: 'Tec', foto: '', tokenRefresco: 'r', permisos: '' };
+            sesiones.tec = (await entrarComo('codigo-tec')).json.sesion;
+            await accion(sesiones.jefa, { accion: 'accesos', operacion: 'aprobar', email: 'tec@semillasdata.com', cargo: 'tecnico', paises: ['RD'], casas: ['Gautier Semences'] });
+            const tec = (await accion(sesiones.tec, { accion: 'sincronizar' })).json.datos;
+            assert.deepEqual(tec.agronomia.map(p => p.id), ['p1']);
+            assert.deepEqual(tec.clientes.find(c => c.id === 'rd-g'), { id: 'rd-g', nombre: 'Finca RD Gautier', pais: 'RD', casa: 'Gautier Semences' });
+            assert.equal((await accion(sesiones.tec, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: { id: 'z', nombre: 'Z', pais: 'RD', casa: 'Gautier Semences' } }] })).estado, 403);
+
+            // Quien lo ve todo (la jefa) ve también lo que no tiene país ni casa
+            const jefa = (await accion(sesiones.jefa, { accion: 'sincronizar' })).json.datos;
+            assert.ok(jefa.clientes.some(c => c.id === 'viejo'));
+            // La exportación respeta el ámbito
+            await accion(sesiones.luis, { accion: 'exportar' }).catch(() => {});
+            const exportado = google.llamadas.filter(l => l.tipo === 'exportar').at(-1);
+            assert.ok(!JSON.stringify(exportado.datos.pestanas).includes('Finca VE Gautier'));
+        });
+
+        test('tablero: presencia, mensajes directos y pasar un cliente', async () => {
+            await pool.query('DELETE FROM cola_avisos');
+            await accion(sesiones.luis, { accion: 'presencia', estado: 'en_parcela' });
+            const tablero = await accion(sesiones.ana, { accion: 'presencia' });
+            const luis = tablero.json.equipo.find(p => p.email === 'luis@semillasdata.com');
+            assert.deepEqual([luis.estado, luis.cargo, luis.foto], ['en_parcela', 'vendedor', 'https://lh3.googleusercontent.com/luis']);
+            assert.ok(!tablero.json.equipo.some(p => p.email === 'externa@gmail.com')); // Fuera del equipo: no sale
+            await pool.query("UPDATE usuarios SET visto = UTC_TIMESTAMP() - INTERVAL 10 MINUTE WHERE email = 'luis@semillasdata.com'");
+            assert.equal((await accion(sesiones.ana, { accion: 'presencia' })).json.equipo.find(p => p.email === 'luis@semillasdata.com').estado, 'desconectado');
+
+            // Mensaje directo: bandeja + WhatsApp a esa persona (no a todo el equipo)
+            assert.equal((await accion(sesiones.ana, { accion: 'directo', para: 'nadie@x.com', texto: 'Hola' })).estado, 404);
+            assert.equal((await accion(sesiones.ana, { accion: 'directo', para: 'ana@semillasdata.com', texto: 'Hola' })).estado, 400);
+            await accion(sesiones.ana, { accion: 'directo', para: 'luis@semillasdata.com', texto: '¿Pasas por Constanza?', tipo: 'reunion', enlace: 'https://meet.google.com/abc-defg-hij' });
+            await accion(sesiones.ana, { accion: 'directo', para: 'luis@semillasdata.com', texto: 'Enlace raro', enlace: 'https://malvado.com' });
+            const [wa] = await pool.query("SELECT destino, texto FROM cola_avisos WHERE canal = 'whatsapp' ORDER BY id");
+            assert.deepEqual(wa.map(w => w.destino), ['18295550202', '18295550202']);
+            assert.match(wa[0].texto, /📹 Ana Prueba|📹 Ana/);
+            assert.equal((await accion(sesiones.luis, { accion: 'presencia' })).json.sinLeer, 2);
+            const bandeja = (await accion(sesiones.luis, { accion: 'bandeja' })).json.mensajes;
+            assert.deepEqual(bandeja.map(m => [m.tipo, m.enlace]), [['mensaje', ''], ['reunion', 'https://meet.google.com/abc-defg-hij']]);
+            assert.equal((await accion(sesiones.luis, { accion: 'presencia' })).json.sinLeer, 0);
+
+            // Pasar un cliente: solo si quien lo recibe puede verlo
+            assert.equal((await accion(sesiones.ana, { accion: 'pasarCliente', clienteId: 've-g', para: 'luis@semillasdata.com' })).estado, 400);
+            assert.equal((await accion(sesiones.ana, { accion: 'pasarCliente', clienteId: 'rd-g', para: 'tec@semillasdata.com' })).estado, 400); // El técnico no gestiona clientes
+            assert.equal((await accion(sesiones.luis, { accion: 'pasarCliente', clienteId: 've-g', para: 'ana@semillasdata.com' })).estado, 403);
+            const pase = await accion(sesiones.ana, { accion: 'pasarCliente', clienteId: 'rd-g', para: 'luis@semillasdata.com', nota: 'Llama mañana' });
+            assert.equal(pase.estado, 200);
+            const cliente = (await accion(sesiones.luis, { accion: 'sincronizar' })).json.datos.clientes.find(c => c.id === 'rd-g');
+            assert.deepEqual([cliente.asignado, cliente.asignadoNombre, cliente.telefono], ['luis@semillasdata.com', 'Luis', '809']);
+            assert.match((await accion(sesiones.luis, { accion: 'bandeja' })).json.mensajes[0].texto, /Te pasó el cliente Finca RD Gautier: Llama mañana/);
+        });
+
+        test('rechazar a alguien lo saca: sesiones fuera y sin avisos', async () => {
+            await accion(sesiones.jefa, { accion: 'accesos', operacion: 'rechazar', email: 'tec@semillasdata.com' });
+            assert.equal((await accion(sesiones.tec, { accion: 'sincronizar' })).estado, 401);
+            const otra = await entrarComo('codigo-tec');
+            const r = await accion(otra.json.sesion, { accion: 'sala', telefono: '8095550303' });
+            assert.equal(r.json.codigo, 'rechazado');
+            await accion(sesiones.jefa, { accion: 'accesos', operacion: 'reabrir', email: 'tec@semillasdata.com' });
+            assert.equal((await llamar('/api/yo', { metodo: 'GET', sesion: otra.json.sesion })).json.usuario.estado, 'pendiente');
         });
 
         test('salir cierra la sesión', async () => {

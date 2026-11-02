@@ -19,6 +19,15 @@ const ESQUEMA = [
         permisos_google TEXT NULL,
         telefono VARCHAR(20) NOT NULL DEFAULT '',
         hoja_exportacion VARCHAR(100) NOT NULL DEFAULT '',
+        estado ENUM('pendiente', 'aprobado', 'rechazado') NOT NULL DEFAULT 'pendiente',
+        cargo VARCHAR(20) NULL,
+        paises VARCHAR(100) NOT NULL DEFAULT '[]',
+        casas VARCHAR(300) NOT NULL DEFAULT '[]',
+        solicitado DATETIME NULL,
+        aprobado_por VARCHAR(254) NULL,
+        aprobado_en DATETIME NULL,
+        visto DATETIME NULL,
+        presencia VARCHAR(20) NOT NULL DEFAULT 'disponible',
         creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         ultimo_acceso DATETIME NULL
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
@@ -42,6 +51,19 @@ const ESQUEMA = [
         nombre VARCHAR(200) NOT NULL DEFAULT '',
         telefono VARCHAR(20) NOT NULL DEFAULT '',
         notas VARCHAR(500) NOT NULL DEFAULT ''
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS directos (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        de_id INT UNSIGNED NOT NULL,
+        para_id INT UNSIGNED NOT NULL,
+        tipo VARCHAR(20) NOT NULL DEFAULT 'mensaje',
+        texto VARCHAR(2000) NOT NULL,
+        enlace VARCHAR(500) NOT NULL DEFAULT '',
+        leido TINYINT(1) NOT NULL DEFAULT 0,
+        creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX (para_id, id),
+        FOREIGN KEY (de_id) REFERENCES usuarios(id) ON DELETE CASCADE,
+        FOREIGN KEY (para_id) REFERENCES usuarios(id) ON DELETE CASCADE
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS registros (
         modulo VARCHAR(20) NOT NULL,
@@ -142,16 +164,35 @@ export async function listarTodo(conexion) {
     return datos;
 }
 
-// Aplica los cambios de la app y devuelve la foto completa, todo en una transacción
-export async function sincronizar(pool, { guardar = [], eliminar = [] }, usuario) {
+export async function leerRegistro(conexion, modulo, id, bloquear = false) {
+    const [filas] = await conexion.query(`SELECT datos FROM registros WHERE modulo = ? AND id = ?${bloquear ? ' FOR UPDATE' : ''}`, [modulo, String(id)]);
+    if (!filas.length) return null;
+    try { return JSON.parse(filas[0].datos); } catch (e) { return null; }
+}
+
+/**
+ * Aplica los cambios de la app y devuelve la foto completa, todo en una transacción.
+ * permitido(modulo, registro) decide si la persona puede escribir ese registro: se mira el registro
+ * nuevo y también el que ya había (nadie puede pisar ni borrar lo que no le toca).
+ */
+export async function sincronizar(pool, { guardar = [], eliminar = [] }, usuario, permitido = () => true) {
     const conexion = await pool.getConnection();
+    const rechazo = () => Object.assign(new Error('No tienes permiso para cambiar uno de esos registros (módulo, país o casa comercial)'), { estado: 403, codigo: 'permiso' });
     try {
         await conexion.beginTransaction();
         for (const op of guardar) {
+            comprobarModulo(op.modulo);
+            const anterior = op.registro && op.registro.id ? await leerRegistro(conexion, op.modulo, op.registro.id, true) : null;
+            if (!permitido(op.modulo, op.registro || {}) || (anterior && !permitido(op.modulo, anterior))) throw rechazo();
             // Cada registro guarda la cuenta verificada que lo subió, no lo que diga la app
             await guardarRegistro(conexion, op.modulo, { ...op.registro, cuenta: usuario.email }, usuario.id);
         }
-        for (const op of eliminar) await eliminarRegistro(conexion, op.modulo, op.id);
+        for (const op of eliminar) {
+            comprobarModulo(op.modulo);
+            const anterior = await leerRegistro(conexion, op.modulo, op.id, true);
+            if (anterior && !permitido(op.modulo, anterior)) throw rechazo();
+            await eliminarRegistro(conexion, op.modulo, op.id);
+        }
         const datos = await listarTodo(conexion);
         await conexion.commit();
         return datos;

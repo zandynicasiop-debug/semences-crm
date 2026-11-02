@@ -286,6 +286,9 @@ class Responsable {
     cerrarSesion(mensaje = '') {
         // Con el backend, la sesión se cierra también allí (si no hay conexión, caduca sola)
         if (this.conBackend && this.sesionBackend()) this.conector.backend('/api/salir', {});
+        // Lo que vio esta cuenta no se queda en el navegador para la siguiente
+        if (this.conBackend && window.baseDatos) window.baseDatos.olvidarTodo();
+        if (this.esperaSala) { clearInterval(this.esperaSala); this.esperaSala = null; }
         if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
         this.guardarSesion(null);
         this.pintar();
@@ -359,11 +362,109 @@ class Responsable {
     iniciarBackend() {
         this.crearDialogoGoogle();
         this.crearDialogoCuenta();
+        this.crearSala();
         // La app Android recibe la vuelta de Google por semences://sesion y avisa con esta función
         window.alVolverDeGoogle = () => this.recogerVueltaAndroid();
         if (this.recogerVueltaWeb() || this.recogerVueltaAndroid()) return;
         if (!this.sesionBackend()) this.mostrarEntrada();
-        else setTimeout(() => this.refrescarCuenta());
+        else setTimeout(async () => { this.aplicarEstado(); await this.refrescarCuenta(); this.aplicarEstado(); });
+    }
+
+    // Ámbito de la persona según el backend: estado, cargo, países, casas y módulos (null sin backend o sin sesión)
+    get ambito() {
+        const sesion = this.conBackend && this.sesion;
+        return sesion && sesion.sesion ? sesion : null;
+    }
+
+    /**
+     * Según el estado de la cuenta: aprobada, se avisa a la app (evento "sdc-ambito": módulos por cargo,
+     * países y casas en los formularios, tablero); en la sala de espera o rechazada, se muestra la sala.
+     */
+    aplicarEstado() {
+        const ambito = this.ambito;
+        if (!ambito) return;
+        if (ambito.estado === 'aprobado') {
+            if (this.sala.open) this.sala.close();
+            clearInterval(this.esperaSala);
+            this.esperaSala = null;
+        } else {
+            this.mostrarSala();
+        }
+        window.dispatchEvent(new CustomEvent('sdc-ambito', { detail: ambito }));
+    }
+
+    crearSala() {
+        const dialogo = document.createElement('dialog');
+        dialogo.className = 'dialogo';
+        dialogo.setAttribute('aria-labelledby', 'sala-titulo');
+        dialogo.innerHTML = `
+            <form class="dialogo-form" novalidate>
+                <h3 id="sala-titulo">Sala de espera</h3>
+                <p class="dialogo-nota sala-texto" aria-live="polite"></p>
+                <div class="form-group sala-telefono">
+                    <label for="sala-telefono">Tu WhatsApp</label>
+                    <input id="sala-telefono" type="tel" inputmode="tel" autocomplete="tel" placeholder="809 555 1234" aria-describedby="sala-error">
+                    <p class="form-error" id="sala-error" role="alert" hidden></p>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-texto sala-salir">Cerrar sesión</button>
+                    <button type="submit" class="btn-primary sala-enviar">Pedir acceso</button>
+                </div>
+            </form>`;
+        document.body.appendChild(dialogo);
+        this.sala = dialogo;
+        // Mientras no esté aprobada, la sala no se cierra con Escape
+        dialogo.addEventListener('cancel', (e) => e.preventDefault());
+        dialogo.querySelector('.sala-salir').addEventListener('click', () => { dialogo.close(); this.cerrarSesion(); });
+        dialogo.querySelector('form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const input = dialogo.querySelector('#sala-telefono');
+            const error = dialogo.querySelector('#sala-error');
+            const boton = dialogo.querySelector('.sala-enviar');
+            boton.disabled = true;
+            const respuesta = await this.conector.backend('/api/accion', { accion: 'sala', telefono: input.value });
+            boton.disabled = false;
+            if (!respuesta || !respuesta.ok) {
+                error.textContent = (respuesta && respuesta.error) || 'No se pudo enviar. Revisa la conexión.';
+                error.hidden = false;
+                input.setAttribute('aria-invalid', 'true');
+                return input.focus();
+            }
+            this.guardarSesion({ ...this.sesion, ...respuesta.usuario });
+            this.aplicarEstado();
+        });
+    }
+
+    mostrarSala() {
+        const ambito = this.ambito;
+        const texto = this.sala.querySelector('.sala-texto');
+        const telefono = this.sala.querySelector('.sala-telefono');
+        const enviar = this.sala.querySelector('.sala-enviar');
+        if (ambito.estado === 'rechazado') {
+            texto.textContent = 'Tu solicitud de acceso no fue aprobada. Si crees que es un error, habla con un administrador de Semences del Caribe.';
+            telefono.hidden = enviar.hidden = true;
+        } else if (!ambito.solicitado) {
+            texto.textContent = `Hola, ${ambito.nombre || ambito.email}. Para entrar, deja tu WhatsApp: un Master revisará tu solicitud, te asignará tu país, tu casa comercial y tu cargo, y te avisará por allí.`;
+            telefono.hidden = enviar.hidden = false;
+        } else {
+            texto.textContent = 'Tu solicitud está en revisión. Cuando un Master la apruebe te llegará un WhatsApp y esta pantalla se abrirá sola.';
+            telefono.hidden = enviar.hidden = true;
+        }
+        if (!this.sala.open) this.sala.showModal();
+        // Mientras espera, cada 20 segundos se mira si ya la aprobaron
+        if (!this.esperaSala && ambito.estado === 'pendiente') {
+            this.esperaSala = setInterval(async () => {
+                const antes = (this.ambito || {}).estado;
+                await this.refrescarCuenta();
+                const ahora = this.ambito;
+                if (!ahora) return clearInterval(this.esperaSala);
+                if (ahora.estado !== antes || ahora.estado === 'aprobado') {
+                    // Aprobada: se recarga para entrar con su ámbito y sus datos
+                    if (ahora.estado === 'aprobado') location.reload();
+                    else this.aplicarEstado();
+                }
+            }, 20000);
+        }
     }
 
     // Lleva a la página de Google. Al volver, solo esta app puede canjear el código: tiene el secreto
@@ -415,7 +516,8 @@ class Responsable {
         this.guardarSesion({ sesion, ...usuario });
         this.nombre = usuario.nombre || usuario.email.split('@')[0];
         if (this.dialogoGoogle.open) this.dialogoGoogle.close();
-        if (window.baseDatos) window.baseDatos.sincronizar();
+        this.aplicarEstado();
+        if (usuario.estado === 'aprobado' && window.baseDatos) window.baseDatos.sincronizar();
     }
 
     // Datos al día de la persona (teléfono, si Google sigue conectado…)
@@ -426,6 +528,12 @@ class Responsable {
     }
 
     rechazadoBackend(codigo, mensaje) {
+        // Sala de espera o rechazada: se actualiza la cuenta y se muestra la sala
+        if (codigo === 'espera' || codigo === 'rechazado') {
+            const sesion = this.sesion;
+            if (sesion) this.guardarSesion({ ...sesion, estado: codigo === 'espera' ? 'pendiente' : 'rechazado' });
+            return this.aplicarEstado();
+        }
         if (codigo === 'sesion' || codigo === 'acceso') {
             this.guardarSesion(null);
             this.pintar();

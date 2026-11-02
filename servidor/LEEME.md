@@ -114,6 +114,32 @@ Los mensajes salen de la cola `cola_avisos` cada 5 segundos. En `GET /api/salud`
 
 Cada persona escribe su WhatsApp en la app (menú › Cuenta). Los administradores también pueden añadir teléfonos con `npm run equipo -- agregar correo@… "Nombre" 8095551234`. Las alertas de "Notificar al equipo" llegan por Google Chat y por WhatsApp a todos. Meta cobra cada conversación iniciada por la empresa, según su tarifa por país.
 
+## Sala de espera, cargos y ámbito
+
+- **Sala de espera:** toda cuenta nueva (aunque sea del dominio) entra, deja su WhatsApp y espera. A los Master (correos de `ADMINS`) les llega el aviso por WhatsApp y push. Los Master entran siempre, con todo.
+- **Equipo y accesos** (menú, solo Master): a cada persona se le asigna **cargo**, **países** (República Dominicana, Venezuela) y **casas comerciales** (Gautier Semences, Hexagon Seeds, Genome Seeds, Fitó). Al aprobarla le llega un WhatsApp. También se puede rechazar, quitar el acceso o devolver a la sala.
+- **Qué ve cada cargo:**
+
+  | Cargo | Módulos |
+  |---|---|
+  | Vendedor | Clientes, visitas, tareas y chat |
+  | Técnico | Procesos agronómicos, rendimiento, visitas, tareas y chat (de los clientes, solo el nombre) |
+  | Administrativo | Todo |
+  | Master | Todo, más la sala de espera y los accesos |
+
+- **Ámbito:** clientes, visitas, procesos y rendimientos llevan su propio **país** y **casa comercial** (al elegir el cliente se proponen los suyos). Cada persona solo ve y escribe registros de sus países **y** sus casas. Lo que no tiene país o casa (datos de antes) solo lo ve quien tiene todo.
+- **Lo comprueba el servidor:** lo que no se puede ver no sale de la base (tampoco en la exportación a Sheets ni en los reportes), y un cambio fuera del ámbito se rechaza entero; la app lo descarta y avisa.
+- **Quién puede pedir acceso:** con la pantalla de consentimiento **Interna** de Google, solo las cuentas del Workspace de la empresa. Para admitir Gmail personales habría que pasarla a **Externa**, y Google exige entonces verificar la app (los permisos de Gmail y Drive pasan una revisión de seguridad).
+
+## Tablero del equipo
+
+Menú › **Tablero del equipo**: las fotos de Google del equipo aprobado con su estado (disponible, en parcela, en reunión o desconectado; la app avisa al servidor cada minuto). Cada quien elige su estado. Al tocar a alguien:
+
+- **Mensaje:** le llega a su bandeja del tablero, por push y por WhatsApp.
+- **Videollamada ahora:** Meet que empieza en 2 minutos, con la invitación de Google y el enlace por push y WhatsApp.
+- **Pasarle un cliente:** queda asignado a esa persona (columna "Asignado a"). Solo si su cargo, país y casa le dejan verlo.
+- **Asignarle una tarea:** se crea en Tareas, a su nombre, y se le avisa.
+
 ## Equipo y acceso
 
 - Pueden entrar todas las cuentas de `DOMINIO`, los correos de `ADMINS` y los de la tabla `equipo`.
@@ -129,4 +155,4 @@ Cada persona escribe su WhatsApp en la app (menú › Cuenta). Los administrador
 | `GET /api/auth/google/vuelta` | Google vuelve aquí; redirige a la app con un código de un solo uso (2 min) |
 | `POST /api/auth/canjear` | `{ codigo, verificador }` → `{ sesion, usuario }` |
 | `GET /api/yo` · `POST /api/salir` | La persona de la sesión · cerrar sesión |
-| `POST /api/accion` | `{ accion, … }`: `sincronizar`, `crm`, `sheets`, `chat`, `avisar`, `calendar` (con `invitados`, `conMeet`, `whatsapp`), `disponibilidad`, `meet`, `correo` (con `whatsapp`), `reporte`, `exportar`, `push`, `telefono`, `equipo` |
+| `POST /api/accion` | `{ accion, … }`: `sincronizar`, `crm`, `sheets`, `chat`, `avisar`, `calendar` (con `invitados`, `conMeet`, `whatsapp`), `disponibilidad`, `meet`, `correo` (con `whatsapp`), `reporte`, `exportar`, `push`, `telefono`, `equipo`, `sala`, `accesos`, `presencia`, `directo`, `bandeja`, `pasarCliente`. Sin aprobar solo se admiten `sala`, `telefono` y `push` |
