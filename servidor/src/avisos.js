@@ -38,35 +38,27 @@ export function crearAvisos(config, hacerFetch = fetch) {
             await conReintentos(() => enviarJson(config.chatWebhook, { text: texto.slice(0, 4000) }, {}, hacerFetch));
         },
 
-        // Envía la plantilla a cada teléfono; devuelve cuántos llegaron y cuáles fallaron
-        async whatsapp(mensaje, telefonos) {
+        // Un mensaje de plantilla a un teléfono, en un solo intento: los reintentos los lleva la cola (cola.js)
+        async whatsappUno(telefono, mensaje) {
             if (!whatsappActivo) throw new Error('WhatsApp no está configurado (WHATSAPP_TOKEN, WHATSAPP_TELEFONO_ID, WHATSAPP_PLANTILLA)');
-            // Meta no admite saltos de línea, tabuladores ni más de 4 espacios seguidos en una variable
-            const texto = String(mensaje || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
+            const texto = textoWhatsapp(mensaje);
             if (!texto) throw new Error('Mensaje vacío');
-            const url = `https://graph.facebook.com/${whatsapp.version}/${whatsapp.telefonoId}/messages`;
-            const resultado = { enviados: 0, fallidos: [] };
-            for (const telefono of telefonos) {
-                try {
-                    await conReintentos(() => enviarJson(url, {
-                        messaging_product: 'whatsapp',
-                        to: telefono,
-                        type: 'template',
-                        template: {
-                            name: whatsapp.plantilla,
-                            language: { code: whatsapp.idioma },
-                            components: [{ type: 'body', parameters: [{ type: 'text', text: texto }] }]
-                        }
-                    }, { Authorization: `Bearer ${whatsapp.token}` }, hacerFetch));
-                    resultado.enviados++;
-                } catch (error) {
-                    resultado.fallidos.push({ telefono, error: error.message });
+            await enviarJson(`https://graph.facebook.com/${whatsapp.version}/${whatsapp.telefonoId}/messages`, {
+                messaging_product: 'whatsapp',
+                to: telefono,
+                type: 'template',
+                template: {
+                    name: whatsapp.plantilla,
+                    language: { code: whatsapp.idioma },
+                    components: [{ type: 'body', parameters: [{ type: 'text', text: texto }] }]
                 }
-            }
-            return resultado;
+            }, { Authorization: `Bearer ${whatsapp.token}` }, hacerFetch);
         }
     };
 }
+
+// Meta no admite saltos de línea, tabuladores ni más de 4 espacios seguidos en una variable de plantilla
+export const textoWhatsapp = (mensaje) => String(mensaje || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
 
 /**
  * Teléfono en formato internacional sin "+" (lo que pide WhatsApp), o '' si no es válido.

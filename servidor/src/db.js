@@ -50,6 +50,20 @@ const ESQUEMA = [
         actualizado DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
         PRIMARY KEY (modulo, id)
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS cola_avisos (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        telefono VARCHAR(20) NOT NULL,
+        texto VARCHAR(1000) NOT NULL,
+        estado ENUM('pendiente', 'enviando', 'enviado', 'fallido') NOT NULL DEFAULT 'pendiente',
+        intentos TINYINT UNSIGNED NOT NULL DEFAULT 0,
+        proximo DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        marca CHAR(36) NULL,
+        reclamado DATETIME NULL,
+        enviado DATETIME NULL,
+        error VARCHAR(500) NOT NULL DEFAULT '',
+        creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX (estado, proximo)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS metricas (
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         fecha DATETIME NOT NULL,
@@ -67,6 +81,9 @@ export async function conectar(configMysql) {
         timezone: 'Z',           // Fechas siempre en UTC dentro de la base
         dateStrings: false
     });
+    // La hora de la base en UTC en cada conexión: en un hosting compartido el servidor puede estar en
+    // otra zona, y CURRENT_TIMESTAMP tiene que cuadrar con UTC_TIMESTAMP() (sesiones, cola de avisos)
+    pool.pool.on('connection', (conexion) => conexion.query("SET time_zone = '+00:00'"));
     for (const sql of ESQUEMA) await pool.query(sql);
     return pool;
 }

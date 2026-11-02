@@ -17,6 +17,7 @@ import express from 'express';
 import crypto from 'node:crypto';
 import * as cuentas from './cuentas.js';
 import { ACCIONES, errorApp } from './acciones.js';
+import { estadoCola } from './cola.js';
 
 // Límite sencillo de peticiones por IP (en memoria: basta para un solo proceso)
 function limitador(maximo, ventanaMs) {
@@ -111,13 +112,15 @@ export function crearApp({ config, pool, google, avisos, registrar = console }) 
 
     api.get('/salud', async (req, res) => {
         let base = 'ok';
-        try { await pool.query('SELECT 1'); } catch (e) { base = 'sin conexión'; }
+        let cola = null;
+        try { cola = await estadoCola(pool); } catch (e) { base = 'sin conexión'; }
         res.json({
             ok: base === 'ok', servicio: 'Semences del Caribe · backend', base,
             integraciones: {
                 chat: avisos.chatActivo, whatsapp: avisos.whatsappActivo,
                 reportes: Boolean(config.reportes.plantillaId)
             },
+            colaWhatsapp: cola,
             clientId: config.google.clientId
         });
     });

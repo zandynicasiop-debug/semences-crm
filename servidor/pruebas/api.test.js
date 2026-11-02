@@ -10,6 +10,7 @@ import { leerConfig } from '../src/config.js';
 import { conectar } from '../src/db.js';
 import { crearAvisos } from '../src/avisos.js';
 import { crearApp } from '../src/aplicacion.js';
+import { repasar, INTENTOS } from '../src/cola.js';
 
 const BASES = (process.env.PRUEBA_BASES || '127.0.0.1:33061,127.0.0.1:33062').split(',');
 
@@ -46,7 +47,7 @@ function googleFalso() {
 for (const base of BASES) {
     const [host, puerto] = base.split(':');
     describe(`backend con la base ${base}`, () => {
-        let pool, servidor, url, google, peticionesMeta, config;
+        let pool, servidor, url, google, peticionesMeta, config, avisos, respuestaMeta;
         const sesiones = {};
 
         const llamar = async (ruta, { metodo = 'POST', cuerpo, sesion, origen } = {}) => {
@@ -90,7 +91,7 @@ for (const base of BASES) {
                 try { pool = await conectar(config.mysql); break; } catch (e) { if (i > 60) throw e; await new Promise(r => setTimeout(r, 1000)); }
             }
             // Base limpia: se borran las tablas y conectar() las vuelve a crear
-            for (const tabla of ['sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
+            for (const tabla of ['sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
             await pool.end();
             pool = await conectar(config.mysql);
 
@@ -103,11 +104,14 @@ for (const base of BASES) {
                 'codigo-externa': { email: 'externa@gmail.com', verificado: true, dominio: '', nombre: 'Externa', foto: '', tokenRefresco: 'refresco-externa', permisos: '' }
             };
             peticionesMeta = [];
+            respuestaMeta = () => 200;
             const fetchFalso = async (destino, opciones) => {
                 peticionesMeta.push({ destino, cuerpo: JSON.parse(opciones.body), cabeceras: opciones.headers });
-                return new Response('{}', { status: 200 });
+                const estado = destino.startsWith('https://graph.facebook.com') ? respuestaMeta(JSON.parse(opciones.body)) : 200;
+                return new Response(estado === 200 ? '{}' : '{"error":{"message":"rechazado"}}', { status: estado });
             };
-            const app = crearApp({ config, pool, google, avisos: crearAvisos(config, fetchFalso), registrar: { error: () => {} } });
+            avisos = crearAvisos(config, fetchFalso);
+            const app = crearApp({ config, pool, google, avisos, registrar: { error: () => {} } });
             await new Promise(r => { servidor = app.listen(0, r); });
             url = `http://127.0.0.1:${servidor.address().port}`;
         });
@@ -122,6 +126,7 @@ for (const base of BASES) {
             assert.equal(r.estado, 200);
             assert.equal(r.json.base, 'ok');
             assert.deepEqual(r.json.integraciones, { chat: true, whatsapp: true, reportes: false });
+            assert.deepEqual(r.json.colaWhatsapp, {});
         });
 
         test('entrar: dominio y admins sí; ajenos y sin verificar no', async () => {
@@ -263,13 +268,61 @@ for (const base of BASES) {
             peticionesMeta.length = 0;
             const r = await accion(sesiones.ana, { accion: 'avisar', mensaje: '🚨 Plaga en\nparcela 3' });
             assert.equal(r.json.chat, 'enviado');
-            assert.equal(r.json.whatsapp.enviados, 2);
+            assert.deepEqual(r.json.whatsapp, { encolados: 2 });
             const chat = peticionesMeta.find(p => p.destino.startsWith('https://chat.googleapis.com'));
             assert.equal(chat.cuerpo.text, '🚨 Plaga en\nparcela 3');
+            // WhatsApp no sale en la petición: sale de la cola
+            assert.equal(peticionesMeta.filter(p => p.destino.startsWith('https://graph.facebook.com')).length, 0);
+
+            assert.deepEqual(await repasar(pool, avisos), { enviados: 2, reintentar: 0, fallidos: 0 });
             const whatsapp = peticionesMeta.filter(p => p.destino.startsWith('https://graph.facebook.com'));
             assert.deepEqual(whatsapp.map(p => p.cuerpo.to).sort(), ['18295550000', '18495551111']);
             assert.equal(whatsapp[0].cuerpo.template.components[0].parameters[0].text, '🚨 Plaga en parcela 3');
             assert.equal(whatsapp[0].cabeceras.Authorization, 'Bearer meta-token');
+            assert.deepEqual(await repasar(pool, avisos), { enviados: 0, reintentar: 0, fallidos: 0 });
+        });
+
+        test('cola de WhatsApp: reintenta lo pasajero, abandona lo definitivo y recupera lo atascado', async () => {
+            await pool.query('DELETE FROM cola_avisos');
+            // Meta saturado para un número y rechazo definitivo para otro
+            respuestaMeta = (cuerpo) => cuerpo.to === '18295550000' ? 503 : 400;
+            await accion(sesiones.ana, { accion: 'avisar', mensaje: 'Reintento' });
+            assert.deepEqual(await repasar(pool, avisos), { enviados: 0, reintentar: 1, fallidos: 1 });
+            const [[fallido]] = await pool.query("SELECT telefono, error FROM cola_avisos WHERE estado = 'fallido'");
+            assert.equal(fallido.telefono, '18495551111');
+            assert.match(fallido.error, /400/);
+            // El pendiente espera su turno: un repaso inmediato no lo toca
+            assert.deepEqual(await repasar(pool, avisos), { enviados: 0, reintentar: 0, fallidos: 0 });
+            const [[pendiente]] = await pool.query("SELECT intentos, TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), proximo) espera FROM cola_avisos WHERE estado = 'pendiente'");
+            assert.equal(pendiente.intentos, 1);
+            assert.ok(pendiente.espera > 20 && pendiente.espera <= 30, `espera ${pendiente.espera}`);
+
+            // Llega su hora y Meta ya responde
+            respuestaMeta = () => 200;
+            await pool.query("UPDATE cola_avisos SET proximo = UTC_TIMESTAMP() WHERE estado = 'pendiente'");
+            assert.deepEqual(await repasar(pool, avisos), { enviados: 1, reintentar: 0, fallidos: 0 });
+
+            // Si Meta sigue caído, se abandona al llegar a INTENTOS
+            respuestaMeta = () => 500;
+            await pool.query(`INSERT INTO cola_avisos (telefono, texto, intentos) VALUES ('18095550000', 'x', ${INTENTOS - 1})`);
+            assert.deepEqual(await repasar(pool, avisos), { enviados: 0, reintentar: 0, fallidos: 1 });
+
+            // Un mensaje que quedó "enviando" porque el proceso se cayó se vuelve a enviar a los 5 minutos
+            respuestaMeta = () => 200;
+            await pool.query("INSERT INTO cola_avisos (telefono, texto, estado, reclamado) VALUES ('18095550001', 'atascado', 'enviando', UTC_TIMESTAMP() - INTERVAL 6 MINUTE)");
+            await pool.query("INSERT INTO cola_avisos (telefono, texto, estado, reclamado) VALUES ('18095550002', 'en curso', 'enviando', UTC_TIMESTAMP())");
+            assert.deepEqual(await repasar(pool, avisos), { enviados: 1, reintentar: 0, fallidos: 0 });
+
+            const salud = await llamar('/api/salud', { metodo: 'GET' });
+            assert.deepEqual(salud.json.colaWhatsapp, { enviado: 2, fallido: 2, enviando: 1 });
+            const equipo = await accion(sesiones.jefa, { accion: 'equipo', operacion: 'listar' });
+            assert.equal(equipo.json.whatsapp.ultimosFallidos.length, 2);
+        });
+
+        test('la base trabaja en UTC aunque el servidor esté en otra zona', async () => {
+            const [[fila]] = await pool.query('SELECT @@session.time_zone zona, TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), NOW()) diferencia');
+            assert.equal(fila.zona, '+00:00');
+            assert.equal(Number(fila.diferencia), 0);
         });
 
         test('CORS: solo los orígenes de la app', async () => {

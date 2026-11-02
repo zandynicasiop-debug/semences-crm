@@ -10,6 +10,7 @@ import { tokenDe, actualizarToken, olvidarToken, telefonosDelEquipo, guardarTele
 import { construirCorreo } from './correo.js';
 import { normalizarTelefono } from './avisos.js';
 import { conReintentos } from './reintentos.js';
+import { encolarWhatsapp, estadoCola } from './cola.js';
 
 export function errorApp(mensaje, estado = 400, codigo = 'datos') {
     const error = new Error(mensaje);
@@ -95,7 +96,8 @@ export const ACCIONES = {
             resultado.chat = await avisos.chat(mensaje).then(() => 'enviado', (e) => `error: ${e.message}`);
         }
         if (avisos.whatsappActivo) {
-            resultado.whatsapp = await avisos.whatsapp(mensaje, await telefonosDelEquipo(pool));
+            // No se espera a Meta: los mensajes salen de la cola en segundos (y se reintentan si Meta falla)
+            resultado.whatsapp = { encolados: await encolarWhatsapp(pool, await telefonosDelEquipo(pool), mensaje) };
         }
         if (!resultado.chat && !resultado.whatsapp) throw errorApp('Ni Google Chat ni WhatsApp están configurados en el servidor', 503, 'configuracion');
         return resultado;
@@ -182,6 +184,7 @@ export const ACCIONES = {
             throw errorApp('Operación desconocida (listar, guardar o quitar)');
         }
         const [filas] = await pool.query('SELECT email, nombre, telefono, notas FROM equipo ORDER BY email');
-        return { ok: true, equipo: filas };
+        const [fallidos] = await pool.query("SELECT telefono, error, creado FROM cola_avisos WHERE estado = 'fallido' ORDER BY id DESC LIMIT 20");
+        return { ok: true, equipo: filas, whatsapp: { cola: await estadoCola(pool), ultimosFallidos: fallidos } };
     }
 };

@@ -12,7 +12,8 @@ Reemplaza al Apps Script como base de datos y conecta la app con Google Workspac
 | Calendar y Meet | Eventos en el calendario de cada quien; reuniones con enlace real de Meet |
 | Reportes PDF | Copia de una plantilla de Google Docs con `{{campos}}`, exportada a PDF en una carpeta de Drive |
 | Avisos | Google Chat (webhook) y WhatsApp (API en la nube de Meta) a todo el equipo |
-| Reintentos | Espera creciente (1 s, 2 s, 4 s) ante 429 y 5xx de Google o Meta |
+| Cola de WhatsApp | Tabla `cola_avisos` en MySQL: quien avisa no espera a Meta; se reintenta con espera creciente (30 s, 1, 2, 4… min, hasta 6 veces) y sobrevive a reinicios |
+| Reintentos con Google | Espera creciente (1 s, 2 s, 4 s) ante 429 y 5xx |
 
 La app web usa el backend en cuanto tiene su dirección (`CONFIG_GOOGLE.api`, que GitHub pone desde el secreto `SEMENCES_API`). Sin ella sigue funcionando como antes (Apps Script o solo local).
 
@@ -26,7 +27,7 @@ docker run -d --name sdc-mariadb -e MARIADB_ROOT_PASSWORD=prueba -e MARIADB_DATA
 npm test
 ```
 
-Prueban el backend completo contra MySQL 8.4 y MariaDB 10.11, con Google y Meta simulados: entrada y permisos, sincronización en transacción, cifrado, Gmail (incluida la inyección de cabeceras), Meet, reportes, WhatsApp, CORS, el código de un solo uso de la app Android y el límite de intentos. GitHub las ejecuta antes de cada publicación.
+Prueban el backend completo contra MySQL 8.4 y MariaDB 10.11, con Google y Meta simulados: entrada y permisos, sincronización en transacción, cifrado, Gmail (incluida la inyección de cabeceras), Meet, reportes, la cola de WhatsApp (reintentos, rechazos definitivos y mensajes atascados), CORS, el código de un solo uso de la app Android, el límite de intentos y la hora en UTC aunque el servidor MySQL esté en otra zona. Para probar contra otra base: `PRUEBA_BASES=host:puerto npm test`. GitHub las ejecuta antes de cada publicación.
 
 ## Despliegue en FastComet (cPanel)
 
@@ -93,6 +94,8 @@ WhatsApp no deja que una empresa escriba a nadie con mensajes libres: los avisos
 2. En **WhatsApp Manager › Plantillas de mensajes** crea una plantilla de categoría **Utilidad**, idioma español, con un texto como `Aviso del equipo Semences: {{1}}`. Espera a que la aprueben.
 3. Crea un **token permanente** (usuario del sistema con permiso `whatsapp_business_messaging`).
 4. Configura `WHATSAPP_TOKEN`, `WHATSAPP_TELEFONO_ID` (el id del número, no el número), `WHATSAPP_PLANTILLA` (el nombre de la plantilla) y `WHATSAPP_IDIOMA` (`es`).
+
+Los mensajes salen de la cola `cola_avisos` cada 5 segundos. En `GET /api/salud` (`colaWhatsapp`) se ve cuántos hay pendientes, enviados y fallidos; los administradores ven además los últimos fallidos con su motivo (acción `equipo`, operación `listar`). En cPanel, Passenger puede dormir la app Node si nadie la usa: lo pendiente sale en cuanto vuelve a recibir una petición. Si quieres que salga aunque nadie use la app, crea en cPanel › **Cron Jobs** una tarea cada 5 minutos con `curl -s https://api.semillasdata.com/api/salud > /dev/null`.
 
 Cada persona escribe su WhatsApp en la app (menú › Cuenta). Los administradores también pueden añadir teléfonos con `npm run equipo -- agregar correo@… "Nombre" 8095551234`. Las alertas de "Notificar al equipo" llegan por Google Chat y por WhatsApp a todos. Meta cobra cada conversación iniciada por la empresa, según su tarifa por país.
 
