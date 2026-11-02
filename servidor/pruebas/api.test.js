@@ -504,6 +504,43 @@ for (const base of BASES) {
             assert.equal(previa.status, 403);
         });
 
+        test('cabeceras de seguridad (Helmet) y límite de peticiones estándar', async () => {
+            const r = await llamar('/api/salud', { metodo: 'GET' });
+            assert.match(r.cabeceras.get('content-security-policy'), /default-src 'none'/);
+            assert.match(r.cabeceras.get('strict-transport-security'), /max-age=31536000/);
+            assert.equal(r.cabeceras.get('x-content-type-options'), 'nosniff');
+            assert.equal(r.cabeceras.get('x-frame-options'), 'SAMEORIGIN');
+            assert.equal(r.cabeceras.get('referrer-policy'), 'no-referrer');
+            assert.equal(r.cabeceras.get('cache-control'), 'no-store');
+            assert.equal(r.cabeceras.get('x-powered-by'), null);
+            assert.match(r.cabeceras.get('ratelimit-policy'), /600-in-1min/);
+        });
+
+        test('entrada de datos: solo objetos JSON, sin contaminar prototipos ni nombres de acción raros', async () => {
+            const crudo = (cuerpo) => fetch(`${url}/api/accion`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sesiones.ana}` }, body: cuerpo });
+            assert.equal((await crudo('[1,2]')).status, 400);
+            assert.equal((await crudo('{"accion":"sincronizar","guardar":[{"modulo":"clientes","registro":{"id":"p1","__proto__":{"admin":true}}}]}')).status, 400);
+            assert.equal((await crudo('{"accion":"sincronizar","constructor":{"prototype":{"x":1}}}')).status, 400);
+            assert.equal((await crudo('{"accion":"sin cro"}')).status, 400);
+            assert.equal((await crudo('{"accion":{"$ne":1}}')).status, 400);
+            assert.equal((await crudo('{"accion":"toString"}')).status, 400, 'una acción heredada de Object no existe');
+            let anidado = '{"accion":"sincronizar","x":'; for (let i = 0; i < 40; i++) anidado += '{"a":'; anidado += '1' + '}'.repeat(41);
+            assert.equal((await crudo(anidado)).status, 400);
+            assert.equal((await crudo('{no es json')).status, 400);
+        });
+
+        test('inyección SQL: los textos con SQL se guardan como texto y la base sigue intacta', async () => {
+            const malicioso = "x'); DROP TABLE registros; --";
+            const r = await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: { id: malicioso, nombre: "Robert'); DROP TABLE usuarios;--", pais: 'RD', casa: 'Fitó' } }] });
+            assert.equal(r.estado, 200);
+            const guardado = r.json.datos.clientes.find(c => c.id === malicioso);
+            assert.equal(guardado.nombre, "Robert'); DROP TABLE usuarios;--");
+            assert.equal((await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: "clientes' OR '1'='1", registro: { id: 'z' } }] })).estado, 400);
+            const [[tablas]] = await pool.query("SELECT COUNT(*) n FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN ('registros', 'usuarios')");
+            assert.equal(Number(tablas.n), 2);
+            await accion(sesiones.ana, { accion: 'sincronizar', eliminar: [{ modulo: 'clientes', id: malicioso }] });
+        });
+
         test('app Android: vuelta a semences:// y código atado al secreto de la app', async () => {
             const verificador = crypto.randomBytes(32).toString('base64url');
             const reto = crypto.createHash('sha256').update(verificador).digest('base64url');

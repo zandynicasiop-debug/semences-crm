@@ -19,20 +19,7 @@ import * as cuentas from './cuentas.js';
 import { ACCIONES, errorApp } from './acciones.js';
 import { estadoCola } from './cola.js';
 import { ambitoDe } from './permisos.js';
-
-// Límite sencillo de peticiones por IP (en memoria: basta para un solo proceso)
-function limitador(maximo, ventanaMs) {
-    const cuentas = new Map();
-    return (req, res, next) => {
-        const ahora = Date.now();
-        const clave = req.ip;
-        const registro = cuentas.get(clave);
-        if (!registro || registro.desde + ventanaMs < ahora) cuentas.set(clave, { desde: ahora, n: 1 });
-        else if (++registro.n > maximo) return res.status(429).json({ ok: false, codigo: 'limite', error: 'Demasiadas peticiones. Espera un momento.' });
-        if (cuentas.size > 10000) cuentas.clear();
-        next();
-    };
-}
+import { cabecerasSeguras, limiteGeneral, limiteEntrada as limiteDeEntrada, limiteAcciones, validarEntrada } from './seguridad.js';
 
 // El "state" de OAuth va firmado: así nadie puede inventar una vuelta de Google
 function firmarEstado(config, valor) {
@@ -58,9 +45,10 @@ export function crearApp({ config, pool, google, avisos, registrar = console }) 
     app.disable('x-powered-by');
     app.set('trust proxy', 1); // Detrás del proxy de cPanel (Passenger): la IP real viene en X-Forwarded-For
 
-    // Cabeceras de seguridad y CORS solo para las páginas de la app
+    // Cabeceras de seguridad (Helmet: seguridad.js) y CORS solo para las páginas de la app
+    app.use(cabecerasSeguras());
     app.use((req, res, next) => {
-        res.set({ 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Cache-Control': 'no-store' });
+        res.set({ 'Cache-Control': 'no-store' });
         const origen = req.get('Origin');
         if (origen && config.origenes.includes(origen)) {
             res.set({
@@ -76,7 +64,9 @@ export function crearApp({ config, pool, google, avisos, registrar = console }) 
     });
 
     const api = express.Router();
+    api.use(limiteGeneral(config)); // Por IP, para todo /api: frena las inundaciones de peticiones
     api.use(express.json({ limit: '10mb' })); // 10 MB: un PDF de 7 MB en base64 cabe
+    api.use(validarEntrada); // Objeto JSON, sin claves que contaminen prototipos, acción con nombre válido
 
     // Sesión obligatoria para todo lo que no es entrar
     const conSesion = async (req, res, next) => {
@@ -134,7 +124,7 @@ export function crearApp({ config, pool, google, avisos, registrar = console }) 
         });
     });
 
-    const limiteEntrada = limitador(config.entradasPorMinuto, 60000);
+    const limiteEntrada = limiteDeEntrada(config);
 
     // vuelta: la página de la app a la que volver (solo de los ORIGENES); sin ella, la app Android
     const vueltaValida = (texto) => {
@@ -204,7 +194,7 @@ export function crearApp({ config, pool, google, avisos, registrar = console }) 
         }
     });
 
-    api.post('/accion', limitador(240, 60000), conSesion, async (req, res, next) => {
+    api.post('/accion', limiteAcciones(config), conSesion, async (req, res, next) => {
         try {
             const datos = req.body && typeof req.body === 'object' ? req.body : {};
             const accion = Object.hasOwn(ACCIONES, datos.accion) ? ACCIONES[datos.accion] : null;

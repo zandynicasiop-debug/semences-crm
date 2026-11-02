@@ -116,6 +116,7 @@ export async function conectar(configMysql) {
         charset: 'utf8mb4',
         waitForConnections: true,
         connectionLimit: 5,      // Hosting compartido: pocas conexiones a la vez
+        multipleStatements: false, // Una sentencia por consulta: un texto con "; DROP TABLE…" nunca se ejecuta
         timezone: 'Z',           // Fechas siempre en UTC dentro de la base
         dateStrings: false
     });

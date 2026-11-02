@@ -65,7 +65,7 @@ cPanel › **Dominios** › crea `api.semillasdata.com` (con su carpeta, p. ej. 
    - Application root: `semences-servidor`
    - Application URL: `api.semillasdata.com`
    - Application startup file: `app.js`
-3. En la misma pantalla, **Environment variables**: añade las de `.env.ejemplo`. Las obligatorias son:
+3. En la misma pantalla, **Environment variables**: añade las de `.env.example`. Las obligatorias son:
    - `URL_PUBLICA`, `ORIGENES` y `DOMINIO`/`ADMINS`;
    - `MYSQL_*` (host `localhost`);
    - `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET`;

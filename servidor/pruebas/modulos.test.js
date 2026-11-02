@@ -6,7 +6,9 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import * as permisos from '../src/permisos.js';
-import { leerConfig, comprobarConfig, horaResumen } from '../src/config.js';
+import { leerConfig, comprobarConfig, horaResumen, validarEntorno, ORIGENES_POR_DEFECTO } from '../src/config.js';
+import { problemaEnDatos } from '../src/seguridad.js';
+import fs from 'node:fs';
 import { filasDe, pestanasDe, PESTANAS } from '../src/exportar.js';
 import { crearAvisos, suscripcionValida, normalizarTelefono, textoWhatsapp, tarjetaChat } from '../src/avisos.js';
 import { esPasajero, conReintentos } from '../src/reintentos.js';
@@ -216,6 +218,63 @@ describe('configuración', () => {
         assert.deepEqual(comprobarConfig(completa), []);
         assert.deepEqual(comprobarConfig({ ...completa, urlPublica: 'http://api.x.com' }), ['URL_PUBLICA (https://…)'], 'sin https no arranca');
         assert.deepEqual(comprobarConfig({ ...completa, urlPublica: 'http://localhost:3000' }), [], 'localhost sí, para pruebas');
+    });
+});
+
+// ---------------------------------------------------------------------------------------------------
+describe('esquema de las variables de entorno (.env.example)', () => {
+    const ejemplo = Object.fromEntries(fs.readFileSync(new URL('../.env.example', import.meta.url), 'utf8')
+        .split('\n').map(l => l.match(/^([A-Z_0-9]+)=(.*)$/)).filter(Boolean).map(m => [m[1], m[2]]));
+
+    test('.env.example documenta todas las variables que lee el servidor y cumple su propio esquema', () => {
+        const codigo = fs.readFileSync(new URL('../src/config.js', import.meta.url), 'utf8');
+        const leidas = [...new Set([...codigo.matchAll(/entorno\.([A-Z_0-9]+)/g)].map(m => m[1]))].filter(v => v !== 'PORT');
+        assert.deepEqual(leidas.filter(v => !(v in ejemplo)), [], 'variables sin documentar en .env.example');
+        assert.deepEqual(validarEntorno(ejemplo), { errores: [], avisos: [] });
+    });
+
+    test('formatos peligrosos impiden arrancar', () => {
+        const { errores } = validarEntorno({
+            ORIGENES: 'https://semillasdata.com/,https://ok.com', ADMINS: 'jefa@gmail.com,no-es-correo',
+            DOMINIO: '@semillasdata.com', ZONA_HORARIA: 'Caribe/Santo_Domingo', CUENTA_GOOGLE_SISTEMA: 'jefa'
+        });
+        assert.equal(errores.length, 5);
+        assert.ok(errores.some(e => e.startsWith('ORIGENES')));
+        assert.ok(errores.some(e => e.startsWith('ZONA_HORARIA')));
+    });
+
+    test('los orígenes de las apps (Capacitor y Electron) son válidos y vienen por defecto', () => {
+        assert.deepEqual(validarEntorno({ ORIGENES: ORIGENES_POR_DEFECTO }).errores, []);
+        const origenes = leerConfig({}).origenes;
+        for (const o of ['https://localhost', 'capacitor://localhost', 'app://semences', 'https://appassets.androidplatform.net']) assert.ok(origenes.includes(o), o);
+    });
+
+    test('valores mal escritos: arranca con el valor por defecto, pero lo avisa', () => {
+        const { errores, avisos } = validarEntorno({
+            DIAS_SESION: 'treinta', UMBRAL_GERMINACION: '150', RESUMEN_HORA: '25', CUENTAS_PERSONALES: 'quizás',
+            VAPID_PUBLICA: 'x', WHATSAPP_TOKEN: 't', WHATSAPP_TELEFONO_ID: '+1 809 555', CHAT_WEBHOOK: 'https://evil.com/hook',
+            RESPALDO_CARPETA_ID: '1AbCdEfGhIjKlMn'
+        });
+        assert.deepEqual(errores, []);
+        assert.equal(avisos.length, 9, avisos.join('\n'));
+        assert.equal(validarEntorno({ RESUMEN_HORA: 'no', CUENTAS_PERSONALES: 'sí', ZONA_HORARIA: 'America/Caracas' }).avisos.length, 0);
+    });
+});
+
+describe('seguridad de la entrada de datos', () => {
+    test('rechaza claves que contaminan prototipos a cualquier profundidad', () => {
+        assert.equal(problemaEnDatos({ a: 1, b: [{ c: 'x' }] }), '');
+        assert.match(problemaEnDatos(JSON.parse('{"registro":{"__proto__":{"admin":true}}}')), /__proto__/);
+        assert.match(problemaEnDatos({ lista: [{ constructor: { prototype: 1 } }] }), /constructor/);
+        assert.equal(problemaEnDatos(null), '');
+        assert.equal(problemaEnDatos('texto'), '');
+    });
+
+    test('rechaza el anidamiento excesivo (sin desbordar la pila)', () => {
+        let valor = {};
+        const raiz = valor;
+        for (let i = 0; i < 10000; i++) { valor.a = {}; valor = valor.a; }
+        assert.match(problemaEnDatos(raiz), /anidados/);
     });
 });
 
