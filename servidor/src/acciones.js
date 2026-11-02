@@ -6,11 +6,12 @@
  * Cada acción recibe (datos, contexto) y devuelve el objeto que se manda a la app ({ ok: true, ... }).
  */
 import * as db from './db.js';
-import { tokenDe, actualizarToken, olvidarToken, telefonosDelEquipo, guardarTelefono, esAdmin, publico } from './cuentas.js';
+import { tokenDe, actualizarToken, olvidarToken, telefonosDelEquipo, guardarTelefono, esAdmin, publico,
+    guardarSuscripcion, borrarSuscripcion, suscripcionesDelEquipo, tieneSuscripcion } from './cuentas.js';
 import { construirCorreo } from './correo.js';
-import { normalizarTelefono } from './avisos.js';
+import { normalizarTelefono, suscripcionValida } from './avisos.js';
 import { conReintentos } from './reintentos.js';
-import { encolarWhatsapp, estadoCola } from './cola.js';
+import { encolar, estadoCola } from './cola.js';
 
 export function errorApp(mensaje, estado = 400, codigo = 'datos') {
     const error = new Error(mensaje);
@@ -87,19 +88,22 @@ export const ACCIONES = {
         return { ok: true };
     },
 
-    // Aviso a todo el equipo: Google Chat y WhatsApp a la vez (lo que esté configurado)
-    async avisar(datos, { pool, avisos }) {
+    // Aviso a todo el equipo: Google Chat, WhatsApp y push a la vez (lo que esté configurado)
+    async avisar(datos, { pool, avisos, usuario }) {
         const mensaje = String(datos.mensaje || '').trim();
         if (!mensaje) throw errorApp('Mensaje vacío');
-        const resultado = { ok: true, chat: null, whatsapp: null };
+        const resultado = { ok: true, chat: null, whatsapp: null, push: null };
         if (avisos.chatActivo) {
             resultado.chat = await avisos.chat(mensaje).then(() => 'enviado', (e) => `error: ${e.message}`);
         }
         if (avisos.whatsappActivo) {
             // No se espera a Meta: los mensajes salen de la cola en segundos (y se reintentan si Meta falla)
-            resultado.whatsapp = { encolados: await encolarWhatsapp(pool, await telefonosDelEquipo(pool), mensaje) };
+            resultado.whatsapp = { encolados: await encolar(pool, 'whatsapp', await telefonosDelEquipo(pool), mensaje) };
         }
-        if (!resultado.chat && !resultado.whatsapp) throw errorApp('Ni Google Chat ni WhatsApp están configurados en el servidor', 503, 'configuracion');
+        if (avisos.pushActivo) {
+            resultado.push = { encolados: await encolar(pool, 'push', await suscripcionesDelEquipo(pool, usuario.id), mensaje) };
+        }
+        if (!resultado.chat && !resultado.whatsapp && !resultado.push) throw errorApp('No hay ningún canal de avisos configurado en el servidor (Google Chat, WhatsApp o push)', 503, 'configuracion');
         return resultado;
     },
 
@@ -160,6 +164,25 @@ export const ACCIONES = {
         return { ok: true, archivoId: archivo.id, enlace: archivo.enlace };
     },
 
+    // Avisos push en este navegador: alta ({ suscripcion }), baja ({ endpoint }) o consulta ({ endpoint, consultar: true })
+    async push(datos, { pool, usuario, avisos }) {
+        if (!avisos.pushActivo) throw errorApp('Los avisos push no están configurados en el servidor', 503, 'configuracion');
+        if (datos.operacion === 'alta') {
+            const suscripcion = suscripcionValida(datos.suscripcion);
+            if (!suscripcion) throw errorApp('Suscripción push no válida');
+            await guardarSuscripcion(pool, usuario.id, suscripcion);
+            return { ok: true, activo: true };
+        }
+        const endpoint = String(datos.endpoint || '');
+        if (!endpoint) throw errorApp('Falta la dirección de la suscripción');
+        if (datos.operacion === 'baja') {
+            await borrarSuscripcion(pool, usuario.id, endpoint);
+            return { ok: true, activo: false };
+        }
+        if (datos.operacion === 'consultar') return { ok: true, activo: await tieneSuscripcion(pool, usuario.id, endpoint) };
+        throw errorApp('Operación desconocida (alta, baja o consultar)');
+    },
+
     // Mi número de WhatsApp para recibir los avisos ('' para dejar de recibirlos)
     async telefono(datos, { pool, usuario, config }) {
         const texto = String(datos.telefono || '').trim();
@@ -185,13 +208,14 @@ export const ACCIONES = {
                 [email, String(datos.nombre || '').slice(0, 200), telefono, String(datos.notas || '').slice(0, 500)]);
         } else if (datos.operacion === 'quitar') {
             await pool.query('DELETE FROM equipo WHERE email = ?', [email]);
-            // Quien ya no está en el equipo pierde también sus sesiones abiertas
+            // Quien ya no está en el equipo pierde también sus sesiones abiertas y sus avisos push
             await pool.query('DELETE s FROM sesiones s JOIN usuarios u ON u.id = s.usuario_id WHERE u.email = ?', [email]);
+            await pool.query('DELETE p FROM push_suscripciones p JOIN usuarios u ON u.id = p.usuario_id WHERE u.email = ?', [email]);
         } else if (datos.operacion !== 'listar') {
             throw errorApp('Operación desconocida (listar, guardar o quitar)');
         }
         const [filas] = await pool.query('SELECT email, nombre, telefono, notas FROM equipo ORDER BY email');
-        const [fallidos] = await pool.query("SELECT telefono, error, creado FROM cola_avisos WHERE estado = 'fallido' ORDER BY id DESC LIMIT 20");
-        return { ok: true, equipo: filas, whatsapp: { cola: await estadoCola(pool), ultimosFallidos: fallidos } };
+        const [fallidos] = await pool.query("SELECT canal, destino, error, creado FROM cola_avisos WHERE estado = 'fallido' ORDER BY id DESC LIMIT 20");
+        return { ok: true, equipo: filas, avisos: { cola: await estadoCola(pool), ultimosFallidos: fallidos } };
     }
 };

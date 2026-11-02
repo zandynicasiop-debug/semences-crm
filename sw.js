@@ -6,7 +6,7 @@
  * - Lo demás (el Apps Script de Google, Chat…) no pasa por aquí: siempre va a la red.
  * Al publicar cambios grandes, sube VERSION para descartar las copias viejas.
  */
-const VERSION = 'semences-v6';
+const VERSION = 'semences-v7';
 const APP = [
     './', './index.html', './style.css', './manifest.webmanifest',
     './googleSync.js', './app.js', './datos.js', './usuario.js', './mapa.js', './cotizador.js',
@@ -62,4 +62,29 @@ self.addEventListener('fetch', (evento) => {
             return respuesta;
         })));
     }
+});
+
+// ----- Avisos push (backend): llegan aunque la app esté cerrada -----
+self.addEventListener('push', (evento) => {
+    let datos = {};
+    try { datos = evento.data ? evento.data.json() : {}; } catch (e) { datos = { texto: evento.data ? evento.data.text() : '' }; }
+    const titulo = datos.titulo || 'Semences del Caribe · Aviso del equipo';
+    evento.waitUntil(self.registration.showNotification(titulo, {
+        body: datos.texto || '',
+        icon: 'iconos/icono-192.png',
+        badge: 'iconos/icono-192.png',
+        lang: 'es',
+        tag: `aviso-${Date.now()}`,
+        data: { url: self.registration.scope }
+    }));
+});
+
+// Al tocar el aviso: vuelve a la app si ya está abierta; si no, la abre
+self.addEventListener('notificationclick', (evento) => {
+    evento.notification.close();
+    const destino = (evento.notification.data && evento.notification.data.url) || self.registration.scope;
+    evento.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((ventanas) => {
+        const abierta = ventanas.find(v => v.url.startsWith(self.registration.scope));
+        return abierta ? abierta.focus() : self.clients.openWindow(destino);
+    }));
 });

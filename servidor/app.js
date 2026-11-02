@@ -21,5 +21,5 @@ if (faltan.length) {
 const pool = await conectar(config.mysql);
 const avisos = crearAvisos(config);
 const app = crearApp({ config, pool, google: crearGoogle(config), avisos });
-iniciarCola(pool, avisos); // Envía los WhatsApp pendientes cada 5 segundos
+iniciarCola(pool, avisos); // Envía los avisos pendientes (WhatsApp y push) cada 5 segundos
 app.listen(config.puerto, () => console.log(`Backend de Semences escuchando en el puerto ${config.puerto}`));

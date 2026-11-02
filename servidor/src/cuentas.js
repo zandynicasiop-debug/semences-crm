@@ -129,3 +129,28 @@ export const publico = (usuario, config) => ({
     googleConectado: Boolean(usuario.token_google),
     permisos: String(usuario.permisos_google || '').split(' ').filter(Boolean)
 });
+
+// ----- Suscripciones a avisos push (una por navegador o teléfono) -----
+
+// Alta o actualización: si otra persona entra en el mismo navegador, la suscripción pasa a ser suya
+export async function guardarSuscripcion(pool, usuarioId, { endpoint, p256dh, auth }) {
+    await pool.query(
+        `INSERT INTO push_suscripciones (huella, usuario_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE usuario_id = VALUES(usuario_id), p256dh = VALUES(p256dh), auth = VALUES(auth)`,
+        [huella(endpoint), usuarioId, endpoint, p256dh, auth]);
+}
+
+export async function borrarSuscripcion(pool, usuarioId, endpoint) {
+    await pool.query('DELETE FROM push_suscripciones WHERE huella = ? AND usuario_id = ?', [huella(endpoint), usuarioId]);
+}
+
+// Huellas de las suscripciones del equipo, menos las de quien avisa (ya sabe lo que mandó)
+export async function suscripcionesDelEquipo(pool, excepto) {
+    const [filas] = await pool.query('SELECT huella FROM push_suscripciones WHERE usuario_id <> ?', [excepto || 0]);
+    return filas.map(f => f.huella);
+}
+
+export async function tieneSuscripcion(pool, usuarioId, endpoint) {
+    const [filas] = await pool.query('SELECT 1 FROM push_suscripciones WHERE huella = ? AND usuario_id = ?', [huella(endpoint), usuarioId]);
+    return filas.length > 0;
+}

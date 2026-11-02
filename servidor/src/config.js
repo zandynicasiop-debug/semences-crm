@@ -48,6 +48,13 @@ export function leerConfig(entorno = process.env) {
             carpetaId: entorno.REPORTE_CARPETA_ID || ''
         },
 
+        // Avisos push en el teléfono y el ordenador con la app cerrada (Web Push). Claves VAPID: npm run vapid
+        push: {
+            publica: entorno.VAPID_PUBLICA || '',
+            privada: entorno.VAPID_PRIVADA || '',
+            contacto: entorno.VAPID_CONTACTO || 'mailto:soporte@semillasdata.com'
+        },
+
         // WhatsApp Business (API en la nube de Meta). Los avisos que inicia la empresa solo pueden ir
         // como plantilla aprobada por Meta, con una variable {{1}} para el texto del aviso.
         whatsapp: {

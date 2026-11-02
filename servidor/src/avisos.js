@@ -4,6 +4,7 @@
  * WhatsApp: los mensajes que inicia la empresa solo pueden ir como plantilla aprobada por Meta.
  * La plantilla tiene una variable {{1}} donde va el texto del aviso (ver LEEME.md).
  */
+import webpush from 'web-push';
 import { conReintentos } from './reintentos.js';
 
 // fetch que lanza el error con su código HTTP, para que los reintentos sepan si repetir
@@ -23,13 +24,27 @@ async function enviarJson(url, cuerpo, cabeceras = {}, hacerFetch = fetch) {
     return respuesta;
 }
 
-export function crearAvisos(config, hacerFetch = fetch) {
-    const { whatsapp } = config;
+export function crearAvisos(config, hacerFetch = fetch, enviarPush = webpush.sendNotification.bind(webpush)) {
+    const { whatsapp, push } = config;
     const whatsappActivo = Boolean(whatsapp.token && whatsapp.telefonoId && whatsapp.plantilla);
+    const pushActivo = Boolean(push.publica && push.privada);
 
     return {
         chatActivo: Boolean(config.chatWebhook),
         whatsappActivo,
+        pushActivo,
+        clavePush: pushActivo ? push.publica : '',
+
+        // Aviso push a una suscripción ({ endpoint, p256dh, auth }), en un solo intento (reintenta la cola).
+        // Si el servicio responde 404 o 410, la suscripción ya no existe: quien llama la borra
+        async pushUno(suscripcion, contenido) {
+            if (!pushActivo) throw new Error('Los avisos push no están configurados (VAPID_PUBLICA, VAPID_PRIVADA)');
+            await enviarPush(
+                { endpoint: suscripcion.endpoint, keys: { p256dh: suscripcion.p256dh, auth: suscripcion.auth } },
+                JSON.stringify(contenido),
+                { TTL: 12 * 3600, urgency: 'high', vapidDetails: { subject: push.contacto, publicKey: push.publica, privateKey: push.privada } }
+            );
+        },
 
         async chat(mensaje) {
             if (!config.chatWebhook) throw new Error('Google Chat no está configurado (CHAT_WEBHOOK)');
@@ -59,6 +74,23 @@ export function crearAvisos(config, hacerFetch = fetch) {
 
 // Meta no admite saltos de línea, tabuladores ni más de 4 espacios seguidos en una variable de plantilla
 export const textoWhatsapp = (mensaje) => String(mensaje || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
+
+/**
+ * Servicios de avisos push de los navegadores (Chrome/Android, Firefox, Safari/iPhone, Edge). El servidor
+ * hace una petición a la dirección de cada suscripción: solo se aceptan estas, para que nadie pueda
+ * usar el backend para llamar a otras direcciones.
+ */
+const SERVICIOS_PUSH = [/^fcm\.googleapis\.com$/, /^android\.googleapis\.com$/, /(^|\.)push\.services\.mozilla\.com$/, /(^|\.)push\.apple\.com$/, /(^|\.)notify\.windows\.com$/];
+
+export function suscripcionValida(suscripcion) {
+    if (!suscripcion || typeof suscripcion !== 'object') return null;
+    let url;
+    try { url = new URL(String(suscripcion.endpoint || '')); } catch (e) { return null; }
+    const claves = suscripcion.keys || {};
+    if (url.protocol !== 'https:' || url.port || !SERVICIOS_PUSH.some(r => r.test(url.hostname)) || url.href.length > 1000) return null;
+    if (!/^[\w-]{60,200}$/.test(claves.p256dh || '') || !/^[\w-]{10,100}$/.test(claves.auth || '')) return null;
+    return { endpoint: url.href, p256dh: claves.p256dh, auth: claves.auth };
+}
 
 /**
  * Teléfono en formato internacional sin "+" (lo que pide WhatsApp), o '' si no es válido.

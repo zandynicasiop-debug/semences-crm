@@ -9,7 +9,7 @@ const pausa = (ms) => new Promise(r => setTimeout(r, ms));
 export const conVariacion = (ms) => ms + Math.floor(Math.random() * ms * 0.25);
 
 export function esPasajero(error) {
-    const codigo = Number(error && (error.status || error.code || (error.response && error.response.status)));
+    const codigo = Number(error && (error.status || error.statusCode || error.code || (error.response && error.response.status)));
     if (codigo === 429 || (codigo >= 500 && codigo < 600)) return true;
     return ['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ECONNREFUSED'].includes(error && error.code);
 }

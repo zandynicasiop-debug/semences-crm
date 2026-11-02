@@ -12,7 +12,8 @@ Reemplaza al Apps Script como base de datos y conecta la app con Google Workspac
 | Calendar y Meet | Eventos en el calendario de cada quien; reuniones con enlace real de Meet |
 | Reportes PDF | Copia de una plantilla de Google Docs con `{{campos}}`, exportada a PDF en una carpeta de Drive |
 | Avisos | Google Chat (webhook) y WhatsApp (API en la nube de Meta) a todo el equipo |
-| Cola de WhatsApp | Tabla `cola_avisos` en MySQL: quien avisa no espera a Meta; se reintenta con espera creciente (30 s, 1, 2, 4… min, hasta 6 veces) y sobrevive a reinicios |
+| Avisos push | En el teléfono y el ordenador **con la app cerrada** (Web Push con claves VAPID): Android (Chrome), ordenadores y iPhone con la app instalada en la pantalla de inicio (iOS 16.4+). No funcionan dentro del APK |
+| Cola de avisos | Tabla `cola_avisos` en MySQL para WhatsApp y push: quien avisa no espera; se reintenta con espera creciente (30 s, 1, 2, 4… min, hasta 6 veces) y sobrevive a reinicios |
 | Reintentos con Google | Espera creciente (1 s, 2 s, 4 s) ante 429 y 5xx |
 
 La app web usa el backend en cuanto tiene su dirección (`CONFIG_GOOGLE.api`, que GitHub pone desde el secreto `SEMENCES_API`). Sin ella sigue funcionando como antes (Apps Script o solo local).
@@ -27,7 +28,7 @@ docker run -d --name sdc-mariadb -e MARIADB_ROOT_PASSWORD=prueba -e MARIADB_DATA
 npm test
 ```
 
-Prueban el backend completo contra MySQL 8.4 y MariaDB 10.11, con Google y Meta simulados: entrada y permisos, sincronización en transacción, cifrado, Gmail (incluida la inyección de cabeceras), Meet, reportes, la cola de WhatsApp (reintentos, rechazos definitivos y mensajes atascados), CORS, el código de un solo uso de la app Android, el límite de intentos y la hora en UTC aunque el servidor MySQL esté en otra zona. Para probar contra otra base: `PRUEBA_BASES=host:puerto npm test`. GitHub las ejecuta antes de cada publicación.
+Prueban el backend completo contra MySQL 8.4 y MariaDB 10.11, con Google, Meta y los servicios push simulados: entrada y permisos, sincronización en transacción, cifrado, Gmail (incluida la inyección de cabeceras), Meet, reportes, la cola de avisos (reintentos, rechazos definitivos, mensajes atascados y suscripciones push caducadas), que solo se acepten servicios push reales, CORS, el código de un solo uso de la app Android, el límite de intentos y la hora en UTC aunque el servidor MySQL esté en otra zona. Para probar contra otra base: `PRUEBA_BASES=host:puerto npm test`. GitHub las ejecuta antes de cada publicación.
 
 ## Despliegue en FastComet (cPanel)
 
@@ -90,6 +91,13 @@ Dentro de esa carpeta, cada cliente tiene la suya (se crea con su nombre la prim
 
 En la app: ficha del cliente › **Reporte PDF en Drive**.
 
+### Avisos push (gratis)
+1. En tu ordenador, dentro de `servidor/`: `npm run vapid`. Copia las dos líneas en las variables `VAPID_PUBLICA` y `VAPID_PRIVADA` del panel (la privada es secreta; si se cambia, cada quien vuelve a activar los avisos). Opcional: `VAPID_CONTACTO` (`mailto:` de quien administra).
+2. Reinicia la app Node. `GET /api/salud` debe mostrar `"push": true`.
+3. Cada persona, en la app: menú › **Cuenta** › **Activar avisos en este dispositivo** (en cada teléfono u ordenador donde los quiera). La primera vez el navegador puede tardar hasta un minuto en registrarse.
+
+Las alertas de "Notificar al equipo" llegan como aviso del sistema a todos los dispositivos activados, salvo los de quien avisa. Tocar el aviso abre la app. En iPhone solo funcionan con la app instalada desde Safari (Compartir › Añadir a pantalla de inicio) y abierta desde su icono. Dentro del APK no hay avisos push (Android no los permite en una WebView): allí, WhatsApp. Si alguien desinstala la app o quita el permiso, su suscripción se borra sola la siguiente vez que falle un envío (410).
+
 ### WhatsApp
 WhatsApp no deja que una empresa escriba a nadie con mensajes libres: los avisos van como **plantilla aprobada por Meta**.
 1. https://developers.facebook.com › crea una app de tipo **Empresa** › añade **WhatsApp**. Hace falta una cuenta de WhatsApp Business y un número que no esté en uso en la app de WhatsApp normal.
@@ -116,4 +124,4 @@ Cada persona escribe su WhatsApp en la app (menú › Cuenta). Los administrador
 | `GET /api/auth/google/vuelta` | Google vuelve aquí; redirige a la app con un código de un solo uso (2 min) |
 | `POST /api/auth/canjear` | `{ codigo, verificador }` → `{ sesion, usuario }` |
 | `GET /api/yo` · `POST /api/salir` | La persona de la sesión · cerrar sesión |
-| `POST /api/accion` | `{ accion, … }`: `sincronizar`, `crm`, `sheets`, `chat`, `avisar`, `calendar`, `meet`, `correo`, `reporte`, `telefono`, `equipo` |
+| `POST /api/accion` | `{ accion, … }`: `sincronizar`, `crm`, `sheets`, `chat`, `avisar`, `calendar`, `meet`, `correo`, `reporte`, `push`, `telefono`, `equipo` |

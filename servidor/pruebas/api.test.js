@@ -47,7 +47,7 @@ function googleFalso() {
 for (const base of BASES) {
     const [host, puerto] = base.split(':');
     describe(`backend con la base ${base}`, () => {
-        let pool, servidor, url, google, peticionesMeta, config, avisos, respuestaMeta;
+        let pool, servidor, url, google, peticionesMeta, config, avisos, respuestaMeta, pushEnviados, respuestaPush;
         const sesiones = {};
 
         const llamar = async (ruta, { metodo = 'POST', cuerpo, sesion, origen } = {}) => {
@@ -84,14 +84,15 @@ for (const base of BASES) {
                 CLAVE_CIFRADO: crypto.randomBytes(32).toString('hex'),
                 ORIGENES: 'https://semillasdata.com', ENTRADAS_POR_MINUTO: '1000',
                 CHAT_WEBHOOK: 'https://chat.googleapis.com/v1/spaces/X/messages?key=k',
-                WHATSAPP_TOKEN: 'meta-token', WHATSAPP_TELEFONO_ID: '123', WHATSAPP_PLANTILLA: 'aviso_equipo'
+                WHATSAPP_TOKEN: 'meta-token', WHATSAPP_TELEFONO_ID: '123', WHATSAPP_PLANTILLA: 'aviso_equipo',
+                VAPID_PUBLICA: 'BPublica', VAPID_PRIVADA: 'privada'
             });
             // MariaDB tarda unos segundos en aceptar conexiones la primera vez
             for (let i = 0; ; i++) {
                 try { pool = await conectar(config.mysql); break; } catch (e) { if (i > 60) throw e; await new Promise(r => setTimeout(r, 1000)); }
             }
             // Base limpia: se borran las tablas y conectar() las vuelve a crear
-            for (const tabla of ['sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
+            for (const tabla of ['sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
             await pool.end();
             pool = await conectar(config.mysql);
 
@@ -110,7 +111,14 @@ for (const base of BASES) {
                 const estado = destino.startsWith('https://graph.facebook.com') ? respuestaMeta(JSON.parse(opciones.body)) : 200;
                 return new Response(estado === 200 ? '{}' : '{"error":{"message":"rechazado"}}', { status: estado });
             };
-            avisos = crearAvisos(config, fetchFalso);
+            pushEnviados = [];
+            respuestaPush = () => null;
+            const pushFalso = async (suscripcion, cuerpo, opciones) => {
+                const fallo = respuestaPush(suscripcion);
+                if (fallo) throw Object.assign(new Error(`Received unexpected response code`), { statusCode: fallo });
+                pushEnviados.push({ endpoint: suscripcion.endpoint, contenido: JSON.parse(cuerpo), opciones });
+            };
+            avisos = crearAvisos(config, fetchFalso, pushFalso);
             const app = crearApp({ config, pool, google, avisos, registrar: { error: () => {} } });
             await new Promise(r => { servidor = app.listen(0, r); });
             url = `http://127.0.0.1:${servidor.address().port}`;
@@ -125,8 +133,9 @@ for (const base of BASES) {
             const r = await llamar('/api/salud', { metodo: 'GET' });
             assert.equal(r.estado, 200);
             assert.equal(r.json.base, 'ok');
-            assert.deepEqual(r.json.integraciones, { chat: true, whatsapp: true, reportes: false });
-            assert.deepEqual(r.json.colaWhatsapp, {});
+            assert.deepEqual(r.json.integraciones, { chat: true, whatsapp: true, push: true, reportes: false });
+            assert.deepEqual(r.json.colaAvisos, {});
+            assert.equal(r.json.clavePush, 'BPublica');
         });
 
         test('entrar: dominio y admins sí; ajenos y sin verificar no', async () => {
@@ -273,6 +282,7 @@ for (const base of BASES) {
             const r = await accion(sesiones.ana, { accion: 'avisar', mensaje: '🚨 Plaga en\nparcela 3' });
             assert.equal(r.json.chat, 'enviado');
             assert.deepEqual(r.json.whatsapp, { encolados: 2 });
+            assert.deepEqual(r.json.push, { encolados: 0 });
             const chat = peticionesMeta.find(p => p.destino.startsWith('https://chat.googleapis.com'));
             assert.equal(chat.cuerpo.text, '🚨 Plaga en\nparcela 3');
             // WhatsApp no sale en la petición: sale de la cola
@@ -292,8 +302,8 @@ for (const base of BASES) {
             respuestaMeta = (cuerpo) => cuerpo.to === '18295550000' ? 503 : 400;
             await accion(sesiones.ana, { accion: 'avisar', mensaje: 'Reintento' });
             assert.deepEqual(await repasar(pool, avisos), { enviados: 0, reintentar: 1, fallidos: 1 });
-            const [[fallido]] = await pool.query("SELECT telefono, error FROM cola_avisos WHERE estado = 'fallido'");
-            assert.equal(fallido.telefono, '18495551111');
+            const [[fallido]] = await pool.query("SELECT destino, error FROM cola_avisos WHERE estado = 'fallido'");
+            assert.equal(fallido.destino, '18495551111');
             assert.match(fallido.error, /400/);
             // El pendiente espera su turno: un repaso inmediato no lo toca
             assert.deepEqual(await repasar(pool, avisos), { enviados: 0, reintentar: 0, fallidos: 0 });
@@ -308,19 +318,84 @@ for (const base of BASES) {
 
             // Si Meta sigue caído, se abandona al llegar a INTENTOS
             respuestaMeta = () => 500;
-            await pool.query(`INSERT INTO cola_avisos (telefono, texto, intentos) VALUES ('18095550000', 'x', ${INTENTOS - 1})`);
+            await pool.query(`INSERT INTO cola_avisos (destino, texto, intentos) VALUES ('18095550000', 'x', ${INTENTOS - 1})`);
             assert.deepEqual(await repasar(pool, avisos), { enviados: 0, reintentar: 0, fallidos: 1 });
 
             // Un mensaje que quedó "enviando" porque el proceso se cayó se vuelve a enviar a los 5 minutos
             respuestaMeta = () => 200;
-            await pool.query("INSERT INTO cola_avisos (telefono, texto, estado, reclamado) VALUES ('18095550001', 'atascado', 'enviando', UTC_TIMESTAMP() - INTERVAL 6 MINUTE)");
-            await pool.query("INSERT INTO cola_avisos (telefono, texto, estado, reclamado) VALUES ('18095550002', 'en curso', 'enviando', UTC_TIMESTAMP())");
+            await pool.query("INSERT INTO cola_avisos (destino, texto, estado, reclamado) VALUES ('18095550001', 'atascado', 'enviando', UTC_TIMESTAMP() - INTERVAL 6 MINUTE)");
+            await pool.query("INSERT INTO cola_avisos (destino, texto, estado, reclamado) VALUES ('18095550002', 'en curso', 'enviando', UTC_TIMESTAMP())");
             assert.deepEqual(await repasar(pool, avisos), { enviados: 1, reintentar: 0, fallidos: 0 });
 
             const salud = await llamar('/api/salud', { metodo: 'GET' });
-            assert.deepEqual(salud.json.colaWhatsapp, { enviado: 2, fallido: 2, enviando: 1 });
+            assert.deepEqual(salud.json.colaAvisos, { whatsapp: { enviado: 2, fallido: 2, enviando: 1 } });
             const equipo = await accion(sesiones.jefa, { accion: 'equipo', operacion: 'listar' });
-            assert.equal(equipo.json.whatsapp.ultimosFallidos.length, 2);
+            assert.equal(equipo.json.avisos.ultimosFallidos.length, 2);
+            await pool.query('DELETE FROM cola_avisos');
+        });
+
+        const suscripcion = (n) => ({
+            endpoint: `https://fcm.googleapis.com/fcm/send/dispositivo-${n}`,
+            keys: { p256dh: `B${'x'.repeat(86)}${n}`, auth: `auth-${n}-xxxxxxxx` }
+        });
+
+        test('push: alta y baja solo de servicios push reales', async () => {
+            for (const malo of [
+                { ...suscripcion(9), endpoint: 'https://malvado.com/robar' },
+                { ...suscripcion(9), endpoint: 'http://fcm.googleapis.com/fcm/send/x' },
+                { ...suscripcion(9), endpoint: 'https://fcm.googleapis.com:8443/x' },
+                { ...suscripcion(9), endpoint: 'https://fcm.googleapis.com.malvado.com/x' },
+                { ...suscripcion(9), keys: { p256dh: 'corta', auth: 'x' } },
+                null
+            ]) {
+                assert.equal((await accion(sesiones.ana, { accion: 'push', operacion: 'alta', suscripcion: malo })).estado, 400, JSON.stringify(malo));
+            }
+            assert.equal((await accion(sesiones.ana, { accion: 'push', operacion: 'alta', suscripcion: { ...suscripcion(8), endpoint: 'https://web.push.apple.com/QGuq' } })).json.activo, true);
+            assert.equal((await accion(sesiones.ana, { accion: 'push', operacion: 'alta', suscripcion: suscripcion(1) })).json.activo, true);
+            assert.equal((await accion(sesiones.jefa, { accion: 'push', operacion: 'alta', suscripcion: suscripcion(2) })).json.activo, true);
+            assert.equal((await accion(sesiones.ana, { accion: 'push', operacion: 'consultar', endpoint: suscripcion(1).endpoint })).json.activo, true);
+            // Nadie puede dar de baja la suscripción de otra persona
+            await accion(sesiones.ana, { accion: 'push', operacion: 'baja', endpoint: suscripcion(2).endpoint });
+            assert.equal((await accion(sesiones.jefa, { accion: 'push', operacion: 'consultar', endpoint: suscripcion(2).endpoint })).json.activo, true);
+            await accion(sesiones.ana, { accion: 'push', operacion: 'baja', endpoint: 'https://web.push.apple.com/QGuq' });
+            const [filas] = await pool.query('SELECT endpoint FROM push_suscripciones ORDER BY endpoint');
+            assert.deepEqual(filas.map(f => f.endpoint), [suscripcion(1).endpoint, suscripcion(2).endpoint]);
+        });
+
+        test('push: el aviso llega a los demás, con título y texto, y lo caducado se borra', async () => {
+            // Solo push en esta prueba: sin teléfonos de WhatsApp
+            await pool.query("UPDATE usuarios SET telefono = ''");
+            await pool.query("UPDATE equipo SET telefono = ''");
+            pushEnviados.length = 0;
+            const r = await accion(sesiones.jefa, { accion: 'avisar', mensaje: '🚨 ALERTA · Plaga · Parcela 3\nMosca blanca en el invernadero\n— Jefa' });
+            assert.deepEqual(r.json.push, { encolados: 1 }); // La de Ana; la jefa no se avisa a sí misma
+            await repasar(pool, avisos);
+            assert.equal(pushEnviados.length, 1);
+            assert.equal(pushEnviados[0].endpoint, suscripcion(1).endpoint);
+            assert.deepEqual(pushEnviados[0].contenido, { titulo: '🚨 ALERTA · Plaga · Parcela 3', texto: 'Mosca blanca en el invernadero\n— Jefa' });
+            assert.equal(pushEnviados[0].opciones.vapidDetails.publicKey, 'BPublica');
+            assert.equal(pushEnviados[0].opciones.urgency, 'high');
+
+            // El servicio push está saturado: se reintenta; si dice 410, la suscripción ya no existe y se borra
+            respuestaPush = () => 503;
+            await accion(sesiones.jefa, { accion: 'avisar', mensaje: 'Otro aviso' });
+            assert.deepEqual(await repasar(pool, avisos), { enviados: 0, reintentar: 1, fallidos: 0 });
+            respuestaPush = () => 410;
+            await pool.query("UPDATE cola_avisos SET proximo = UTC_TIMESTAMP() WHERE estado = 'pendiente'");
+            assert.deepEqual(await repasar(pool, avisos), { enviados: 0, reintentar: 0, fallidos: 1 });
+            assert.equal((await accion(sesiones.ana, { accion: 'push', operacion: 'consultar', endpoint: suscripcion(1).endpoint })).json.activo, false);
+            const [[fila]] = await pool.query("SELECT error FROM cola_avisos WHERE canal = 'push' AND estado = 'fallido'");
+            assert.match(fila.error, /caducada \(410\): borrada/);
+            respuestaPush = () => null;
+
+            // Quien sale del equipo deja de recibir avisos push
+            const externa = await entrarComo('codigo-externa').catch(() => null);
+            await accion(sesiones.jefa, { accion: 'equipo', operacion: 'guardar', email: 'externa@gmail.com' });
+            const dentro = await entrarComo('codigo-externa');
+            await accion(dentro.json.sesion, { accion: 'push', operacion: 'alta', suscripcion: suscripcion(5) });
+            await accion(sesiones.jefa, { accion: 'equipo', operacion: 'quitar', email: 'externa@gmail.com' });
+            const [quedan] = await pool.query('SELECT endpoint FROM push_suscripciones WHERE endpoint = ?', [suscripcion(5).endpoint]);
+            assert.equal(quedan.length, 0, externa ? '' : '');
         });
 
         test('la base trabaja en UTC aunque el servidor esté en otra zona', async () => {

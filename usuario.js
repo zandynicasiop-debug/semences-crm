@@ -17,6 +17,12 @@ const CLAVE_VERIFICADOR = 'sdc_verificador'; // Secreto de la entrada en curso: 
 const SCRIPT_GOOGLE = 'https://accounts.google.com/gsi/client';
 
 // Texto aleatorio en base64url (para el secreto de la entrada) y su huella SHA-256 (el "reto" que va a Google)
+// La clave pública VAPID (base64url) como bytes, que es lo que pide pushManager.subscribe()
+function claveBytes(base64url) {
+    const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - base64url.length % 4) % 4);
+    return Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+}
+
 function aleatorioB64(bytes = 32) {
     const datos = crypto.getRandomValues(new Uint8Array(bytes));
     return btoa(String.fromCharCode(...datos)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -443,6 +449,10 @@ class Responsable {
                 <p class="dialogo-nota cuenta-quien"></p>
                 <p class="dialogo-nota cuenta-google"></p>
                 <button type="button" class="btn-secondary cuenta-reconectar" hidden>Volver a conectar Google</button>
+                <div class="cuenta-push" hidden>
+                    <p class="dialogo-nota cuenta-push-estado" aria-live="polite"></p>
+                    <button type="button" class="btn-secondary cuenta-push-boton"></button>
+                </div>
                 <div class="form-group">
                     <label for="cuenta-telefono">Tu WhatsApp para los avisos del equipo (opcional)</label>
                     <input id="cuenta-telefono" type="tel" autocomplete="tel" inputmode="tel" placeholder="809 555 1234" aria-describedby="cuenta-error">
@@ -460,8 +470,10 @@ class Responsable {
         const error = dialogo.querySelector('#cuenta-error');
         dialogo.querySelector('.cuenta-cancelar').addEventListener('click', () => dialogo.close());
         dialogo.querySelector('.cuenta-reconectar').addEventListener('click', () => this.irAGoogle());
-        dialogo.querySelector('.cuenta-salir').addEventListener('click', () => {
+        dialogo.querySelector('.cuenta-push-boton').addEventListener('click', () => this.cambiarPush());
+        dialogo.querySelector('.cuenta-salir').addEventListener('click', async () => {
             dialogo.close();
+            await this.quitarPush(); // Los avisos de este dispositivo eran de esta cuenta
             this.cerrarSesion();
         });
         telefono.addEventListener('input', () => { error.hidden = true; telefono.removeAttribute('aria-invalid'); });
@@ -495,8 +507,99 @@ class Responsable {
         };
         pintarCuenta(this.sesion || {});
         if (!this.dialogoCuenta.open) this.dialogoCuenta.showModal();
+        this.pintarPush();
         const actual = await this.refrescarCuenta();
         if (actual && this.dialogoCuenta.open) pintarCuenta(actual);
+    }
+
+    // ----- Avisos push en este dispositivo (llegan con la app cerrada) -----
+
+    // ¿Puede este navegador recibir avisos push? En iPhone solo con la app en la pantalla de inicio
+    get pushPosible() {
+        return !window.AndroidApp && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+    }
+
+    async suscripcionPush() {
+        if (!this.pushPosible) return null;
+        const registro = await navigator.serviceWorker.getRegistration();
+        return registro ? registro.pushManager.getSubscription() : null;
+    }
+
+    // Pinta la sección de avisos de la cuenta y deja preparada la clave del servidor (sin esperar al pulsar:
+    // Safari solo pide permiso si se hace en el mismo toque)
+    async pintarPush() {
+        const caja = this.dialogoCuenta.querySelector('.cuenta-push');
+        const estado = caja.querySelector('.cuenta-push-estado');
+        const boton = caja.querySelector('.cuenta-push-boton');
+        const salud = await this.conector.backend('/api/salud', null, 'GET');
+        this.clavePush = (salud && salud.clavePush) || '';
+        caja.hidden = !this.clavePush;
+        if (!this.clavePush) return;
+        boton.hidden = false;
+        if (window.AndroidApp) {
+            estado.textContent = 'Los avisos push no funcionan dentro de la app Android. Ábrela en Chrome e instálala desde el menú de módulos para recibirlos, o usa WhatsApp.';
+            boton.hidden = true;
+        } else if (!this.pushPosible) {
+            const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            estado.textContent = ios
+                ? 'En iPhone, los avisos llegan solo con la app instalada: Safari › Compartir › Añadir a pantalla de inicio, y ábrela desde su icono.'
+                : 'Este navegador no puede recibir avisos con la app cerrada.';
+            boton.hidden = true;
+        } else if (Notification.permission === 'denied') {
+            estado.textContent = 'Los avisos están bloqueados para esta página. Permítelos en los ajustes del navegador (icono junto a la dirección).';
+            boton.hidden = true;
+        } else {
+            const suscripcion = await this.suscripcionPush();
+            const consulta = suscripcion ? await this.conector.backend('/api/accion', { accion: 'push', operacion: 'consultar', endpoint: suscripcion.endpoint }) : null;
+            const activo = Boolean(consulta && consulta.activo);
+            estado.textContent = activo
+                ? 'Avisos activados en este dispositivo: las alertas del equipo llegan aunque la app esté cerrada.'
+                : 'Recibe las alertas del equipo en este dispositivo aunque la app esté cerrada.';
+            boton.textContent = activo ? 'Desactivar avisos aquí' : 'Activar avisos en este dispositivo';
+            boton.dataset.activo = activo ? 'si' : '';
+        }
+    }
+
+    async cambiarPush() {
+        const boton = this.dialogoCuenta.querySelector('.cuenta-push-boton');
+        const estado = this.dialogoCuenta.querySelector('.cuenta-push-estado');
+        if (boton.dataset.activo) {
+            await this.quitarPush();
+            return this.pintarPush();
+        }
+        if (!this.clavePush) {
+            estado.textContent = 'No se pudo hablar con el servidor. Revisa la conexión e inténtalo de nuevo.';
+            return this.pintarPush();
+        }
+        // El permiso se pide primero, dentro del mismo toque
+        const permiso = await Notification.requestPermission();
+        if (permiso !== 'granted') return this.pintarPush();
+        boton.disabled = true;
+        // La primera vez el navegador se registra en su servicio de avisos: puede tardar hasta un minuto
+        estado.textContent = 'Activando los avisos… La primera vez puede tardar un poco.';
+        try {
+            const registro = await navigator.serviceWorker.ready;
+            const actual = await registro.pushManager.getSubscription();
+            const suscripcion = actual || await registro.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: claveBytes(this.clavePush) });
+            const respuesta = await this.conector.backend('/api/accion', { accion: 'push', operacion: 'alta', suscripcion: suscripcion.toJSON() });
+            if (!respuesta || !respuesta.ok) throw new Error((respuesta && respuesta.error) || 'Sin conexión con el servidor');
+        } catch (error) {
+            estado.textContent = `No se pudieron activar los avisos: ${error.message}`;
+            boton.disabled = false;
+            return;
+        }
+        boton.disabled = false;
+        this.pintarPush();
+    }
+
+    // Da de baja los avisos de este dispositivo (al desactivarlos o al cerrar sesión)
+    async quitarPush() {
+        try {
+            const suscripcion = await this.suscripcionPush();
+            if (!suscripcion) return;
+            if (this.sesionBackend()) await this.conector.backend('/api/accion', { accion: 'push', operacion: 'baja', endpoint: suscripcion.endpoint });
+            await suscripcion.unsubscribe();
+        } catch (e) { /* sin conexión: el servidor la borrará cuando el servicio push la dé por caducada */ }
     }
 
     mostrarEntrada(mensaje = '') {

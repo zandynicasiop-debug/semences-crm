@@ -24,6 +24,7 @@ try {
     } else if (operacion === 'quitar') {
         await pool.query('DELETE FROM equipo WHERE email = ?', [correo]);
         await pool.query('DELETE s FROM sesiones s JOIN usuarios u ON u.id = s.usuario_id WHERE u.email = ?', [correo]);
+        await pool.query('DELETE p FROM push_suscripciones p JOIN usuarios u ON u.id = p.usuario_id WHERE u.email = ?', [correo]);
         console.log(`Quitado: ${correo}`);
     } else if (operacion !== 'listar') {
         throw new Error('Uso: listar | agregar <correo> [nombre] [teléfono] | quitar <correo>');

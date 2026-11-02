@@ -50,9 +50,20 @@ const ESQUEMA = [
         actualizado DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
         PRIMARY KEY (modulo, id)
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS push_suscripciones (
+        huella CHAR(64) PRIMARY KEY,
+        usuario_id INT UNSIGNED NOT NULL,
+        endpoint VARCHAR(1000) NOT NULL,
+        p256dh VARCHAR(200) NOT NULL,
+        auth VARCHAR(100) NOT NULL,
+        creada DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX (usuario_id),
+        FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS cola_avisos (
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        telefono VARCHAR(20) NOT NULL,
+        canal ENUM('whatsapp', 'push') NOT NULL DEFAULT 'whatsapp',
+        destino VARCHAR(64) NOT NULL,
         texto VARCHAR(1000) NOT NULL,
         estado ENUM('pendiente', 'enviando', 'enviado', 'fallido') NOT NULL DEFAULT 'pendiente',
         intentos TINYINT UNSIGNED NOT NULL DEFAULT 0,

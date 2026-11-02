@@ -117,10 +117,12 @@ export function crearApp({ config, pool, google, avisos, registrar = console }) 
         res.json({
             ok: base === 'ok', servicio: 'Semences del Caribe · backend', base,
             integraciones: {
-                chat: avisos.chatActivo, whatsapp: avisos.whatsappActivo,
+                chat: avisos.chatActivo, whatsapp: avisos.whatsappActivo, push: avisos.pushActivo,
                 reportes: Boolean(config.reportes.plantillaId)
             },
-            colaWhatsapp: cola,
+            colaAvisos: cola,
+            // Clave pública VAPID: la app la necesita para suscribirse a los avisos push (no es secreta)
+            clavePush: avisos.clavePush,
             clientId: config.google.clientId
         });
     });
