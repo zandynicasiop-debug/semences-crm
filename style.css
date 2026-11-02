@@ -2617,3 +2617,25 @@ body.ventana-flotante {
 .expediente-datos a {
     color: var(--ui-enlace);
 }
+
+/* ----- Dentro de las apps nativas (Capacitor en Android/iPhone/iPad y Electron; nativo.js pone .app-nativa) ----- */
+/* Mantener pulsado un botón no abre el menú del sistema ni selecciona el texto de la interfaz */
+.app-nativa button,
+.app-nativa .nav-tab,
+.app-nativa .ficha {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* Teléfonos y tabletas: botones de al menos 44 px de alto, el mínimo cómodo para el dedo (guía de Apple) */
+@media (pointer: coarse) {
+    .app-android .btn-primary,
+    .app-android .btn-secondary,
+    .app-android .btn-texto,
+    .app-ios .btn-primary,
+    .app-ios .btn-secondary,
+    .app-ios .btn-texto {
+        min-height: 44px;
+    }
+}

@@ -20,3 +20,23 @@ video-gemini/
 # Sistema y editor
 .DS_Store
 .claude/
+
+# Apps nativas: lo que se genera al preparar la web y al compilar
+node_modules/
+www/
+escritorio/web/
+escritorio/dist/
+movil/android/app/build/
+movil/android/build/
+movil/android/.gradle/
+movil/android/app/src/main/assets/public/
+movil/android/app/src/main/assets/capacitor.config.json
+movil/android/app/src/main/assets/capacitor.plugins.json
+movil/android/capacitor-cordova-android-plugins/
+movil/android/local.properties
+movil/ios/App/App/public/
+movil/ios/App/App/capacitor.config.json
+movil/ios/App/App/config.xml
+movil/ios/App/build/
+movil/ios/App/Pods/
+movil/ios/DerivedData/

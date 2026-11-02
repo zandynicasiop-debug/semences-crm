@@ -1,0 +1,27 @@
+{
+  "appId": "com.semencesdelcaribe.crm",
+  "appName": "Semences",
+  "webDir": "www",
+  "android": {
+    "path": "movil/android",
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "ios": {
+    "path": "movil/ios",
+    "contentInset": "never",
+    "limitsNavigationsToAppBoundDomains": false,
+    "webContentsDebuggingEnabled": false
+  },
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "capacitor",
+    "hostname": "localhost"
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": false
+    }
+  }
+}

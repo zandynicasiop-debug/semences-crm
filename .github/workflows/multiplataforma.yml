@@ -1,0 +1,227 @@
+# Apps nativas: Android (APK firmado), iPhone/iPad (comprobación del proyecto Xcode), Windows (.exe) y Mac (.dmg),
+# y una versión de prueba en Releases con los enlaces de descarga directa.
+#
+# Se ejecuta con cada cambio en las ramas auditoria/** y apps/**, con las etiquetas v* y a mano (Actions › Run
+# workflow). No toca GitHub Pages: la web se sigue publicando solo desde main (publicar.yml).
+#
+# Secretos que usa (los mismos que publicar.yml):
+#   SEMENCES_FIRMA  keystore del APK en base64: con la misma firma y el mismo id, la app nueva actualiza la anterior
+#   SEMENCES_CLAVE  su contraseña
+#   SEMENCES_API    dirección del backend; sin ella, las apps funcionan sin conexión
+name: Apps nativas (Android, iOS, Windows y Mac)
+
+on:
+  push:
+    branches: ['auditoria/**', 'apps/**']
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: multiplataforma-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VERSION_APP: '2.0.0'
+
+jobs:
+  pruebas:
+    runs-on: ubuntu-24.04
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env: { MARIADB_ROOT_PASSWORD: prueba, MARIADB_DATABASE: semences_prueba, MARIADB_USER: semences, MARIADB_PASSWORD: prueba }
+        ports: ['33062:3306']
+        options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=5s --health-timeout=5s --health-retries=30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: servidor/package-lock.json
+      - name: Backend
+        working-directory: servidor
+        env:
+          PRUEBA_BASES: 127.0.0.1:33062
+        run: |
+          npm ci
+          npm test
+      - name: App web
+        run: node --test pruebas-web/*.test.js
+
+  android:
+    needs: pruebas
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Dependencias y web para la app
+        env:
+          SEMENCES_API: ${{ secrets.SEMENCES_API }}
+        run: |
+          npm ci
+          node herramientas/preparar-web.mjs --plataforma=capacitor
+          npx cap sync android
+      - name: Firma de producción (la misma de la app Android anterior)
+        env:
+          FIRMA: ${{ secrets.SEMENCES_FIRMA }}
+        run: |
+          if [ -z "$FIRMA" ]; then echo "::error::Falta el secreto SEMENCES_FIRMA"; exit 1; fi
+          echo "$FIRMA" | base64 -d > "$RUNNER_TEMP/semences.keystore"
+      - name: Compilar el APK de producción
+        working-directory: movil/android
+        env:
+          SEMENCES_ALMACEN: ${{ runner.temp }}/semences.keystore
+          SEMENCES_CLAVE: ${{ secrets.SEMENCES_CLAVE }}
+          VERSION_CODE: ${{ 200 + github.run_number }}
+          VERSION_NAME: ${{ env.VERSION_APP }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+      - name: Comprobar la firma y nombrar el APK
+        run: |
+          APK=movil/android/app/build/outputs/apk/release/app-release.apk
+          HERRAMIENTAS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$HERRAMIENTAS/apksigner" verify --print-certs "$APK" | tee firma.txt
+          grep -q "Signer #1 certificate SHA-256" firma.txt
+          mkdir -p salida && cp "$APK" "salida/Semences-${VERSION_APP}-Android.apk"
+          rm -f "$RUNNER_TEMP/semences.keystore"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android
+          path: salida/*.apk
+
+  ios:
+    needs: pruebas
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Xcode más reciente del equipo
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+      - name: Dependencias y web para la app
+        env:
+          SEMENCES_API: ${{ secrets.SEMENCES_API }}
+        run: |
+          npm ci
+          node herramientas/preparar-web.mjs --plataforma=capacitor
+          npx cap sync ios
+      # Sin certificado de Apple no se puede firmar para iPhone: se compila para el Simulador, lo que comprueba
+      # que el proyecto, los plugins (Swift Package Manager) y la configuración están bien
+      - name: Compilar para el Simulador de iOS (iPhone y iPad)
+        working-directory: movil/ios/App
+        run: |
+          xcodebuild -project App.xcodeproj -scheme App -configuration Release \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build | tail -30
+          APP=$(find build/Build/Products -name 'App.app' -type d | head -1)
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist"
+          mkdir -p "$GITHUB_WORKSPACE/salida"
+          ditto -c -k --keepParent "$APP" "$GITHUB_WORKSPACE/salida/Semences-${VERSION_APP}-iOS-Simulador.zip"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ios
+          path: salida/*.zip
+
+  windows:
+    needs: pruebas
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: escritorio
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: escritorio/package-lock.json
+      - run: npm ci
+      - name: Instalador de Windows (x64)
+        env:
+          SEMENCES_API: ${{ secrets.SEMENCES_API }}
+        run: npm run dist:win
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: escritorio/dist/*.exe
+
+  mac:
+    needs: pruebas
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: escritorio
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: escritorio/package-lock.json
+      - run: npm ci
+      - name: App de Mac (Intel y Apple Silicon)
+        env:
+          SEMENCES_API: ${{ secrets.SEMENCES_API }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run dist:mac
+      - name: Comprobar la firma ad-hoc (sin ella, la app no abre en Apple Silicon)
+        run: |
+          codesign --verify --deep --strict --verbose=2 "dist/mac-arm64/Semences del Caribe.app"
+          codesign -dv "dist/mac-arm64/Semences del Caribe.app" 2>&1 | grep -i "Signature=adhoc"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mac
+          path: |
+            escritorio/dist/*.dmg
+            escritorio/dist/*.zip
+
+  version:
+    needs: [android, ios, windows, mac]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: archivos
+          merge-multiple: true
+      - name: Versión de prueba en Releases, con los enlaces de descarga
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ETIQUETA: v${{ env.VERSION_APP }}-beta.${{ github.run_number }}
+        run: |
+          ls -la archivos
+          cat > notas.md <<EOF
+          Versión de prueba de las apps de Semences del Caribe (${GITHUB_REF_NAME}, ${GITHUB_SHA::7}).
+
+          | Plataforma | Archivo | Cómo instalar |
+          |---|---|---|
+          | Android | \`Semences-${VERSION_APP}-Android.apk\` | Abrir el archivo en el teléfono y permitir "instalar apps desconocidas". Firmada con la misma clave que la app anterior: se instala encima, como actualización |
+          | Windows | \`Semences-${VERSION_APP}-Windows-x64.exe\` | Ejecutar el instalador. Sin certificado de firma de código, Windows SmartScreen avisa: "Más información" › "Ejecutar de todas formas" |
+          | Mac (Apple Silicon) | \`Semences-${VERSION_APP}-Mac-arm64.dmg\` | Arrastrar a Aplicaciones. La primera vez: clic derecho › Abrir (firma ad-hoc, sin certificado de Apple) |
+          | Mac (Intel) | \`Semences-${VERSION_APP}-Mac-x64.dmg\` | Igual que la de Apple Silicon |
+          | iPhone / iPad | \`Semences-${VERSION_APP}-iOS-Simulador.zip\` | Solo para el Simulador de Xcode. Para instalar en un iPhone o publicar en la App Store hace falta una cuenta de Apple Developer (ver DOCUMENTACION_SISTEMA_COMPLETO.md) |
+
+          Antes de actualizar la app Android, ábrela con conexión y espera a que diga "sincronizado": la app nueva
+          guarda sus datos en otro sitio y hay que volver a entrar con Google.
+          EOF
+          gh release create "$ETIQUETA" archivos/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --title "Apps ${VERSION_APP} (prueba ${{ github.run_number }})" --notes-file notas.md
+          echo "Descargas: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${ETIQUETA}"

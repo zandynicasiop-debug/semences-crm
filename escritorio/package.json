@@ -1,0 +1,110 @@
+{
+  "name": "semences-escritorio",
+  "productName": "Semences del Caribe",
+  "version": "2.0.0",
+  "private": true,
+  "description": "App de escritorio (Windows y Mac) del CRM de Semences del Caribe",
+  "author": "Semences del Caribe",
+  "license": "UNLICENSED",
+  "main": "main.cjs",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "web": "node ../herramientas/preparar-web.mjs --plataforma=electron",
+    "start": "npm run web && electron .",
+    "dist:win": "npm run web && electron-builder --win nsis --x64 --publish never",
+    "dist:mac": "npm run web && electron-builder --mac dmg zip --x64 --arm64 --publish never",
+    "dist:linux": "npm run web && electron-builder --linux AppImage --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.9.3",
+    "electron-builder": "26.17.0"
+  },
+  "build": {
+    "appId": "com.semencesdelcaribe.crm",
+    "productName": "Semences del Caribe",
+    "copyright": "© 2026 Semences del Caribe",
+    "directories": {
+      "output": "dist",
+      "buildResources": "recursos"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "web/**/*",
+      "recursos/icono.png"
+    ],
+    "asar": true,
+    "protocols": [
+      {
+        "name": "Semences del Caribe",
+        "schemes": [
+          "semences"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "recursos/icono.png",
+      "artifactName": "Semences-${version}-Windows-x64.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Semences del Caribe",
+      "installerLanguages": [
+        "es_ES"
+      ],
+      "language": "3082",
+      "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "recursos/icono.png",
+      "category": "public.app-category.business",
+      "artifactName": "Semences-${version}-Mac-${arch}.${ext}",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "darkModeSupport": true,
+      "minimumSystemVersion": "12.0"
+    },
+    "dmg": {
+      "title": "Semences del Caribe ${version}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office",
+      "icon": "recursos/icono.png",
+      "artifactName": "Semences-${version}-Linux-${arch}.${ext}"
+    }
+  }
+}

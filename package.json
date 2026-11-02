@@ -1,0 +1,31 @@
+{
+  "name": "semences-crm",
+  "version": "2.0.0",
+  "private": true,
+  "description": "CRM de Semences del Caribe: app web (PWA) y apps nativas para Android, iPhone y iPad (Capacitor). El backend está en servidor/ y la app de escritorio en escritorio/.",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test:web": "node --test pruebas-web/*.test.js",
+    "web:capacitor": "node herramientas/preparar-web.mjs --plataforma=capacitor",
+    "movil:sync": "npm run web:capacitor && cap sync",
+    "android:apk": "npm run movil:sync && cd movil/android && ./gradlew assembleRelease",
+    "android:abrir": "cap open android",
+    "ios:abrir": "npm run movil:sync && cap open ios",
+    "iconos": "node herramientas/iconos.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.3",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/browser": "8.0.5",
+    "@capacitor/core": "8.5.3",
+    "@capacitor/filesystem": "8.1.5",
+    "@capacitor/ios": "8.5.3",
+    "@capacitor/share": "8.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.3"
+  }
+}

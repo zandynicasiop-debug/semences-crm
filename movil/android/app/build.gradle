@@ -1,0 +1,71 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace = "com.semencesdelcaribe.crm"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.semencesdelcaribe.crm"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        // 200 = 2.0.0. Mayor que la app Android anterior (versionCode 6): se instala encima, como actualización.
+        // GitHub Actions lo sube en cada compilación con VERSION_CODE (el número de la ejecución)
+        versionCode (System.getenv("VERSION_CODE") ?: "200") as Integer
+        versionName System.getenv("VERSION_NAME") ?: "2.0.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    // Firma de producción: la MISMA clave que la app Android anterior (secretos SEMENCES_FIRMA y SEMENCES_CLAVE de
+    // GitHub; ver android/LEEME.md). Con la misma clave y el mismo applicationId, la app nueva actualiza la vieja.
+    // Sin las variables (en un ordenador sin la firma), el APK de release sale sin firmar
+    signingConfigs {
+        release {
+            def almacen = System.getenv("SEMENCES_ALMACEN")
+            if (almacen) {
+                storeFile file(almacen)
+                storePassword System.getenv("SEMENCES_CLAVE")
+                keyAlias System.getenv("SEMENCES_ALIAS") ?: "semences"
+                keyPassword System.getenv("SEMENCES_CLAVE")
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (System.getenv("SEMENCES_ALMACEN")) signingConfig signingConfigs.release
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}
