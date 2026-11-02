@@ -3,14 +3,14 @@
  *
  * Quien avisa no espera a Meta: los mensajes se encolan y la app responde enseguida. Un repaso cada
  * pocos segundos los envía; si Meta falla un rato (429, 5xx, red), se reintenta con espera creciente
- * (30 s, 1 min, 2 min, 4 min…) hasta INTENTOS veces. Lo que Meta rechaza para siempre (número
+ * (30 s, 1 min, 2 min, 4 min…, más un poco al azar) hasta INTENTOS veces. Lo que Meta rechaza para siempre (número
  * inválido, plantilla mal configurada) queda como fallido con el motivo, sin repetirse.
  *
  * Está en MySQL y no en Redis porque el hosting compartido no trae Redis; además sobrevive a reinicios:
  * si el proceso se para, lo pendiente sale en el siguiente repaso.
  */
 import crypto from 'node:crypto';
-import { esPasajero } from './reintentos.js';
+import { esPasajero, conVariacion } from './reintentos.js';
 import { textoWhatsapp } from './avisos.js';
 
 export const INTENTOS = 6;
@@ -46,7 +46,7 @@ export async function repasar(pool, avisos) {
         } catch (error) {
             const motivo = `${error.message}${error.detalle ? ` · ${String(error.detalle).slice(0, 300)}` : ''}`.slice(0, 500);
             if (esPasajero(error) && intentos < INTENTOS) {
-                const espera = ESPERA_BASE_S * 2 ** (intentos - 1);
+                const espera = conVariacion(ESPERA_BASE_S * 2 ** (intentos - 1));
                 await pool.query(
                     `UPDATE cola_avisos SET estado = 'pendiente', intentos = ?, error = ?, proximo = UTC_TIMESTAMP() + INTERVAL ? SECOND WHERE id = ?`,
                     [intentos, motivo, espera, fila.id]);

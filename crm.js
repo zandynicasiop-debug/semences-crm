@@ -670,7 +670,7 @@ class CRM {
         const aviso = (texto, tipo) => { if (window.equipo) window.equipo.mostrarAviso(texto, tipo); };
         boton.disabled = true;
         boton.textContent = 'Generando reporte…';
-        const respuesta = await this.google.crearReporte(`Reporte ${cliente.nombre} ${new Date().toISOString().slice(0, 10)}`, campos);
+        const respuesta = await this.google.crearReporte(`Reporte ${cliente.nombre} ${new Date().toISOString().slice(0, 10)}`, campos, { id: cliente.id, nombre: cliente.nombre });
         boton.disabled = false;
         boton.textContent = 'Reporte PDF en Drive';
         if (!respuesta || !respuesta.ok) return aviso((respuesta && respuesta.error) || 'No se pudo generar el reporte. Revisa la conexión.', 'error');

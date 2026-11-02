@@ -245,6 +245,10 @@ for (const base of BASES) {
             const datos = google.llamadas.at(-1).datos;
             assert.equal(datos.titulo, 'Visita a finca');
             assert.deepEqual(datos.campos, { cliente: 'Ana', fecha: '3/11' });
+            assert.equal(datos.carpetaCliente, null);
+            await accion(sesiones.ana, { accion: 'reporte', plantillaId: '1AbCdEfGhIjKlMnOpQrStUvWxYz', titulo: 'R', cliente: { id: 'cli-17', nombre: 'Finca\nÑapa/Sur' } });
+            assert.deepEqual(google.llamadas.at(-1).datos.carpetaCliente, { id: 'cli-17', nombre: 'Finca Ñapa Sur' });
+            assert.equal((await accion(sesiones.ana, { accion: 'reporte', plantillaId: '1AbCdEfGhIjKlMnOpQrStUvWxYz', cliente: { id: "x' or name contains '" } })).estado, 400);
             assert.equal((await accion(sesiones.ana, { accion: 'reporte', plantillaId: '../../etc', titulo: 'x' })).estado, 400);
             assert.equal((await accion(sesiones.ana, { accion: 'reporte', plantillaId: '1AbCdEfGhIjKlMnOpQrStUvWxYz', campos: { 'a}}{{b': 1 } })).estado, 400);
         });
@@ -295,7 +299,7 @@ for (const base of BASES) {
             assert.deepEqual(await repasar(pool, avisos), { enviados: 0, reintentar: 0, fallidos: 0 });
             const [[pendiente]] = await pool.query("SELECT intentos, TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), proximo) espera FROM cola_avisos WHERE estado = 'pendiente'");
             assert.equal(pendiente.intentos, 1);
-            assert.ok(pendiente.espera > 20 && pendiente.espera <= 30, `espera ${pendiente.espera}`);
+            assert.ok(pendiente.espera > 20 && pendiente.espera <= 38, `espera ${pendiente.espera}`); // 30 s + hasta 25 %
 
             // Llega su hora y Meta ya responde
             respuestaMeta = () => 200;

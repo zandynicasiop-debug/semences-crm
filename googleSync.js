@@ -141,9 +141,10 @@ class GoogleWorkspaceConnector {
         return this.conBackend ? this.enviar('correo', correo, true) : Promise.resolve(null);
     }
 
-    // Solo con el backend: reporte PDF en Drive a partir de la plantilla de Docs; devuelve { ok, enlace }
-    crearReporte(titulo, campos) {
-        return this.conBackend ? this.enviar('reporte', { titulo, campos }, true) : Promise.resolve(null);
+    // Solo con el backend: reporte PDF en Drive a partir de la plantilla de Docs; devuelve { ok, enlace }.
+    // Con cliente ({ id, nombre }), el PDF va a la carpeta de ese cliente
+    crearReporte(titulo, campos, cliente) {
+        return this.conBackend ? this.enviar('reporte', { titulo, campos, cliente }, true) : Promise.resolve(null);
     }
 
     // 4. Sala de emergencia técnica en Google Meet; devuelve el enlace o '' si no se pudo crear

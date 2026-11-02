@@ -86,6 +86,8 @@ En el espacio del equipo: nombre del espacio › Apps e integraciones › Webhoo
 2. Compártela con el equipo (lector basta) y crea una carpeta de Drive compartida para los PDF (editor).
 3. El id de cada una (lo que va en la URL tras `/d/` o `/folders/`) va en `REPORTE_PLANTILLA_ID` y `REPORTE_CARPETA_ID`.
 
+Dentro de esa carpeta, cada cliente tiene la suya (se crea con su nombre la primera vez) y ahí se guardan todos sus reportes. La carpeta se reconoce por el id del cliente, no por el nombre: se puede renombrar sin que se cree otra.
+
 En la app: ficha del cliente › **Reporte PDF en Drive**.
 
 ### WhatsApp

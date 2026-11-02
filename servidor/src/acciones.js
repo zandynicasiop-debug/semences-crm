@@ -138,7 +138,7 @@ export const ACCIONES = {
         return { ok: true, id };
     },
 
-    // Reporte PDF desde la plantilla de Google Docs ({ titulo, campos: { nombre: valor } })
+    // Reporte PDF desde la plantilla de Google Docs ({ titulo, campos: { nombre: valor }, cliente: { id, nombre } })
     async reporte(datos, contexto) {
         const plantillaId = datos.plantillaId || contexto.config.reportes.plantillaId;
         if (!plantillaId) throw errorApp('No hay plantilla de reporte configurada (REPORTE_PLANTILLA_ID)', 503, 'configuracion');
@@ -147,8 +147,15 @@ export const ACCIONES = {
         if (Object.keys(campos).length > 100) throw errorApp('Demasiados campos (máximo 100)');
         for (const campo of Object.keys(campos)) if (!/^[\wáéíóúñÁÉÍÓÚÑ]{1,40}$/.test(campo)) throw errorApp(`Nombre de campo no válido: ${campo}`);
         const titulo = String(datos.titulo || 'Reporte · Semences del Caribe').replace(/[\r\n/\\]/g, ' ').slice(0, 150);
+        // Carpeta propia del cliente dentro de la de reportes ({ id, nombre } del registro de clientes)
+        let carpetaCliente = null;
+        if (datos.cliente && datos.cliente.id) {
+            if (!/^[\w-]{1,100}$/.test(String(datos.cliente.id))) throw errorApp('El id del cliente no es válido');
+            const nombre = String(datos.cliente.nombre || datos.cliente.id).replace(/[\r\n/\\]/g, ' ').trim().slice(0, 150);
+            carpetaCliente = { id: String(datos.cliente.id), nombre: nombre || String(datos.cliente.id) };
+        }
         const archivo = await conGoogle(contexto, (token, alRenovar) => contexto.google.crearReporte(token, alRenovar, {
-            plantillaId, carpetaId: contexto.config.reportes.carpetaId, titulo, campos
+            plantillaId, carpetaId: contexto.config.reportes.carpetaId, titulo, campos, carpetaCliente
         }));
         return { ok: true, archivoId: archivo.id, enlace: archivo.enlace };
     },

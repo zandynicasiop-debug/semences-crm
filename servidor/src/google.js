@@ -22,6 +22,23 @@ export const PERMISOS = [
     'https://www.googleapis.com/auth/documents'            // Rellenar la copia de la plantilla
 ];
 
+// Carpeta del cliente dentro de la carpeta de reportes: la busca por su propiedad semencesCliente o la crea
+export async function carpetaDelCliente(unidad, raizId, { id, nombre }) {
+    // id ya viene validado ([\w-]): se puede poner tal cual en la consulta de Drive
+    const encontradas = await unidad.files.list({
+        q: `mimeType = 'application/vnd.google-apps.folder' and trashed = false and '${raizId}' in parents and appProperties has { key = 'semencesCliente' and value = '${id}' }`,
+        fields: 'files(id)', pageSize: 1, supportsAllDrives: true, includeItemsFromAllDrives: true
+    });
+    const existente = encontradas.data.files && encontradas.data.files[0];
+    if (existente) return existente.id;
+    const creada = await unidad.files.create({
+        supportsAllDrives: true,
+        requestBody: { name: nombre, mimeType: 'application/vnd.google-apps.folder', parents: [raizId], appProperties: { semencesCliente: id } },
+        fields: 'id'
+    });
+    return creada.data.id;
+}
+
 export function crearGoogle(config) {
     const { clientId, clientSecret } = config.google;
     const urlVuelta = `${config.urlPublica}/api/auth/google/vuelta`;
@@ -76,10 +93,16 @@ export function crearGoogle(config) {
             return { id: r.data.id, enlace: r.data.htmlLink || '', meet };
         },
 
-        // Copia la plantilla, cambia {{campo}} por su valor, guarda el PDF en la carpeta y borra la copia
-        async crearReporte(tokenRefresco, alRenovar, { plantillaId, carpetaId, titulo, campos }) {
+        /**
+         * Copia la plantilla, cambia {{campo}} por su valor, guarda el PDF y borra la copia.
+         * Con carpetaCliente ({ id, nombre }), el PDF va a la carpeta de ese cliente dentro de carpetaId,
+         * que se crea la primera vez. La carpeta se reconoce por el id del cliente guardado en sus
+         * propiedades (no por el nombre): renombrarla o renombrar al cliente no crea otra.
+         */
+        async crearReporte(tokenRefresco, alRenovar, { plantillaId, carpetaId, titulo, campos, carpetaCliente }) {
             const auth = autenticado(tokenRefresco, alRenovar);
             const unidad = drive({ version: 'v3', auth });
+            if (carpetaId && carpetaCliente) carpetaId = await carpetaDelCliente(unidad, carpetaId, carpetaCliente);
             const copia = await unidad.files.copy({
                 fileId: plantillaId, supportsAllDrives: true,
                 requestBody: { name: `${titulo} (borrador)`, parents: carpetaId ? [carpetaId] : undefined }

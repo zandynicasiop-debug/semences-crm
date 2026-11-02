@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { cifrar, descifrar } from '../src/cifrado.js';
 import { construirCorreo } from '../src/correo.js';
 import { normalizarTelefono } from '../src/avisos.js';
-import { esPasajero, conReintentos } from '../src/reintentos.js';
+import { esPasajero, conReintentos, conVariacion } from '../src/reintentos.js';
 
 const CLAVE = crypto.randomBytes(32).toString('hex');
 
@@ -50,6 +50,12 @@ test('teléfonos: República Dominicana e internacionales', () => {
     assert.equal(normalizarTelefono(''), '');
 });
 
+test('reintentos: la espera varía entre el 100 % y el 125 %', () => {
+    const esperas = Array.from({ length: 200 }, () => conVariacion(1000));
+    assert.ok(esperas.every(e => e >= 1000 && e <= 1250));
+    assert.ok(new Set(esperas).size > 50);
+});
+
 test('reintentos: repite lo pasajero y no lo demás', async () => {
     assert.ok(esPasajero({ code: 429 }));
     assert.ok(esPasajero({ status: 503 }));
@@ -60,4 +66,18 @@ test('reintentos: repite lo pasajero y no lo demás', async () => {
     n = 0;
     await assert.rejects(conReintentos(async () => { n++; throw Object.assign(new Error('x'), { status: 400 }); }, { esperaMs: 1 }));
     assert.equal(n, 1);
+});
+
+test('reportes: la carpeta del cliente se busca por su id y se crea solo si falta', async () => {
+    const { carpetaDelCliente } = await import('../src/google.js');
+    const pedido = [];
+    const unidad = (existentes) => ({ files: {
+        list: async (p) => { pedido.push(['list', p]); return { data: { files: existentes } }; },
+        create: async (p) => { pedido.push(['create', p]); return { data: { id: 'carpeta-nueva' } }; }
+    } });
+    assert.equal(await carpetaDelCliente(unidad([{ id: 'carpeta-vieja' }]), 'raiz1', { id: 'cli-17', nombre: 'Finca Ñapa' }), 'carpeta-vieja');
+    assert.match(pedido[0][1].q, /'raiz1' in parents and appProperties has \{ key = 'semencesCliente' and value = 'cli-17' \}/);
+    assert.equal(pedido.length, 1);
+    assert.equal(await carpetaDelCliente(unidad([]), 'raiz1', { id: 'cli-18', nombre: 'Otra' }), 'carpeta-nueva');
+    assert.deepEqual(pedido.at(-1)[1].requestBody, { name: 'Otra', mimeType: 'application/vnd.google-apps.folder', parents: ['raiz1'], appProperties: { semencesCliente: 'cli-18' } });
 });
