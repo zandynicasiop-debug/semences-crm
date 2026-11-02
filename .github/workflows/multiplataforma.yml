@@ -89,12 +89,25 @@ jobs:
           export VERSION_CODE=$((200 + GITHUB_RUN_NUMBER))
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon --stacktrace
-      - name: Comprobar la firma y nombrar el APK
+      # La app nueva solo se instala encima de la que ya tiene el equipo si va firmada con el mismo certificado:
+      # se compara con el APK publicado en GitHub Pages y, si no coincide, no se publica nada
+      - name: Comprobar la firma (igual que la app publicada) y nombrar el APK
         run: |
           APK=movil/android/app/build/outputs/apk/release/app-release.apk
           HERRAMIENTAS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          "$HERRAMIENTAS/apksigner" verify --print-certs "$APK" | tee firma.txt
-          grep -q "Signer #1 certificate SHA-256" firma.txt
+          certificado() { "$HERRAMIENTAS/apksigner" verify --print-certs "$1" | grep -E "certificate SHA-256 digest" | head -1 | awk '{print $NF}'; }
+          "$HERRAMIENTAS/aapt" dump badging "$APK" | head -1
+          NUEVO=$(certificado "$APK")
+          if [ -z "$NUEVO" ]; then echo "::error::El APK no está firmado"; exit 1; fi
+          echo "Certificado del APK nuevo:          $NUEVO"
+          if curl -sfL -o anterior.apk "https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/Semences.apk"; then
+            ANTERIOR=$(certificado anterior.apk)
+            echo "Certificado de la app publicada:    $ANTERIOR"
+            if [ "$NUEVO" != "$ANTERIOR" ]; then echo "::error::La firma no coincide con la app publicada: no se instalaría encima"; exit 1; fi
+            echo "Misma firma que la app publicada: se instala encima, como actualización"
+          else
+            echo "::warning::No se pudo descargar la app publicada para comparar la firma"
+          fi
           mkdir -p salida && cp "$APK" "salida/Semences-${VERSION_APP}-Android.apk"
           rm -f "$RUNNER_TEMP/semences.keystore"
       - uses: actions/upload-artifact@v7

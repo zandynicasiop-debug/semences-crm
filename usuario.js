@@ -588,6 +588,11 @@ class Responsable {
                     <button type="button" class="btn-secondary cuenta-push-boton"></button>
                 </div>
                 <label class="casilla cuenta-resumen"><input type="checkbox" id="cuenta-resumen"> <span>Recibir cada mañana el resumen de Borja: tu agenda, tus seguimientos y tus tareas del día</span></label>
+                <div class="cuenta-workspace" hidden>
+                    <p class="dialogo-nota">Tus seguimientos de clientes, tus tareas y los trasplantes pasan solos a tu Google Calendar cada mañana.</p>
+                    <button type="button" class="btn-secondary cuenta-agenda">Pasar mi agenda a Google Calendar ahora</button>
+                    <button type="button" class="btn-secondary cuenta-respaldo" hidden>Respaldar el CRM en Drive ahora</button>
+                </div>
                 <div class="form-group">
                     <label for="cuenta-telefono">Tu WhatsApp para los avisos del equipo (opcional)</label>
                     <input id="cuenta-telefono" type="tel" autocomplete="tel" inputmode="tel" placeholder="809 555 1234" aria-describedby="cuenta-error">
@@ -606,6 +611,21 @@ class Responsable {
         dialogo.querySelector('.cuenta-cancelar').addEventListener('click', () => dialogo.close());
         dialogo.querySelector('.cuenta-reconectar').addEventListener('click', () => this.irAGoogle('conectar'));
         dialogo.querySelector('.cuenta-push-boton').addEventListener('click', () => this.cambiarPush());
+        // Google Workspace: agenda del CRM en Calendar (cada persona) y respaldo en Drive (Master)
+        const accionWorkspace = (selector, accion, exito) => {
+            const boton = dialogo.querySelector(selector);
+            boton.addEventListener('click', async () => {
+                const texto = boton.textContent;
+                boton.disabled = true;
+                boton.textContent = 'Un momento…';
+                const respuesta = this.conector ? await this.conector.backend('/api/accion', { accion }) : null;
+                boton.disabled = false;
+                boton.textContent = texto;
+                if (window.equipo) window.equipo.mostrarAviso(respuesta && respuesta.ok ? exito(respuesta) : ((respuesta && respuesta.error) || 'No se pudo. Revisa la conexión.'), respuesta && respuesta.ok ? undefined : 'error');
+            });
+        };
+        accionWorkspace('.cuenta-agenda', 'sincronizarAgenda', (r) => `Agenda al día en Google Calendar: ${r.creados} nuevos, ${r.actualizados} cambiados, ${r.borrados} quitados.`);
+        accionWorkspace('.cuenta-respaldo', 'respaldar', (r) => `Respaldo guardado en Drive: ${r.archivo}.`);
         const resumen = dialogo.querySelector('#cuenta-resumen');
         resumen.addEventListener('change', async () => {
             resumen.disabled = true;
@@ -655,6 +675,8 @@ class Responsable {
             d.querySelector('#cuenta-telefono').value = sesion.telefono || '';
             d.querySelector('#cuenta-resumen').checked = sesion.resumen !== false;
             d.querySelector('.cuenta-resumen').hidden = sesion.estado !== 'aprobado';
+            d.querySelector('.cuenta-workspace').hidden = sesion.estado !== 'aprobado' || !sesion.googleConectado;
+            d.querySelector('.cuenta-respaldo').hidden = !sesion.master;
             d.querySelector('#cuenta-error').hidden = true;
         };
         pintarCuenta(this.sesion || {});

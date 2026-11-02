@@ -113,7 +113,11 @@ export function crearApp({ config, pool, google, avisos, registrar = console }) 
             ok: base === 'ok', servicio: 'Semences del Caribe · backend', base,
             integraciones: {
                 chat: avisos.chatActivo, whatsapp: avisos.whatsappActivo, whatsappClientes: avisos.whatsappClientesActivo, push: avisos.pushActivo,
-                reportes: Boolean(config.reportes.plantillaId)
+                reportes: Boolean(config.reportes.plantillaId),
+                documentos: Boolean(config.workspace.documentosCarpetaId),
+                respaldos: Boolean(config.workspace.respaldoCarpetaId && config.workspace.cuentaSistema),
+                correos: Boolean(config.workspace.correosAvisos && config.workspace.cuentaSistema),
+                agenda: config.workspace.agendaAutomatica
             },
             colaAvisos: cola,
             // Para la pantalla de entrada: el dominio de la empresa y si se admiten cuentas personales

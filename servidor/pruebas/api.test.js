@@ -12,6 +12,8 @@ import { crearAvisos } from '../src/avisos.js';
 import { crearApp } from '../src/aplicacion.js';
 import { repasar, INTENTOS } from '../src/cola.js';
 import { enviarResumenes } from '../src/resumen.js';
+import { esperarSegundoPlano } from '../src/workspace.js';
+import { enZona } from '../src/fechas.js';
 
 const BASES = (process.env.PRUEBA_BASES || '127.0.0.1:33061,127.0.0.1:33062').split(',');
 
@@ -52,7 +54,29 @@ function googleFalso() {
         crearReporte: async (token, alRenovar, datos) => {
             g.llamadas.push({ tipo: 'reporte', token, datos });
             return { id: 'pdf-1', enlace: 'https://drive.google.com/file/d/pdf-1/view' };
-        }
+        },
+        // Drive y Calendar simulados (workspace.js)
+        archivos: [],
+        eventosCal: [],
+        subirArchivo: async (token, alRenovar, datos) => {
+            g.llamadas.push({ tipo: 'subir', token, datos });
+            const id = `archivo-${g.archivos.length + 1}`;
+            const archivo = { id, nombre: datos.nombre, tipo: datos.tipo, enlace: `https://drive.google.com/file/d/${id}/view`, fecha: new Date().toISOString(), tamano: datos.datos.length };
+            g.archivos.push({ ...archivo, cliente: datos.carpetaCliente && datos.carpetaCliente.id, respaldo: Boolean(datos.propiedades && datos.propiedades.semencesRespaldo), creado: Date.now(), contenido: datos.datos });
+            return archivo;
+        },
+        archivosDelCliente: async (token, alRenovar, { carpetaCliente }) => g.archivos.filter(a => a.cliente === carpetaCliente.id).map(({ id, nombre, tipo, enlace, fecha, tamano }) => ({ id, nombre, tipo, enlace, fecha, tamano })),
+        respaldos: async (token, alRenovar, { desde, antesDe }) => g.archivos.filter(a => a.respaldo && (!desde || a.creado >= desde.getTime()) && (!antesDe || a.creado < antesDe.getTime())),
+        borrarArchivo: async (token, alRenovar, id) => { g.archivos = g.archivos.filter(a => a.id !== id); },
+        eventosCrm: async (token) => g.eventosCal.filter(e => e.token === token).map(({ id, clave, inicio, titulo, descripcion }) => ({ id, clave, inicio, titulo, descripcion })),
+        guardarEventoCrm: async (token, alRenovar, { id, evento }) => {
+            const datos = { token, clave: evento.extendedProperties.private.semencesClave, inicio: evento.start.date, titulo: evento.summary, descripcion: evento.description };
+            if (id) { Object.assign(g.eventosCal.find(e => e.id === id), datos); return id; }
+            const nuevo = { id: `evento-crm-${g.eventosCal.length + 1}-${Date.now()}`, ...datos };
+            g.eventosCal.push(nuevo);
+            return nuevo.id;
+        },
+        borrarEventoCrm: async (token, alRenovar, id) => { g.eventosCal = g.eventosCal.filter(e => e.id !== id); }
     };
     return g;
 }
@@ -148,7 +172,7 @@ for (const base of BASES) {
             const r = await llamar('/api/salud', { metodo: 'GET' });
             assert.equal(r.estado, 200);
             assert.equal(r.json.base, 'ok');
-            assert.deepEqual(r.json.integraciones, { chat: true, whatsapp: true, whatsappClientes: true, push: true, reportes: false });
+            assert.deepEqual(r.json.integraciones, { chat: true, whatsapp: true, whatsappClientes: true, push: true, reportes: false, documentos: false, respaldos: false, correos: false, agenda: true });
             assert.deepEqual(r.json.colaAvisos, {});
             assert.equal(r.json.clavePush, 'BPublica');
         });
@@ -858,6 +882,77 @@ for (const base of BASES) {
                 assert.equal(correo.json.codigo, 'google');
             } finally {
                 config.google.cuentasPersonales = false;
+            }
+        });
+
+        test('Google Workspace: documentos del cliente en Drive, agenda en Calendar, respaldo y correos de aviso', async () => {
+            const original = config.workspace;
+            config.workspace = { ...original, documentosCarpetaId: 'carpetaDocumentos1', respaldoCarpetaId: 'carpetaRespaldos1', cuentaSistema: 'jefa@gmail.com', correosAvisos: true };
+            try {
+                const salud = (await llamar('/api/salud', { metodo: 'GET' })).json.integraciones;
+                assert.equal(salud.documentos && salud.respaldos && salud.correos, true);
+                const manana = (() => { const d = new Date(Date.now() + 86400000); return enZona(d, config.zonaHoraria).fecha; })();
+                const cliente = { id: 'cli-docs', nombre: 'Finca Los Robles', pais: 'VE', casa: 'Fitó', seguimiento: manana, telefono: '04141234567' };
+                assert.equal((await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: cliente }] })).estado, 200);
+
+                // Drive: el documento va a la carpeta del cliente, subido con la cuenta de quien lo sube
+                const pdf = Buffer.from('%PDF-1.7 certificado').toString('base64');
+                const subida = await accion(sesiones.ana, { accion: 'subirDocumento', clienteId: 'cli-docs', nombre: 'Certificado fitosanitario', tipo: 'application/pdf', base64: pdf, descripcion: 'Lote 12' });
+                assert.equal(subida.estado, 200);
+                assert.equal(subida.json.archivo.nombre, 'Certificado fitosanitario.pdf');
+                const llamada = google.llamadas.filter(l => l.tipo === 'subir').pop();
+                assert.equal(llamada.token, 'refresco-ana');
+                assert.deepEqual(llamada.datos.carpetaCliente, { id: 'cli-docs', nombre: 'Finca Los Robles' });
+                assert.equal(llamada.datos.carpetaId, 'carpetaDocumentos1');
+                assert.equal((await accion(sesiones.ana, { accion: 'subirDocumento', clienteId: 'cli-docs', nombre: 'x.html', tipo: 'text/html', base64: pdf })).estado, 400);
+                assert.equal((await accion(sesiones.ana, { accion: 'subirDocumento', clienteId: 'no-existe', nombre: 'x', tipo: 'application/pdf', base64: pdf })).estado, 404);
+                // Luis (vendedor de RD con Gautier) no ve los clientes de Venezuela con Fitó
+                assert.equal((await accion(sesiones.luis, { accion: 'subirDocumento', clienteId: 'cli-docs', nombre: 'x', tipo: 'application/pdf', base64: pdf })).estado, 403);
+                assert.equal((await accion(sesiones.luis, { accion: 'documentos', clienteId: 'cli-docs' })).estado, 403);
+                const lista = await accion(sesiones.ana, { accion: 'documentos', clienteId: 'cli-docs' });
+                assert.deepEqual(lista.json.archivos.map(a => a.nombre), ['Certificado fitosanitario.pdf']);
+
+                // Calendar: el seguimiento de mañana entra en su agenda; repetir no duplica; cambiar la fecha lo mueve
+                const primera = await accion(sesiones.ana, { accion: 'sincronizarAgenda' });
+                assert.equal(primera.estado, 200);
+                const delCliente = () => google.eventosCal.filter(e => e.token === 'refresco-ana' && e.clave === 'seguimiento:cli-docs');
+                assert.equal(delCliente().length, 1);
+                assert.equal(delCliente()[0].inicio, manana);
+                assert.match(delCliente()[0].titulo, /Finca Los Robles/);
+                const segunda = await accion(sesiones.ana, { accion: 'sincronizarAgenda' });
+                assert.deepEqual([segunda.json.creados, segunda.json.actualizados, segunda.json.borrados], [0, 0, 0]);
+                const pasado = enZona(new Date(Date.now() + 3 * 86400000), config.zonaHoraria).fecha;
+                await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: { ...cliente, seguimiento: pasado } }] });
+                assert.equal((await accion(sesiones.ana, { accion: 'sincronizarAgenda' })).json.actualizados, 1);
+                assert.equal(delCliente()[0].inicio, pasado);
+                await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: { ...cliente, seguimiento: '' } }] });
+                assert.equal((await accion(sesiones.ana, { accion: 'sincronizarAgenda' })).json.borrados, 1);
+                assert.equal(delCliente().length, 0);
+
+                // Respaldo: solo un Master; con la cuenta del sistema; todo el CRM en JSON
+                assert.equal((await accion(sesiones.ana, { accion: 'respaldar' })).estado, 403);
+                const respaldo = await accion(sesiones.jefa, { accion: 'respaldar' });
+                assert.equal(respaldo.estado, 200);
+                assert.match(respaldo.json.archivo, /^semences-crm-respaldo-\d{4}-\d{2}-\d{2}-\d{4}\.json$/);
+                const guardado = google.archivos.find(a => a.respaldo);
+                assert.equal(google.llamadas.filter(l => l.tipo === 'subir').pop().token, 'refresco-jefa');
+                const json = JSON.parse(guardado.contenido.toString('utf8'));
+                assert.equal(json.formato, 'semences-crm-respaldo');
+                assert.ok(json.datos.clientes.some(c => c.id === 'cli-docs'));
+
+                // Correos de aviso: una solicitud de acceso nueva avisa a los Master desde la cuenta del sistema
+                google.identidades['codigo-nueva'] = { email: 'nueva@semillasdata.com', verificado: true, dominio: 'semillasdata.com', nombre: 'Nueva', foto: '', tokenRefresco: '', permisos: '' };
+                const nueva = await entrarComo('codigo-nueva');
+                const antes = google.llamadas.filter(l => l.tipo === 'correo').length;
+                await accion(nueva.json.sesion, { accion: 'sala', telefono: '8095550404' });
+                await esperarSegundoPlano();
+                const correos = google.llamadas.filter(l => l.tipo === 'correo').slice(antes);
+                assert.equal(correos.length, 1);
+                assert.equal(correos[0].token, 'refresco-jefa');
+                const mensaje = Buffer.from(correos[0].crudo, 'base64url').toString('utf8');
+                assert.match(mensaje, /^To: jefa@gmail\.com/);
+            } finally {
+                config.workspace = original;
             }
         });
 

@@ -14,6 +14,7 @@ import { pestanasDe } from './exportar.js';
 import { normalizarTelefono, suscripcionValida } from './avisos.js';
 import { errorApp, conGoogle } from './llamadasGoogle.js';
 import { encolar, estadoCola } from './cola.js';
+import { sincronizarAgenda, respaldar, documentoValido, avisarPorCorreo, enSegundoPlano } from './workspace.js';
 
 export { errorApp, conGoogle }; // (en llamadasGoogle.js; se reexportan aquí como antes)
 
@@ -75,11 +76,13 @@ export function germinacionDe(r) {
     return texto === '' ? NaN : Number(texto);
 }
 
-export async function avisarGerminacionBaja({ pool, config, avisos, usuario }, guardados) {
+export async function avisarGerminacionBaja(contexto, guardados) {
+    const { pool, config, avisos, usuario } = contexto;
     const umbral = config.umbralGerminacion;
     const bajos = guardados.filter(({ modulo, registro, anterior }) => modulo === 'germinador' && LOTE_ACTIVO(registro)
         && germinacionDe(registro) < umbral && !(germinacionDe(anterior) < umbral));
-    if (!bajos.length || !(avisos.pushActivo || avisos.whatsappActivo)) return 0;
+    const conCorreo = Boolean(config.workspace && config.workspace.correosAvisos && config.workspace.cuentaSistema);
+    if (!bajos.length || !(avisos.pushActivo || avisos.whatsappActivo || conCorreo)) return 0;
     const [personas] = await pool.query(`SELECT * FROM usuarios WHERE id <> ? AND (estado = 'aprobado' OR email IN (?))`,
         [usuario.id, config.google.admins.length ? config.google.admins : ['']]);
     let enviados = 0;
@@ -94,9 +97,25 @@ export async function avisarGerminacionBaja({ pool, config, avisos, usuario }, g
         const { huellas, telefonos } = await destinosDe(pool, destino.map(p => p.id));
         if (avisos.pushActivo) enviados += await encolar(pool, 'push', huellas, texto);
         if (avisos.whatsappActivo) enviados += await encolar(pool, 'whatsapp', telefonos, texto);
+        if (conCorreo) {
+            const [titulo, ...resto] = texto.split('\n');
+            enSegundoPlano(avisarPorCorreo(contexto, { para: destino.map(p => p.email), asunto: titulo.replace(/^🚨\s*/, ''), texto: `${titulo}\n${resto.join('\n')}` }));
+        }
     }
     return enviados;
 }
+
+// Ficha de un cliente que la persona puede ver (su país y su casa comercial), o error 400/403/404
+async function clienteVisible({ pool, ambito }, clienteId) {
+    const id = String(clienteId || '');
+    if (!/^[\w-]{1,100}$/.test(id)) throw errorApp('El id del cliente no es válido');
+    const ficha = await db.leerRegistro(pool, 'clientes', id);
+    if (!ficha) throw errorApp('Ese cliente no existe', 404);
+    if (!puedeLeer(ambito, 'clientes') || !dentroDelAmbito(ambito, 'clientes', ficha)) throw errorApp('Ese cliente no es de tu país o casa comercial', 403, 'permiso');
+    return ficha;
+}
+
+const carpetaDe = (cliente) => ({ id: cliente.id, nombre: String(cliente.nombre || cliente.id).replace(/[\r\n/\\]/g, ' ').trim().slice(0, 150) || cliente.id });
 
 function comprobarCambios(lista, nombre) {
     if (lista === undefined) return [];
@@ -312,6 +331,9 @@ export const ACCIONES = {
             const texto = `🔐 Nueva solicitud de acceso\n${usuario.nombre || usuario.email} (${usuario.email}) espera en la sala de espera. Entra a la app › Equipo y accesos para asignarle país, casa comercial y cargo.`;
             if (avisos.pushActivo) await encolar(pool, 'push', huellas, texto);
             if (avisos.whatsappActivo) await encolar(pool, 'whatsapp', telefonos, texto);
+            const tipo = publico(usuario, config).tipoCuenta === 'personal' ? 'cuenta personal de Google' : 'cuenta de la empresa';
+            enSegundoPlano(avisarPorCorreo(contexto, { para: config.google.admins, asunto: 'Nueva solicitud de acceso',
+                texto: `${usuario.nombre || usuario.email} (${usuario.email}, ${tipo}) pidió acceso al CRM.\nWhatsApp: +${telefono}\n\nEntra a la app › Equipo y accesos para asignarle país, casa comercial y cargo, o rechazarla.` }));
         }
         const [filas] = await pool.query('SELECT * FROM usuarios WHERE id = ?', [usuario.id]);
         return { ok: true, usuario: publico(filas[0], config) };
@@ -340,6 +362,8 @@ export const ACCIONES = {
                 const texto = `✅ Acceso aprobado\nHola ${persona.nombre || ''}, ya puedes usar la app de Semences del Caribe. Ábrela de nuevo para entrar.`;
                 if (avisos.whatsappActivo) await encolar(pool, 'whatsapp', telefonos, texto);
                 if (avisos.pushActivo) await encolar(pool, 'push', huellas, texto);
+                enSegundoPlano(avisarPorCorreo(contexto, { para: persona.email, asunto: 'Tu acceso está aprobado',
+                    texto: `Hola ${persona.nombre || ''}:\n\nYa puedes usar el CRM de Semences del Caribe como ${asignacion.cargo}, con ${asignacion.paises.map(p => NOMBRE_PAIS[p] || p).join(' y ')} y ${asignacion.casas.join(', ')}. Abre la app de nuevo para entrar.` }));
             }
         } else if (datos.operacion === 'rechazar') {
             await pool.query(`UPDATE usuarios SET estado = 'rechazado', cargo = NULL, paises = '[]', casas = '[]', aprobado_por = ?, aprobado_en = UTC_TIMESTAMP() WHERE id = ?`, [usuario.email, persona.id]);
@@ -431,6 +455,42 @@ export const ACCIONES = {
         const nota = String(datos.nota || '').trim().slice(0, 500);
         await enviarDirecto(contexto, destino, 'cliente', `Te pasó el cliente ${cliente.nombre}${nota ? `: ${nota}` : ''}`, '');
         return { ok: true };
+    },
+
+    // ----- Google Workspace (workspace.js) -----
+
+    // Documento de un cliente a su carpeta de Drive: { clienteId, nombre, tipo, base64, descripcion }
+    async subirDocumento(datos, contexto) {
+        const carpetaId = contexto.config.workspace.documentosCarpetaId;
+        if (!carpetaId) throw errorApp('No hay carpeta de documentos configurada (DOCUMENTOS_CARPETA_ID)', 503, 'configuracion');
+        const cliente = await clienteVisible(contexto, datos.clienteId);
+        const documento = documentoValido(datos);
+        const archivo = await conGoogle(contexto, (token, alRenovar) => contexto.google.subirArchivo(token, alRenovar, {
+            carpetaId, carpetaCliente: carpetaDe(cliente), nombre: documento.nombre, tipo: documento.tipo, datos: documento.datos,
+            descripcion: String(datos.descripcion || '').slice(0, 500), propiedades: { semencesCliente: cliente.id }
+        }));
+        return { ok: true, archivo };
+    },
+
+    // Documentos de la carpeta de un cliente: { clienteId } → { archivos: [{ id, nombre, tipo, enlace, fecha, tamano }] }
+    async documentos(datos, contexto) {
+        const carpetaId = contexto.config.workspace.documentosCarpetaId;
+        if (!carpetaId) throw errorApp('No hay carpeta de documentos configurada (DOCUMENTOS_CARPETA_ID)', 503, 'configuracion');
+        const cliente = await clienteVisible(contexto, datos.clienteId);
+        const archivos = await conGoogle(contexto, (token, alRenovar) => contexto.google.archivosDelCliente(token, alRenovar, { carpetaId, carpetaCliente: carpetaDe(cliente) }));
+        return { ok: true, archivos };
+    },
+
+    // Mis seguimientos, tareas y trasplantes a mi Google Calendar ahora (también se hace solo cada mañana)
+    async sincronizarAgenda(datos, contexto) {
+        const resultado = await sincronizarAgenda(contexto, contexto.usuario, await db.listarTodo(contexto.pool));
+        return { ok: true, ...resultado };
+    },
+
+    // Respaldo del CRM en Drive ahora (solo Master; también se hace solo cada día a RESPALDO_HORA)
+    async respaldar(datos, contexto) {
+        if (!contexto.ambito.master) throw errorApp('Solo un Master puede respaldar el CRM', 403, 'acceso');
+        return { ok: true, ...(await respaldar(contexto)) };
     },
 
     // Gestión del equipo (solo ADMINS): quién puede entrar además del dominio, y sus teléfonos

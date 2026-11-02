@@ -2639,3 +2639,43 @@ body.ventana-flotante {
         min-height: 44px;
     }
 }
+
+/* Documentos del cliente en Drive (crm.js › abrirDocumentos) */
+.documentos-lista {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sdc-espacio-2);
+    max-height: 40vh;
+    overflow-y: auto;
+}
+
+.documentos-lista a {
+    color: inherit;
+    font-weight: 600;
+    word-break: break-word;
+}
+
+.documentos-subir {
+    position: relative;
+    align-self: flex-start;
+    cursor: pointer;
+}
+
+.documentos-subir.ocupado {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.documentos-subir:focus-within {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+}
+
+.cuenta-workspace {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sdc-espacio-2);
+}

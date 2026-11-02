@@ -758,3 +758,114 @@ describe('cola de avisos', () => {
         assert.equal(filas[0][4], '["a","b"]');
     });
 });
+
+// ---------------------------------------------------------------------------------------------------
+describe('Google Workspace: agenda, documentos y avisos (workspace.js)', async () => {
+    const { eventosDeAgenda, planAgenda, documentoValido, avisarPorCorreo, cuentaDelSistema, respaldoPendiente } = await import('../src/workspace.js');
+    const { sumarDias, inicioDelDia, enZona } = await import('../src/fechas.js');
+    const hoy = '2026-11-02';
+    const ana = { nombre: 'Ana Pérez', email: 'ana@semillasdata.com' };
+    const todo = ambitoDe({ email: 'ana@semillasdata.com', estado: 'aprobado', cargo: 'administrativo', paises: JSON.stringify(PAISES), casas: JSON.stringify(CASAS) }, CONFIG_BASE);
+
+    test('fechas: sumar días cruza meses y años', () => {
+        assert.equal(sumarDias('2026-11-30', 1), '2026-12-01');
+        assert.equal(sumarDias('2026-12-31', 1), '2027-01-01');
+        assert.equal(sumarDias('2026-03-01', -1), '2026-02-28');
+        // Santo Domingo y Caracas: UTC-4 todo el año
+        assert.equal(inicioDelDia('2026-11-02', 'America/Caracas').toISOString(), '2026-11-02T04:00:00.000Z');
+        assert.equal(enZona(new Date('2026-11-03T03:30:00Z'), 'America/Santo_Domingo').fecha, '2026-11-02');
+    });
+
+    test('agenda: seguimientos míos o sin asignar, mis tareas y los trasplantes, de hoy a 60 días', () => {
+        const datos = {
+            clientes: [
+                { id: 'c1', nombre: 'Finca A', seguimiento: '2026-11-05' },
+                { id: 'c2', nombre: 'Finca B', seguimiento: '2026-11-06', asignado: 'Otra Persona' },
+                { id: 'c3', nombre: 'Finca C', seguimiento: '2026-11-07', asignado: 'ana pérez' },
+                { id: 'c4', nombre: 'Finca D', seguimiento: '2026-10-20' },
+                { id: 'c5', nombre: 'Finca E', seguimiento: '2027-03-01' },
+                { id: 'c6', nombre: 'Finca F', seguimiento: 'mañana' }
+            ],
+            tareas: [
+                { id: 't1', titulo: 'Llevar muestras', para: 'Ana Pérez', vence: hoy, prioridad: 'Alta' },
+                { id: 't2', titulo: 'Hecha', para: 'Ana Pérez', vence: hoy, hecha: '2026-11-01' },
+                { id: 't3', titulo: 'De otro', para: 'Luis', vence: hoy }
+            ],
+            germinador: [
+                { id: 'g1', lote: 'L-1', variedad: 'Tomate', trasplante: '2026-11-10', estado: 'En cámara' },
+                { id: 'g2', lote: 'L-2', trasplante: '2026-11-10', estado: 'Despachado' }
+            ]
+        };
+        const eventos = eventosDeAgenda({ persona: ana, ambito: todo, datos, hoy, urlApp: 'https://semillasdata.com' });
+        assert.deepEqual(eventos.map(e => e.clave).sort(), ['seguimiento:c1', 'seguimiento:c3', 'tarea:t1', 'trasplante:g1']);
+        const seguimiento = eventos.find(e => e.clave === 'seguimiento:c1').evento;
+        assert.deepEqual(seguimiento.start, { date: '2026-11-05' });
+        assert.deepEqual(seguimiento.end, { date: '2026-11-06' }, 'día completo: termina al día siguiente');
+        assert.equal(seguimiento.transparency, 'transparent');
+        assert.deepEqual(seguimiento.extendedProperties.private, { semencesOrigen: 'crm', semencesClave: 'seguimiento:c1' });
+        assert.match(seguimiento.description, /semillasdata\.com/);
+        // Un vendedor no recibe trasplantes; un plantulador no recibe seguimientos de clientes
+        const vendedor = ambitoDe({ email: 'v@x.com', estado: 'aprobado', cargo: 'vendedor', paises: '["RD"]', casas: '["Fitó"]' }, CONFIG_BASE);
+        assert.ok(!eventosDeAgenda({ persona: ana, ambito: vendedor, datos, hoy }).some(e => e.clave.startsWith('trasplante')));
+        const plantulador = ambitoDe({ email: 'p@x.com', estado: 'aprobado', cargo: 'plantulador', paises: '["RD"]', casas: '["Fitó"]' }, CONFIG_BASE);
+        assert.ok(!eventosDeAgenda({ persona: ana, ambito: plantulador, datos, hoy }).some(e => e.clave.startsWith('seguimiento')));
+    });
+
+    test('plan de la agenda: crea lo nuevo, actualiza lo cambiado, borra lo que sobra y los duplicados', () => {
+        const deseado = (clave, fecha, titulo = clave) => ({ clave, evento: { summary: titulo, description: 'd', start: { date: fecha } } });
+        const existentes = [
+            { id: 'e1', clave: 'seguimiento:c1', inicio: '2026-11-05', titulo: 'seguimiento:c1', descripcion: 'd' }, // igual
+            { id: 'e2', clave: 'tarea:t1', inicio: '2026-11-02', titulo: 'tarea:t1', descripcion: 'd' },             // cambia de fecha
+            { id: 'e3', clave: 'tarea:vieja', inicio: '2026-11-03', titulo: 'x', descripcion: 'd' },                 // ya no está
+            { id: 'e4', clave: 'seguimiento:c1', inicio: '2026-11-05', titulo: 'seguimiento:c1', descripcion: 'd' }, // duplicado
+            { id: 'e5', clave: '', inicio: '2026-11-05', titulo: 'sin clave', descripcion: '' }
+        ];
+        const plan = planAgenda(existentes, [deseado('seguimiento:c1', '2026-11-05'), deseado('tarea:t1', '2026-11-04'), deseado('trasplante:g1', '2026-11-10')]);
+        assert.deepEqual(plan.crear.map(d => d.clave), ['trasplante:g1']);
+        assert.deepEqual(plan.actualizar.map(a => a.id), ['e2']);
+        assert.deepEqual(plan.borrar.sort(), ['e3', 'e4', 'e5']);
+        assert.deepEqual(planAgenda([], []), { crear: [], actualizar: [], borrar: [] });
+    });
+
+    test('documentos: tipos admitidos, tamaño y nombre limpio con su extensión', () => {
+        const b64 = Buffer.from('%PDF-1.7').toString('base64');
+        assert.equal(documentoValido({ nombre: 'Certificado', tipo: 'application/pdf', base64: b64 }).nombre, 'Certificado.pdf');
+        assert.equal(documentoValido({ nombre: '../../etc/passwd', tipo: 'application/pdf', base64: b64 }).nombre, '.. .. etc passwd.pdf');
+        assert.equal(documentoValido({ nombre: 'foto.JPEG', tipo: 'image/jpeg', base64: b64 }).nombre, 'foto.JPEG');
+        assert.equal(documentoValido({ nombre: '', tipo: 'image/png', base64: b64 }).nombre, 'documento.png');
+        assert.throws(() => documentoValido({ nombre: 'x', tipo: 'text/html', base64: b64 }), (e) => e.estado === 400);
+        assert.throws(() => documentoValido({ nombre: 'x', tipo: 'application/pdf', base64: '' }), /vacío/);
+        assert.throws(() => documentoValido({ nombre: 'x', tipo: 'application/pdf', base64: Buffer.alloc(8 * 1024 * 1024 + 1).toString('base64') }), /8 MB/);
+    });
+
+    test('correos de aviso: sin cuenta del sistema o apagados, no se envía nada', async () => {
+        const pool = poolFalso([[/FROM usuarios WHERE email = \? AND token_google/, () => []]]);
+        const google = { enviarCorreo: async () => { throw new Error('no debería'); } };
+        assert.equal(await avisarPorCorreo({ pool, config: { workspace: { correosAvisos: false, cuentaSistema: 'jefa@gmail.com' } }, google }, { para: 'x@y.com', asunto: 'a', texto: 't' }), 0);
+        assert.equal(await avisarPorCorreo({ pool, config: { workspace: { correosAvisos: true, cuentaSistema: '' } }, google }, { para: 'x@y.com', asunto: 'a', texto: 't' }), 0);
+        assert.equal(await avisarPorCorreo({ pool, config: { workspace: { correosAvisos: true, cuentaSistema: 'jefa@gmail.com' } }, google }, { para: 'x@y.com', asunto: 'a', texto: 't' }), 0, 'la cuenta del sistema no ha entrado');
+        assert.equal(await cuentaDelSistema(pool, { workspace: {} }), null);
+    });
+
+    test('correos de aviso: uno por destinatario, desde la cuenta del sistema y sin repetir', async () => {
+        const sistema = { id: 9, email: 'jefa@gmail.com', token_google: cifrar('refresco-sistema', CLAVE, 'google:jefa@gmail.com') };
+        const pool = poolFalso([[/FROM usuarios WHERE email = \? AND token_google/, () => [sistema]]]);
+        const enviados = [];
+        const google = { enviarCorreo: async (token, alRenovar, crudo) => { enviados.push({ token, mensaje: Buffer.from(crudo, 'base64url').toString('utf8') }); return 'id'; } };
+        const config = { claveCifrado: CLAVE, urlApp: 'https://semillasdata.com', workspace: { correosAvisos: true, cuentaSistema: 'jefa@gmail.com' } };
+        const n = await avisarPorCorreo({ pool, config, google }, { para: ['A@x.com', 'a@x.com', 'b@y.com', 'no-es-correo'], asunto: 'Germinación baja', texto: 'Lote L-1' });
+        assert.equal(n, 2);
+        assert.ok(enviados.every(e => e.token === 'refresco-sistema'));
+        assert.match(enviados[0].mensaje, /^To: a@x\.com\r\n/);
+        const asunto = Buffer.from(enviados[0].mensaje.match(/Subject: =\?UTF-8\?B\?(.+)\?=/)[1], 'base64').toString('utf8');
+        assert.equal(asunto, 'Semences del Caribe · Germinación baja');
+    });
+
+    test('respaldo: no toca sin carpeta, sin cuenta del sistema o antes de su hora', async () => {
+        const pool = poolFalso([[/FROM usuarios WHERE email/, () => []]]);
+        const base = { zonaHoraria: 'America/Santo_Domingo', workspace: { respaldoCarpetaId: 'carpeta123456', cuentaSistema: 'jefa@gmail.com', respaldoHora: 2 } };
+        assert.equal(await respaldoPendiente({ pool, config: { ...base, workspace: { ...base.workspace, respaldoCarpetaId: '' } } }), false);
+        assert.equal(await respaldoPendiente({ pool, config: base }, new Date('2026-11-02T05:30:00Z')), false, 'la 1:30 en RD: todavía no');
+        assert.equal(await respaldoPendiente({ pool, config: base }, new Date('2026-11-02T07:00:00Z')), false, 'sin cuenta del sistema conectada');
+    });
+});

@@ -743,6 +743,75 @@ class CRM {
 
     // ----- Expediente del cliente: todo lo suyo en un solo sitio -----
     /**
+     * Documentos del cliente en su carpeta de Google Drive (backend: acciones documentos y subirDocumento):
+     * certificados fitosanitarios, permisos de importación, análisis de germinación, facturas, fotos de campo…
+     */
+    abrirDocumentos(clienteId) {
+        const cliente = this.cliente(clienteId);
+        if (!cliente) return;
+        const TIPOS = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', csv: 'text/csv' };
+        const caja = document.createElement('div');
+        caja.className = 'dialogo-form';
+        caja.innerHTML = `
+            <h3 id="dialogo-titulo"></h3>
+            <p class="dialogo-nota">Certificados fitosanitarios, permisos de importación, análisis de germinación, facturas o fotos de campo, en la carpeta del cliente en Google Drive. PDF, imagen, Word, Excel o CSV, hasta 8 MB.</p>
+            <ul class="documentos-lista" aria-live="polite"></ul>
+            <label class="btn-primary documentos-subir">Subir un documento<input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.docx,.xlsx,.csv" class="solo-lector"></label>
+            <p class="form-error" role="alert" hidden></p>
+            <div class="modal-actions"><button type="button" class="btn-secondary documentos-volver">Volver al expediente</button></div>`;
+        caja.querySelector('h3').textContent = `Documentos de ${cliente.nombre}`;
+        const lista = caja.querySelector('.documentos-lista');
+        const error = caja.querySelector('.form-error');
+        const entrada = caja.querySelector('input[type="file"]');
+        const mostrarError = (texto) => { error.textContent = texto; error.hidden = !texto; };
+        const pintar = async () => {
+            lista.replaceChildren(Object.assign(document.createElement('li'), { className: 'dialogo-nota', textContent: 'Cargando…' }));
+            const respuesta = await this.google.enviar('documentos', { clienteId }, true);
+            lista.replaceChildren();
+            if (!respuesta || !respuesta.ok) return mostrarError((respuesta && respuesta.error) || 'No se pudo cargar la lista. Revisa la conexión.');
+            if (!respuesta.archivos.length) lista.appendChild(Object.assign(document.createElement('li'), { className: 'dialogo-nota', textContent: 'Todavía no hay documentos.' }));
+            respuesta.archivos.forEach(archivo => {
+                const li = document.createElement('li');
+                const fecha = archivo.fecha ? new Date(archivo.fecha).toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+                if (/^https:\/\/(drive|docs)\.google\.com\//.test(archivo.enlace || '')) {
+                    const a = Object.assign(document.createElement('a'), { href: archivo.enlace, target: '_blank', rel: 'noopener', textContent: archivo.nombre });
+                    li.appendChild(a);
+                } else {
+                    li.append(archivo.nombre);
+                }
+                if (fecha) li.append(` · ${fecha}`);
+                lista.appendChild(li);
+            });
+        };
+        entrada.addEventListener('change', async () => {
+            const archivo = entrada.files && entrada.files[0];
+            entrada.value = '';
+            if (!archivo) return;
+            mostrarError('');
+            const extension = (archivo.name.split('.').pop() || '').toLowerCase();
+            const tipo = TIPOS[extension] || archivo.type;
+            if (!Object.values(TIPOS).includes(tipo)) return mostrarError('Ese tipo de archivo no se puede subir (PDF, imagen, Word, Excel o CSV).');
+            if (archivo.size > 8 * 1024 * 1024) return mostrarError('El archivo pesa más de 8 MB.');
+            const base64 = await new Promise((ok, mal) => {
+                const lector = new FileReader();
+                lector.onload = () => ok(String(lector.result).split(',')[1] || '');
+                lector.onerror = () => mal(lector.error);
+                lector.readAsDataURL(archivo);
+            }).catch(() => '');
+            const etiqueta = caja.querySelector('.documentos-subir');
+            etiqueta.classList.add('ocupado');
+            const respuesta = await this.google.enviar('subirDocumento', { clienteId, nombre: archivo.name, tipo, base64 }, true);
+            etiqueta.classList.remove('ocupado');
+            if (!respuesta || !respuesta.ok) return mostrarError((respuesta && respuesta.error) || 'No se pudo subir. Revisa la conexión.');
+            if (window.equipo) window.equipo.mostrarAviso(`${respuesta.archivo.nombre} guardado en la carpeta de ${cliente.nombre} en Drive.`);
+            pintar();
+        });
+        caja.querySelector('.documentos-volver').addEventListener('click', () => this.abrirExpediente(clienteId));
+        this.mostrarEnDialogo(caja);
+        pintar();
+    }
+
+    /**
      * Reporte del cliente con la plantilla de Google Docs del backend. En la plantilla se escriben
      * {{cliente}}, {{ubicacion}}, {{telefono}}, {{whatsapp}}, {{marca}}, {{seguimiento}}, {{fecha}},
      * {{responsable}}, {{procesos}}, {{visitas}} y {{rendimientos}} (ver servidor/LEEME.md).
@@ -1032,6 +1101,12 @@ class CRM {
             reporte.textContent = 'Reporte PDF en Drive';
             reporte.addEventListener('click', () => this.generarReporte(clienteId, reporte));
             atajos.appendChild(reporte);
+            const documentos = document.createElement('button');
+            documentos.type = 'button';
+            documentos.className = 'btn-secondary';
+            documentos.textContent = 'Documentos en Drive';
+            documentos.addEventListener('click', () => this.abrirDocumentos(clienteId));
+            atajos.appendChild(documentos);
         }
         caja.appendChild(atajos);
 
