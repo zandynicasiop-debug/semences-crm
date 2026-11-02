@@ -15,6 +15,7 @@ import { normalizarTelefono, suscripcionValida } from './avisos.js';
 import { conReintentos } from './reintentos.js';
 import { encolar, estadoCola } from './cola.js';
 import { avisarEnvio, actualizarEnvio } from './envios.js';
+import { accionInstagram } from './instagram.js';
 
 export function errorApp(mensaje, estado = 400, codigo = 'datos') {
     const error = new Error(mensaje);
@@ -301,6 +302,11 @@ export const ACCIONES = {
         throw errorApp('Operación desconocida (alta, baja o consultar)');
     },
 
+    // Bandeja de Instagram de administración (instagram.js)
+    async instagram(datos, contexto) {
+        return accionInstagram(datos, contexto, { errorApp, enviarDirecto });
+    },
+
     // Consultar ya el estado de un envío en DHL o FedEx (solo administración, dentro de su ámbito)
     async rastrear(datos, contexto) {
         const envio = await db.leerRegistro(contexto.pool, 'envios', String(datos.id || ''));
@@ -402,7 +408,7 @@ export const ACCIONES = {
         const estado = ['disponible', 'en_parcela', 'en_reunion'].includes(datos.estado) ? datos.estado : null;
         await pool.query(`UPDATE usuarios SET visto = UTC_TIMESTAMP()${estado ? ', presencia = ?' : ''} WHERE id = ?`, estado ? [estado, usuario.id] : [usuario.id]);
         const [filas] = await pool.query(
-            `SELECT id, email, nombre, foto, cargo, estado, presencia, TIMESTAMPDIFF(SECOND, visto, UTC_TIMESTAMP()) segundos
+            `SELECT id, email, nombre, foto, cargo, estado, paises, casas, presencia, TIMESTAMPDIFF(SECOND, visto, UTC_TIMESTAMP()) segundos
              FROM usuarios WHERE estado = 'aprobado' OR email IN (?) ORDER BY nombre`, [config.google.admins.length ? config.google.admins : ['']]);
         const [[sinLeer]] = await pool.query('SELECT COUNT(*) n FROM directos WHERE para_id = ? AND leido = 0', [usuario.id]);
         return {

@@ -19,6 +19,7 @@ import * as cuentas from './cuentas.js';
 import { ACCIONES, errorApp } from './acciones.js';
 import { estadoCola } from './cola.js';
 import { ambitoDe } from './permisos.js';
+import { firmaValida, recibirWebhook } from './instagram.js';
 
 // Límite sencillo de peticiones por IP (en memoria: basta para un solo proceso)
 function limitador(maximo, ventanaMs) {
@@ -53,7 +54,7 @@ function leerEstado(config, estado) {
 // Lo único que puede hacer quien aún no está aprobado
 const SIN_APROBAR = ['sala', 'telefono', 'push'];
 
-export function crearApp({ config, pool, google, avisos, transportistas = null, registrar = console }) {
+export function crearApp({ config, pool, google, avisos, transportistas = null, instagram = null, registrar = console }) {
     const app = express();
     app.disable('x-powered-by');
     app.set('trust proxy', 1); // Detrás del proxy de cPanel (Passenger): la IP real viene en X-Forwarded-For
@@ -76,7 +77,29 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
     });
 
     const api = express.Router();
-    api.use(express.json({ limit: '10mb' })); // 10 MB: un PDF de 7 MB en base64 cabe
+    // 10 MB: un PDF de 7 MB en base64 cabe. Se guarda también el cuerpo original: la firma de Meta va sobre él
+    api.use(express.json({ limit: '10mb', verify: (req, res, crudo) => { req.cuerpoCrudo = crudo; } }));
+
+    // ----- Webhook de Instagram (Meta) -----
+    // GET: Meta comprueba la dirección al configurarla (hub.verify_token = META_VERIFY_TOKEN)
+    api.get('/instagram/webhook', (req, res) => {
+        const ok = config.instagram.verificacion && req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === config.instagram.verificacion;
+        if (!ok) return res.sendStatus(403);
+        res.type('text/plain').send(String(req.query['hub.challenge'] || ''));
+    });
+    // POST: mensajes nuevos. Sin firma válida no se mira nada
+    api.post('/instagram/webhook', async (req, res) => {
+        if (!firmaValida(config.instagram.secreto, req.cuerpoCrudo, req.get('X-Hub-Signature-256'))) {
+            return res.status(401).json({ ok: false, error: 'Firma de Meta no válida' });
+        }
+        try {
+            await recibirWebhook({ pool, config, avisos, instagram }, req.body);
+        } catch (error) {
+            registrar.error('Webhook de Instagram:', error.message);
+        }
+        // Meta necesita un 200 rápido aunque algo falle (si no, reintenta y acaba desactivando el webhook)
+        res.status(200).send('EVENT_RECEIVED');
+    });
 
     // Sesión obligatoria para todo lo que no es entrar
     const conSesion = async (req, res, next) => {
@@ -207,7 +230,7 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
                     ? 'Tu solicitud de acceso fue rechazada. Habla con un administrador.'
                     : 'Estás en la sala de espera: un Master tiene que aprobar tu acceso.', 403, req.ambito.estado === 'rechazado' ? 'rechazado' : 'espera');
             }
-            res.json(await accion(datos, { pool, config, google, avisos, transportistas, usuario: req.usuario, ambito: req.ambito }));
+            res.json(await accion(datos, { pool, config, google, avisos, transportistas, instagram, usuario: req.usuario, ambito: req.ambito }));
         } catch (error) {
             next(error);
         }

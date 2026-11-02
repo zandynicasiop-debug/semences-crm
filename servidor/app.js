@@ -10,6 +10,7 @@ import { crearApp } from './src/aplicacion.js';
 import { iniciarCola } from './src/cola.js';
 import { iniciarResumenes } from './src/resumen.js';
 import { crearTransportistas, iniciarRastreo } from './src/envios.js';
+import { crearInstagram } from './src/instagram.js';
 
 try { process.loadEnvFile(new URL('./.env', import.meta.url)); } catch (e) { /* Sin .env: se usan las variables del panel */ }
 
@@ -24,7 +25,7 @@ const pool = await conectar(config.mysql);
 const avisos = crearAvisos(config);
 const google = crearGoogle(config);
 const transportistas = crearTransportistas(config);
-const app = crearApp({ config, pool, google, avisos, transportistas });
+const app = crearApp({ config, pool, google, avisos, transportistas, instagram: crearInstagram(config) });
 iniciarCola(pool, avisos); // Envía los avisos pendientes (WhatsApp y push) cada 5 segundos
 iniciarResumenes({ pool, config, google, avisos }); // "Borja": el resumen de la mañana de cada persona
 iniciarRastreo({ pool, config, avisos, transportistas }); // Guías de DHL y FedEx (si están sus claves)

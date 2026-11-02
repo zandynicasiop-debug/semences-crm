@@ -147,6 +147,21 @@ Módulo **Envíos**: guías de semilla con cliente, país, casa comercial, trans
 
 En el resumen de Borja salen los envíos que llegan hoy, salen a reparto o tienen un problema (al vendedor, solo los de sus clientes).
 
+## Bandeja de Instagram (administración)
+
+Menú › **Bandeja de Instagram**, solo para **administrativos y Master**, y cada quien ve solo las cuentas de su país y casa comercial. Los mensajes directos que llegan a las cuentas de Instagram de la empresa aparecen aquí; se pueden **responder** (Meta solo deja hacerlo dentro de las **24 horas** siguientes al último mensaje del cliente), **convertir en cliente** (ficha nueva en el CRM con el país y la casa de la cuenta, "Cómo llegó: Instagram @usuario", asignada a un vendedor de ese país y casa, que recibe el aviso por push y WhatsApp) o **archivar** (vuelve a la bandeja si el cliente escribe otra vez). Cuando una conversación tiene mensajes nuevos, a administración de ese ámbito le llega un push.
+
+No crea PDF, reuniones ni correos por su cuenta y no lee Gmail: eso lo decide el vendedor desde la ficha del cliente.
+
+**Puesta en marcha (una vez):**
+1. En developers.facebook.com, crea una app de tipo **Empresa** y añade el producto **Instagram** (*API con inicio de sesión de Facebook*). Cada cuenta de Instagram tiene que ser **profesional** y estar vinculada a una página de Facebook de la empresa.
+2. En la app de Meta › *Webhooks* › *Instagram*: URL `https://api.semillasdata.com/api/instagram/webhook`, token de verificación = el valor que pongas en `META_VERIFY_TOKEN`. Suscríbete al campo **messages**.
+3. En el `.env` del servidor: `META_APP_SECRET` (app de Meta › *Configuración › Básica › Clave secreta*) y `META_VERIFY_TOKEN`. Reinicia la app Node.
+4. En la app, un Master abre la bandeja › **Cuentas conectadas** y da de alta cada cuenta: su id de Instagram (número), país, casa y el **token de acceso de la página** (con permisos `instagram_basic`, `instagram_manage_messages` y `pages_manage_metadata`). El token se guarda cifrado; nadie lo vuelve a ver.
+5. Mientras la app de Meta está en modo desarrollo solo llegan mensajes de quien tenga un rol en ella. Para el público hay que pasar la **revisión de la app** de Meta (pide el permiso `instagram_manage_messages`, un vídeo de cómo se usa y la política de privacidad).
+
+El servidor comprueba la firma `X-Hub-Signature-256` de cada aviso de Meta sobre el cuerpo original; sin firma válida no guarda nada.
+
 ## Tablero del equipo
 
 Menú › **Tablero del equipo**: las fotos de Google del equipo aprobado con su estado (disponible, en parcela, en reunión o desconectado; la app avisa al servidor cada minuto). Cada quien elige su estado. Al tocar a alguien:
@@ -200,4 +215,5 @@ Es privado: se arma con el mismo filtro de cargo, país y casa comercial que la 
 | `GET /api/auth/google/vuelta` | Google vuelve aquí; redirige a la app con un código de un solo uso (2 min) |
 | `POST /api/auth/canjear` | `{ codigo, verificador }` → `{ sesion, usuario }` |
 | `GET /api/yo` · `POST /api/salir` | La persona de la sesión · cerrar sesión |
-| `POST /api/accion` | `{ accion, … }`: `sincronizar`, `crm`, `sheets`, `chat`, `avisar`, `calendar` (con `invitados`, `conMeet`, `whatsapp`), `disponibilidad`, `meet`, `correo` (con `whatsapp`), `reporte`, `exportar`, `push`, `telefono`, `equipo`, `sala`, `accesos`, `presencia`, `directo`, `bandeja`, `pasarCliente`, `resumen`, `rastrear`. Sin aprobar solo se admiten `sala`, `telefono` y `push` |
+| `GET` · `POST /api/instagram/webhook` | Verificación de Meta (`hub.verify_token`) · mensajes directos de Instagram (firmados con `META_APP_SECRET`) |
+| `POST /api/accion` | `{ accion, … }`: `sincronizar`, `crm`, `sheets`, `chat`, `avisar`, `calendar` (con `invitados`, `conMeet`, `whatsapp`), `disponibilidad`, `meet`, `correo` (con `whatsapp`), `reporte`, `exportar`, `push`, `telefono`, `equipo`, `sala`, `accesos`, `presencia`, `directo`, `bandeja`, `pasarCliente`, `resumen`, `rastrear`, `instagram`. Sin aprobar solo se admiten `sala`, `telefono` y `push` |

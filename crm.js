@@ -89,6 +89,7 @@ const MODULOS_CRM = {
             { id: 'correo', etiqueta: 'Correo', tipo: 'email', ejemplo: 'cliente@ejemplo.com', autocomplete: 'email' },
             { id: 'ubicacion', etiqueta: 'Ubicación', tipo: 'text', ejemplo: 'Constanza, La Vega' },
             { id: 'marca', etiqueta: 'Marca que compra', tipo: 'select', opciones: MARCAS, vacia: 'Sin indicar' },
+            { id: 'origen', etiqueta: 'Cómo llegó', tipo: 'text', ejemplo: 'Instagram, feria, referido' },
             { id: 'seguimiento', etiqueta: 'Próximo seguimiento', tipo: 'date' }
         ],
         columnas: [

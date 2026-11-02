@@ -42,6 +42,12 @@ export function leerConfig(entorno = process.env) {
         entradasPorMinuto: Number(entorno.ENTRADAS_POR_MINUTO) || 20,
         zonaHoraria: entorno.ZONA_HORARIA || 'America/Santo_Domingo',
         minutosReunion: Number(entorno.MINUTOS_REUNION) || 30,
+        // Instagram (bandeja de administración): app de Meta con el producto de mensajes de Instagram
+        instagram: {
+            secreto: entorno.META_APP_SECRET || '',
+            verificacion: entorno.META_VERIFY_TOKEN || '',
+            version: entorno.META_VERSION || 'v21.0'
+        },
         // Envíos: API oficiales de rastreo (opcionales) y cada cuántos minutos se consulta cada guía activa
         envios: {
             dhlClave: entorno.DHL_API_KEY || '',

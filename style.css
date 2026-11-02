@@ -2607,3 +2607,100 @@ body.ventana-flotante {
 .expediente-datos a {
     color: var(--ui-enlace);
 }
+
+/* ----- Bandeja de Instagram (bandejaInstagram.js) ----- */
+.ig-vista[hidden] {
+    display: none;
+}
+
+.ig-vista {
+    display: grid;
+    gap: var(--sdc-espacio-4);
+}
+
+.ig-conversaciones,
+.ig-mensajes {
+    list-style: none;
+    display: grid;
+    gap: var(--sdc-espacio-3);
+    max-height: 50vh;
+    overflow-y: auto;
+}
+
+.ig-conversacion {
+    width: 100%;
+    min-height: var(--sdc-objetivo-tactil);
+    display: grid;
+    gap: var(--sdc-espacio-1);
+    padding: var(--sdc-espacio-3) var(--sdc-espacio-4);
+    text-align: left;
+    color: var(--ui-texto);
+    background: var(--ui-apagado);
+    border: 1px solid var(--ui-borde);
+    border-left: 3px solid var(--ui-borde);
+    border-radius: var(--sdc-radio-sm);
+    font: inherit;
+    cursor: pointer;
+}
+
+.ig-conversacion:hover,
+.ig-conversacion:focus-visible {
+    border-color: var(--sdc-primario);
+}
+
+.ig-nueva {
+    border-left-color: var(--sdc-primario);
+}
+
+.ig-conversacion-cabecera {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--sdc-espacio-3);
+    font-size: var(--sdc-texto-sm);
+}
+
+.ig-conversacion-cabecera span,
+.ig-conversacion-detalle {
+    color: var(--ui-texto-suave);
+    font-size: var(--sdc-texto-sm);
+}
+
+.ig-conversacion-texto {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ig-mensaje {
+    max-width: 85%;
+    display: grid;
+    gap: var(--sdc-espacio-1);
+    padding: var(--sdc-espacio-3) var(--sdc-espacio-4);
+    border-radius: var(--sdc-radio-sm);
+    background: var(--ui-apagado);
+    border: 1px solid var(--ui-borde);
+    color: var(--ui-texto);
+    overflow-wrap: anywhere;
+}
+
+.ig-saliente {
+    justify-self: end;
+    border-color: var(--sdc-primario);
+}
+
+.ig-mensaje span {
+    color: var(--ui-texto-suave);
+    font-size: var(--sdc-texto-sm);
+}
+
+.ig-responder {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--sdc-espacio-3);
+    align-items: end;
+}
+
+.ig-responder .dialogo-nota,
+.ig-responder .form-error {
+    grid-column: 1 / -1;
+}
