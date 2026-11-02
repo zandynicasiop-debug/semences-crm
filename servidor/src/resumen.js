@@ -90,6 +90,18 @@ export function componerResumen({ persona, ambito, datos, eventos = [], sinLeer 
         if (lineas.length) seccion('germinador', '🧫 Germinador', recortar(lineas, 'lotes'));
     }
 
+    if (ambito.modulos.includes('envios') || (ambito.lectura || []).includes('envios')) {
+        // Envíos sin entregar que llegan hoy (o ya debían), salen a reparto o tienen un problema.
+        // Al vendedor, solo los de los clientes asignados a él
+        const mios = new Set((datos.clientes || []).filter(c => c.asignado && esMio(c.asignado)).map(c => c.id));
+        const envios = (datos.envios || []).filter(e => e.estado !== 'Entregado'
+            && (ambito.cargo !== 'vendedor' || mios.has(e.clienteId))
+            && ((e.eta && e.eta <= hoy) || ['En reparto', 'Retenido en aduana', 'Incidencia'].includes(e.estado)));
+        if (envios.length) {
+            seccion('envios', '📦 Envíos', recortar(envios.map(e => `${e.transportista} ${e.guia} · ${e.cliente || 'sin cliente'}: ${e.estado}${e.eta ? ` (llegada ${e.eta === hoy ? 'hoy' : `estimada ${fechaCorta(e.eta)}`})` : ''}`), 'envíos'));
+        }
+    }
+
     if (sinLeer) seccion('mensajes', '💬 Tablero del equipo', [`${sinLeer} mensaje${sinLeer === 1 ? '' : 's'} sin leer`]);
 
     // Administrativos y Master: además, el consolidado del equipo dentro de su ámbito (solo cifras)
@@ -135,7 +147,7 @@ export function textosResumen(secciones, persona, hoy, ambito) {
     const de = (...claves) => secciones.filter(s => claves.includes(s.clave)).flatMap(s => s.lineas).join('; ').slice(0, 900) || 'Sin pendientes';
     return {
         whatsapp: `${saludo}${alcance ? ` (${alcance})` : ''}: ${secciones.map(s => `${s.titulo}: ${s.lineas.join('; ')}`).join(' · ')}`.slice(0, 1000),
-        parametros: [nombre, alcance || '—', de('agenda'), de('seguimientos'), de('tareas'), de('procesos', 'germinador'), de('equipo', 'mensajes')],
+        parametros: [nombre, alcance || '—', de('agenda'), de('seguimientos'), de('tareas'), de('procesos', 'germinador'), de('envios', 'equipo', 'mensajes')],
         push: `${saludo}\n${secciones.map(s => `${s.titulo}: ${s.lineas.length} · ${s.lineas[0]}`).join('\n')}`,
         correo: {
             asunto: `☀️ Tu resumen de hoy (${fechaCorta(hoy)}) · Semences del Caribe`,

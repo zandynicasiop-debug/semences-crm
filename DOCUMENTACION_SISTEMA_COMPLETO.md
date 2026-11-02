@@ -158,6 +158,7 @@ países y casas comerciales; en *Equipo y accesos* las personales aparecen marca
 | Cabeceras HTTP | **Helmet 8.3**: CSP `default-src 'none'` (es una API JSON), HSTS 1 año, `X-Frame-Options`, `frame-ancestors 'none'`, `no-referrer`, `nosniff`, sin `X-Powered-By`, `Cache-Control: no-store` | `src/seguridad.js` |
 | Límite de peticiones | **express-rate-limit 8.7.1**: 600/min por IP en toda la API · 20/min por IP en la entrada · 240/min **por sesión** en las acciones (una oficina comparte IP). Cabeceras `RateLimit` estándar y respuesta `429 { codigo: 'limite' }` | `src/seguridad.js` |
 | Entrada de datos | Cuerpo JSON objeto (≤ 10 MB), sin `__proto__`/`constructor`/`prototype` a ninguna profundidad, anidamiento ≤ 32, nombre de acción `[a-zA-Z]{1,40}`; validación propia de cada acción (correos, teléfonos, fechas, tamaños, tipos de archivo) | `src/seguridad.js`, `src/acciones.js` |
+| Webhook de Instagram (Meta) | `POST /api/instagram/webhook` pasa por el límite general y la validación de entrada; la firma `X-Hub-Signature-256` se comprueba sobre el cuerpo original (`req.cuerpoCrudo`) con `META_APP_SECRET`; sin firma válida, 401 | `src/aplicacion.js`, `src/instagram.js` |
 | SQL | Todas las consultas con parámetros (`?`); `multipleStatements: false`; módulos validados contra una lista. Probado con textos `'); DROP TABLE …` | `src/db.js` |
 | Configuración | Esquema de todas las variables (`validarEntorno`): lo peligroso impide arrancar; lo mal escrito se avisa | `src/config.js`, `.env.example` |
 | Sesiones y tokens | Huellas SHA-256 en la base; tokens de Google con AES-256-GCM atados a su dueño; PKCE en las apps | `src/cuentas.js`, `src/cifrado.js` |
@@ -289,6 +290,8 @@ Todas están documentadas, con su formato, en **`servidor/.env.example`**; al ar
 | Zona y agenda | `ZONA_HORARIA` · `MINUTOS_REUNION` · `RESUMEN_HORA` · `UMBRAL_GERMINACION` | — | `America/Santo_Domingo` · 30 · 7 · 85 |
 | Workspace automático | `CUENTA_GOOGLE_SISTEMA` · `RESPALDO_CARPETA_ID` · `RESPALDO_HORA` · `RESPALDO_CONSERVAR` · `DOCUMENTOS_CARPETA_ID` · `CORREOS_AVISOS` · `AGENDA_AUTOMATICA` | — | — · — · 2 · 30 · la de reportes · `si` · `si` |
 | Reportes | `REPORTE_PLANTILLA_ID` · `REPORTE_CARPETA_ID` | — | — |
+| Bandeja de Instagram | `META_APP_SECRET` · `META_VERIFY_TOKEN` · `META_VERSION` | — | — · — · `v21.0` |
+| Envíos (DHL y FedEx) | `DHL_API_KEY` · `FEDEX_CLIENT_ID` · `FEDEX_CLIENT_SECRET` · `FEDEX_URL` · `RASTREO_MINUTOS` | — (las dos de FedEx van juntas) | — · — · — · `https://apis.fedex.com` · 60 (mínimo 15) |
 | Google Chat | `CHAT_WEBHOOK` · `CHAT_TARJETAS` | — | — · `si` |
 | Push | `VAPID_PUBLICA` · `VAPID_PRIVADA` · `VAPID_CONTACTO` | — (van juntas: `npm run vapid`) | — |
 | WhatsApp | `WHATSAPP_TOKEN` · `WHATSAPP_TELEFONO_ID` · `WHATSAPP_PLANTILLA` · `WHATSAPP_IDIOMA` · `WHATSAPP_VERSION` · `WHATSAPP_PLANTILLA_CLIENTES` · `WHATSAPP_PLANTILLA_RESUMEN` | — (las tres primeras van juntas) | `es` · `v21.0` |
@@ -416,8 +419,8 @@ Los cambios que solo tocan documentación (`.md`) no vuelven a compilar las apps
 
 | Grupo | Archivo | Pruebas |
 |---|---|---|
-| Backend completo contra MySQL/MariaDB | `servidor/pruebas/api.test.js` | 36 por base |
-| Unidades del backend | `servidor/pruebas/unidad.test.js` y `modulos.test.js` | 9 + 74 |
+| Backend completo contra MySQL/MariaDB | `servidor/pruebas/api.test.js` | 38 por base |
+| Unidades del backend | `servidor/pruebas/unidad.test.js` y `modulos.test.js` | 10 + 74 |
 | App web | `pruebas-web/web.test.js` | 21 |
 
 Comprobado además durante este trabajo:

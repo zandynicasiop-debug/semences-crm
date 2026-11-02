@@ -6,8 +6,9 @@
  * módulo nuevo o un campo nuevo no necesitan tocar la base.
  */
 import mysql from 'mysql2/promise';
+import { ESQUEMA_INSTAGRAM } from './instagram.js';
 
-export const MODULOS_CRM = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'sitios', 'mensajes', 'tareas'];
+export const MODULOS_CRM = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'sitios', 'mensajes', 'tareas'];
 
 const ESQUEMA = [
     `CREATE TABLE IF NOT EXISTS usuarios (
@@ -123,7 +124,7 @@ export async function conectar(configMysql) {
     // La hora de la base en UTC en cada conexión: en un hosting compartido el servidor puede estar en
     // otra zona, y CURRENT_TIMESTAMP tiene que cuadrar con UTC_TIMESTAMP() (sesiones, cola de avisos)
     pool.pool.on('connection', (conexion) => conexion.query("SET time_zone = '+00:00'"));
-    for (const sql of ESQUEMA) await pool.query(sql);
+    for (const sql of [...ESQUEMA, ...ESQUEMA_INSTAGRAM]) await pool.query(sql);
     return pool;
 }
 

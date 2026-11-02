@@ -11,7 +11,7 @@
  * Marcas internas de cada registro (no se suben a la hoja):
  *   _remoto: el registro ya está en la hoja · _pendiente: tiene cambios que aún no se subieron
  */
-const MODULOS_DATOS = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'sitios', 'mensajes', 'tareas']; // mensajes: chat y alertas del equipo · tareas: lista de tareas del equipo
+const MODULOS_DATOS = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'sitios', 'mensajes', 'tareas']; // mensajes: chat y alertas del equipo · tareas: lista de tareas del equipo
 
 // Tope por sincronización (el backend admite 500 cambios y 10 MB por petición). Si hay más pendientes
 // (p. ej. tras días sin señal en el campo), salen en varias vueltas seguidas en vez de rechazarse siempre
@@ -22,7 +22,8 @@ const MAX_BYTES_POR_ENVIO = 4 * 1024 * 1024;
 const CAMPOS_NUMERICOS = {
     agronomia: ['germinacion'],
     rendimiento: ['rendimientoPlanta', 'canastos', 'unidades'],
-    germinador: ['bandejas', 'semillasMiles', 'germinacion', 'temperatura', 'humedad']
+    germinador: ['bandejas', 'semillasMiles', 'germinacion', 'temperatura', 'humedad'],
+    envios: ['semillasMiles']
 };
 
 class BaseDatos {

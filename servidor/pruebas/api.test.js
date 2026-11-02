@@ -14,6 +14,7 @@ import { repasar, INTENTOS } from '../src/cola.js';
 import { enviarResumenes } from '../src/resumen.js';
 import { esperarSegundoPlano } from '../src/workspace.js';
 import { enZona } from '../src/fechas.js';
+import { actualizarEnvio } from '../src/envios.js';
 
 const BASES = (process.env.PRUEBA_BASES || '127.0.0.1:33061,127.0.0.1:33062').split(',');
 
@@ -84,7 +85,7 @@ function googleFalso() {
 for (const base of BASES) {
     const [host, puerto] = base.split(':');
     describe(`backend con la base ${base}`, () => {
-        let pool, servidor, url, google, peticionesMeta, config, avisos, respuestaMeta, pushEnviados, respuestaPush;
+        let pool, servidor, url, google, peticionesMeta, config, avisos, respuestaMeta, pushEnviados, respuestaPush, instagram;
         const sesiones = {};
 
         const llamar = async (ruta, { metodo = 'POST', cuerpo, sesion, origen } = {}) => {
@@ -124,14 +125,15 @@ for (const base of BASES) {
                 ORIGENES: 'https://semillasdata.com', ENTRADAS_POR_MINUTO: '1000',
                 CHAT_WEBHOOK: 'https://chat.googleapis.com/v1/spaces/X/messages?key=k',
                 WHATSAPP_TOKEN: 'meta-token', WHATSAPP_TELEFONO_ID: '123', WHATSAPP_PLANTILLA: 'aviso_equipo', WHATSAPP_PLANTILLA_CLIENTES: 'aviso_cliente',
-                VAPID_PUBLICA: 'BPublica', VAPID_PRIVADA: 'privada'
+                VAPID_PUBLICA: 'BPublica', VAPID_PRIVADA: 'privada',
+                META_APP_SECRET: 'secreto-meta', META_VERIFY_TOKEN: 'palabra-meta'
             });
             // MariaDB tarda unos segundos en aceptar conexiones la primera vez
             for (let i = 0; ; i++) {
                 try { pool = await conectar(config.mysql); break; } catch (e) { if (i > 60) throw e; await new Promise(r => setTimeout(r, 1000)); }
             }
             // Base limpia: se borran las tablas y conectar() las vuelve a crear
-            for (const tabla of ['sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'directos', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
+            for (const tabla of ['instagram_mensajes', 'instagram_conversaciones', 'instagram_cuentas', 'sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'directos', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
             await pool.end();
             pool = await conectar(config.mysql);
 
@@ -158,7 +160,13 @@ for (const base of BASES) {
                 pushEnviados.push({ endpoint: suscripcion.endpoint, contenido: JSON.parse(cuerpo), opciones });
             };
             avisos = crearAvisos(config, fetchFalso, pushFalso);
-            const app = crearApp({ config, pool, google, avisos, registrar: { error: () => {} } });
+            // Instagram simulado (la API de Meta)
+            instagram = {
+                activo: true, respuestas: [],
+                responder: async (token, igsid, texto) => { instagram.respuestas.push({ token, igsid, texto }); return `mid-respuesta-${instagram.respuestas.length}`; },
+                perfil: async () => ({ usuario: 'finca_lopez' })
+            };
+            const app = crearApp({ config, pool, google, avisos, instagram, registrar: { error: () => {} } });
             await new Promise(r => { servidor = app.listen(0, r); });
             url = `http://127.0.0.1:${servidor.address().port}`;
         });
@@ -234,7 +242,7 @@ for (const base of BASES) {
             assert.equal(r.json.datos.clientes[0].nombre, 'Finca Ñame');
             assert.equal(r.json.datos.clientes[0].cuenta, 'ana@semillasdata.com');
             assert.equal(r.json.datos.clientes[0].semillas, 25);
-            assert.deepEqual(Object.keys(r.json.datos).sort(), ['agronomia', 'clientes', 'germinador', 'mensajes', 'rendimiento', 'sitios', 'tareas', 'visitas']);
+            assert.deepEqual(Object.keys(r.json.datos).sort(), ['agronomia', 'clientes', 'envios', 'germinador', 'mensajes', 'rendimiento', 'sitios', 'tareas', 'visitas']);
 
             const otra = await accion(sesiones.jefa, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: { id: 'c1', nombre: 'Finca Ñame (editada)' } }], eliminar: [{ modulo: 'tareas', id: 't1' }] });
             assert.equal(otra.json.datos.clientes.length, 1);
@@ -316,7 +324,7 @@ for (const base of BASES) {
             assert.equal(r.json.enlace, 'https://docs.google.com/spreadsheets/d/hoja-1/edit');
             const { pestanas, hojaId } = google.llamadas.at(-1).datos;
             assert.equal(hojaId, '');
-            assert.deepEqual(pestanas.map(p => p.nombre), ['Clientes', 'Visitas', 'Procesos agronómicos', 'Rendimiento', 'Germinador', 'Tareas']);
+            assert.deepEqual(pestanas.map(p => p.nombre), ['Clientes', 'Visitas', 'Procesos agronómicos', 'Rendimiento', 'Germinador', 'Envíos', 'Tareas']);
             const [cabecera, ...filas] = pestanas[0].filas;
             assert.deepEqual(cabecera.slice(0, 3), ['Nombre', 'Correo', 'Teléfono']);
             assert.ok(cabecera.includes('nuevoCampo') && cabecera.includes('Registró') && !cabecera.includes('_pendiente') && !cabecera.includes('clienteId'));
@@ -658,7 +666,7 @@ for (const base of BASES) {
 
             // Luis: vendedor, RD + Gautier
             const luis = (await accion(sesiones.luis, { accion: 'sincronizar' })).json.datos;
-            assert.deepEqual(Object.keys(luis).sort(), ['clientes', 'mensajes', 'sitios', 'tareas', 'visitas']);
+            assert.deepEqual(Object.keys(luis).sort(), ['clientes', 'envios', 'mensajes', 'sitios', 'tareas', 'visitas']);
             assert.deepEqual(luis.clientes.map(c => c.id), ['rd-g']);
             assert.equal(luis.tareas.length, 1); // Las tareas son de todo el equipo
             // No puede crear fuera de su ámbito, ni en módulos que no son suyos, ni pisar ni borrar lo ajeno
@@ -700,6 +708,7 @@ for (const base of BASES) {
             const tablero = await accion(sesiones.ana, { accion: 'presencia' });
             const luis = tablero.json.equipo.find(p => p.email === 'luis@semillasdata.com');
             assert.deepEqual([luis.estado, luis.cargo, luis.foto], ['en_parcela', 'vendedor', 'https://lh3.googleusercontent.com/luis']);
+            assert.deepEqual([luis.paises, luis.casas], [['RD'], ['Gautier Semences']]);
             assert.ok(!tablero.json.equipo.some(p => p.email === 'externa@gmail.com')); // Fuera del equipo: no sale
             await pool.query("UPDATE usuarios SET visto = UTC_TIMESTAMP() - INTERVAL 10 MINUTE WHERE email = 'luis@semillasdata.com'");
             assert.equal((await accion(sesiones.ana, { accion: 'presencia' })).json.equipo.find(p => p.email === 'luis@semillasdata.com').estado, 'desconectado');
@@ -828,6 +837,132 @@ for (const base of BASES) {
             assert.equal((await pool.query('SELECT COUNT(*) n FROM cola_avisos'))[0][0].n, 0);
             // El vendedor no ve el germinador
             assert.ok(!('germinador' in (await accion(sesiones.luis, { accion: 'sincronizar' })).json.datos));
+        });
+
+        test('envíos: solo administración registra; avisa al vendedor del cliente y al plantulador', async () => {
+            await pool.query('DELETE FROM cola_avisos');
+            const sesionPlantu = (await entrarComo('codigo-plantu')).json.sesion;
+            const envio = { id: 'env-1', transportista: 'DHL', guia: 'JD014600006', clienteId: 'rd-g', cliente: 'Finca RD Gautier', pais: 'RD', casa: 'Gautier Semences', estado: 'Registrado', contenido: 'Tomate Hexagon', semillasMiles: 25 };
+            // Ni el vendedor ni el plantulador pueden registrarlo; ana (administrativa con todo) sí
+            assert.equal((await accion(sesiones.luis, { accion: 'sincronizar', guardar: [{ modulo: 'envios', registro: envio }] })).estado, 403);
+            assert.equal((await accion(sesionPlantu, { accion: 'sincronizar', guardar: [{ modulo: 'envios', registro: envio }] })).estado, 403);
+            assert.equal((await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'envios', registro: envio }] })).estado, 200);
+            // Registrado: al plantulador de RD + Gautier (preparar el germinador) y al vendedor asignado (Luis)
+            let [wa] = await pool.query("SELECT destino, texto FROM cola_avisos WHERE canal = 'whatsapp' ORDER BY destino");
+            assert.deepEqual(wa.map(w => w.destino).sort(), ['18095551001', '18295550202']);
+            assert.match(wa[0].texto, /📦 Envío DHL JD014600006 · Finca RD Gautier\nRegistrado — Tomate Hexagon, 25 mil semillas/);
+            // Lo ven (sin poder cambiarlo) el vendedor y el plantulador; el técnico no
+            assert.equal((await accion(sesiones.luis, { accion: 'sincronizar' })).json.datos.envios[0].guia, 'JD014600006');
+            assert.equal((await accion(sesionPlantu, { accion: 'sincronizar' })).json.datos.envios.length, 1);
+            assert.equal((await llamar('/api/yo', { metodo: 'GET', sesion: sesiones.luis })).json.usuario.lectura[0], 'envios');
+            // Mismo estado: sin aviso. En tránsito: solo al vendedor
+            await pool.query('DELETE FROM cola_avisos');
+            await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'envios', registro: { ...envio, notas: 'x' } }] });
+            assert.equal((await pool.query('SELECT COUNT(*) n FROM cola_avisos'))[0][0].n, 0);
+            await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'envios', registro: { ...envio, estado: 'En tránsito' } }] });
+            [wa] = await pool.query("SELECT destino FROM cola_avisos WHERE canal = 'whatsapp'");
+            assert.deepEqual(wa.map(w => w.destino), ['18295550202']);
+            // Sin claves de DHL, "rastrear" lo dice
+            assert.equal((await accion(sesiones.ana, { accion: 'rastrear', id: 'env-1' })).estado, 503);
+            assert.equal((await accion(sesiones.luis, { accion: 'rastrear', id: 'env-1' })).estado, 403);
+
+            // Rastreo automático: DHL dice "retenido en aduana" → se guarda con su historial y avisa a la jefa (Master)
+            await pool.query('DELETE FROM cola_avisos');
+            await pool.query("UPDATE usuarios SET telefono = '18095550101' WHERE email = 'jefa@gmail.com'");
+            const transportistas = { activo: () => true, consultar: async () => ({ estado: 'Retenido en aduana', detalle: 'On hold at customs', ubicacion: 'SANTO DOMINGO', eta: '2026-11-06' }) };
+            const [[fila]] = await pool.query("SELECT datos FROM registros WHERE modulo = 'envios' AND id = 'env-1'");
+            const actualizado = await actualizarEnvio({ pool, config, avisos, transportistas }, JSON.parse(fila.datos));
+            assert.equal(actualizado.estado, 'Retenido en aduana');
+            assert.equal(actualizado.historial.at(-1).ubicacion, 'SANTO DOMINGO');
+            [wa] = await pool.query("SELECT destino, texto FROM cola_avisos WHERE canal = 'whatsapp' ORDER BY destino");
+            assert.ok(wa.some(w => w.destino === '18095550101'), JSON.stringify(wa));
+            assert.ok(!wa.some(w => w.destino === '18095551001')); // Al plantulador no le toca la aduana
+            assert.match(wa[0].texto, /Retenido en aduana · SANTO DOMINGO · llegada estimada 6\/11/);
+        });
+
+        test('Instagram: webhook firmado, bandeja de administración, 24 h y convertir en cliente', async () => {
+            const CUENTA = '17841400000000001';
+            const webhook = (cuerpo, firma) => {
+                const texto = JSON.stringify(cuerpo);
+                const cabeceras = { 'Content-Type': 'application/json' };
+                if (firma !== null) cabeceras['X-Hub-Signature-256'] = firma || `sha256=${crypto.createHmac('sha256', 'secreto-meta').update(texto).digest('hex')}`;
+                return fetch(`${url}/api/instagram/webhook`, { method: 'POST', headers: cabeceras, body: texto });
+            };
+            const mensaje = (mid, texto, { de = '9000000000001', eco = false, cuenta = CUENTA, cuando = Date.now() } = {}) => ({
+                object: 'instagram',
+                entry: [{ id: cuenta, time: cuando, messaging: [{ sender: { id: eco ? cuenta : de }, recipient: { id: eco ? de : cuenta }, timestamp: cuando, message: { mid, text: texto, ...(eco ? { is_echo: true } : {}) } }] }]
+            });
+
+            // Verificación del webhook por Meta
+            assert.equal((await llamar('/api/instagram/webhook?hub.mode=subscribe&hub.verify_token=otra&hub.challenge=123', { metodo: 'GET' })).estado, 403);
+            const verificado = await fetch(`${url}/api/instagram/webhook?hub.mode=subscribe&hub.verify_token=palabra-meta&hub.challenge=4815`);
+            assert.equal(await verificado.text(), '4815');
+
+            // Solo un Master da de alta la cuenta; el token queda cifrado
+            assert.equal((await accion(sesiones.ana, { accion: 'instagram', operacion: 'guardarCuenta', igId: CUENTA, pais: 'RD', casa: 'Gautier Semences', token: 't' })).estado, 403);
+            assert.equal((await accion(sesiones.jefa, { accion: 'instagram', operacion: 'guardarCuenta', igId: 'abc', pais: 'RD', casa: 'Gautier Semences', token: 't' })).estado, 400);
+            const alta = await accion(sesiones.jefa, { accion: 'instagram', operacion: 'guardarCuenta', igId: CUENTA, nombre: 'Gautier RD', pais: 'RD', casa: 'Gautier Semences', token: 'token-pagina-ig' });
+            assert.equal(alta.json.cuentas.length, 1);
+            assert.ok(!JSON.stringify(alta.json).includes('token-pagina-ig'));
+            const [[guardada]] = await pool.query('SELECT token FROM instagram_cuentas');
+            assert.ok(guardada.token.startsWith('v1:') && !guardada.token.includes('token-pagina'));
+
+            // Sin firma, o con una falsa, no entra nada
+            assert.equal((await webhook(mensaje('m1', 'Hola'), null)).status, 401);
+            assert.equal((await webhook(mensaje('m1', 'Hola'), `sha256=${'0'.repeat(64)}`)).status, 401);
+            // Firmado: se guarda una sola vez aunque Meta lo reenvíe; otra cuenta que no es nuestra se ignora
+            await pool.query('DELETE FROM cola_avisos');
+            assert.equal((await webhook(mensaje('m1', '¿Precio del tomate Hexagon?'))).status, 200);
+            assert.equal((await webhook(mensaje('m1', '¿Precio del tomate Hexagon?'))).status, 200);
+            assert.equal((await webhook(mensaje('m9', 'Spam', { cuenta: '17841499999999999' }))).status, 200);
+            assert.equal((await pool.query('SELECT COUNT(*) n FROM instagram_mensajes'))[0][0].n, 1);
+
+            // Ana (administrativa de RD) la ve; Luis (vendedor) no tiene bandeja
+            const bandeja = (await accion(sesiones.ana, { accion: 'instagram', operacion: 'conversaciones' })).json;
+            assert.deepEqual(bandeja.conversaciones.map(c => [c.usuario, c.sin_leer, c.ultimo_texto]), [['finca_lopez', 1, '¿Precio del tomate Hexagon?']]);
+            assert.deepEqual((await accion(sesiones.luis, { accion: 'instagram', operacion: 'conversaciones' })).json.conversaciones, []);
+            assert.equal((await accion(sesiones.luis, { accion: 'instagram', operacion: 'mensajes', cuentaId: CUENTA, igsid: '9000000000001' })).estado, 403);
+
+            // Leer la marca como leída; responder usa el token de la cuenta y queda en el hilo
+            const hilo = (await accion(sesiones.ana, { accion: 'instagram', operacion: 'mensajes', cuentaId: CUENTA, igsid: '9000000000001' })).json;
+            assert.equal(hilo.puedeResponder, true);
+            assert.equal(hilo.conversacion.sin_leer, 0);
+            assert.equal((await accion(sesiones.ana, { accion: 'instagram', operacion: 'responder', cuentaId: CUENTA, igsid: '9000000000001', texto: 'Hola, le escribe su vendedor hoy' })).estado, 200);
+            assert.deepEqual(instagram.respuestas.at(-1), { token: 'token-pagina-ig', igsid: '9000000000001', texto: 'Hola, le escribe su vendedor hoy' });
+            // El eco de esa respuesta (Meta lo manda también) no se duplica como "sin leer"
+            await webhook(mensaje('mid-eco-1', 'Gracias', { eco: true }));
+            const [[conv]] = await pool.query('SELECT sin_leer FROM instagram_conversaciones');
+            assert.equal(conv.sin_leer, 0);
+            const mensajes = (await accion(sesiones.ana, { accion: 'instagram', operacion: 'mensajes', cuentaId: CUENTA, igsid: '9000000000001' })).json.mensajes;
+            assert.deepEqual(mensajes.map(m => m.direccion), ['entrante', 'saliente', 'saliente']);
+            assert.equal(mensajes.find(m => m.texto.startsWith('Hola, le escribe')).autor, 'Ana');
+
+            // Pasadas 24 h desde el último mensaje del cliente, Meta no deja responder
+            await pool.query('UPDATE instagram_conversaciones SET ultimo_entrante = UTC_TIMESTAMP() - INTERVAL 25 HOUR');
+            const tarde = await accion(sesiones.ana, { accion: 'instagram', operacion: 'responder', cuentaId: CUENTA, igsid: '9000000000001', texto: 'Hola' });
+            assert.equal(tarde.json.codigo, 'ventana');
+
+            // Convertir en cliente: solo a un vendedor de ese país y casa; le llega el aviso
+            await pool.query('DELETE FROM cola_avisos');
+            const convertir = (vendedor) => accion(sesiones.ana, { accion: 'instagram', operacion: 'convertir', cuentaId: CUENTA, igsid: '9000000000001', nombre: 'Finca López', whatsapp: '8295550000', vendedor });
+            assert.equal((await convertir('tecrd@semillasdata.com')).estado, 400);
+            const hecho = await convertir('luis@semillasdata.com');
+            assert.equal(hecho.estado, 200);
+            const [[cliente]] = await pool.query("SELECT datos FROM registros WHERE modulo = 'clientes' AND id = ?", [hecho.json.clienteId]);
+            const c = JSON.parse(cliente.datos);
+            assert.deepEqual([c.nombre, c.pais, c.casa, c.asignado, c.origen], ['Finca López', 'RD', 'Gautier Semences', 'luis@semillasdata.com', 'Instagram @finca_lopez']);
+            assert.ok((await accion(sesiones.luis, { accion: 'sincronizar' })).json.datos.clientes.some(x => x.id === hecho.json.clienteId));
+            const [wa] = await pool.query("SELECT destino, texto FROM cola_avisos WHERE canal = 'whatsapp'");
+            assert.equal(wa.length, 1);
+            assert.match(wa[0].texto, /Te asignó un cliente nuevo que llegó por Instagram \(Gautier RD, @finca_lopez\): Finca López/);
+            assert.equal((await convertir('luis@semillasdata.com')).estado, 409);
+
+            // Archivar la saca de la bandeja; si el cliente vuelve a escribir, reaparece
+            await accion(sesiones.ana, { accion: 'instagram', operacion: 'archivar', cuentaId: CUENTA, igsid: '9000000000001' });
+            assert.equal((await accion(sesiones.ana, { accion: 'instagram', operacion: 'conversaciones' })).json.conversaciones.length, 0);
+            await webhook(mensaje('m2', '¿Y el pimiento?'));
+            const vuelta = (await accion(sesiones.ana, { accion: 'instagram', operacion: 'conversaciones' })).json.conversaciones;
+            assert.deepEqual(vuelta.map(x => [x.estado, x.sin_leer]), [['abierta', 1]]);
         });
 
         test('rechazar a alguien lo saca: sesiones fuera y sin avisos', async () => {

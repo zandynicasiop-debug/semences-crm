@@ -65,6 +65,20 @@ export function leerConfig(entorno = process.env) {
         accionesPorMinuto: Number(entorno.ACCIONES_POR_MINUTO) || 240,
         zonaHoraria: entorno.ZONA_HORARIA || 'America/Santo_Domingo',
         minutosReunion: Number(entorno.MINUTOS_REUNION) || 30,
+        // Instagram (bandeja de administración): app de Meta con el producto de mensajes de Instagram
+        instagram: {
+            secreto: entorno.META_APP_SECRET || '',
+            verificacion: entorno.META_VERIFY_TOKEN || '',
+            version: entorno.META_VERSION || 'v21.0'
+        },
+        // Envíos: API oficiales de rastreo (opcionales) y cada cuántos minutos se consulta cada guía activa
+        envios: {
+            dhlClave: entorno.DHL_API_KEY || '',
+            fedexId: entorno.FEDEX_CLIENT_ID || '',
+            fedexSecreto: entorno.FEDEX_CLIENT_SECRET || '',
+            fedexUrl: String(entorno.FEDEX_URL || 'https://apis.fedex.com').replace(/\/+$/, ''),
+            cadaMinutos: Math.max(15, Number(entorno.RASTREO_MINUTOS) || 60)
+        },
         // Germinador: por debajo de este % de germinación se avisa al equipo técnico del lote
         umbralGerminacion: Number(entorno.UMBRAL_GERMINACION) || 85,
 
@@ -164,6 +178,7 @@ export function validarEntorno(e = {}) {
     entero('UMBRAL_GERMINACION', 1, 100);
     entero('RESPALDO_HORA', 0, 23);
     entero('RESPALDO_CONSERVAR', 1, 3650);
+    entero('RASTREO_MINUTOS', 15, 1440);
     if (valor('RESUMEN_HORA') && !/^no$/i.test(valor('RESUMEN_HORA'))) entero('RESUMEN_HORA', 0, 23);
     for (const nombre of ['CUENTAS_PERSONALES', 'CHAT_TARJETAS', 'CORREOS_AVISOS', 'AGENDA_AUTOMATICA']) siNo(nombre);
 
@@ -178,6 +193,9 @@ export function validarEntorno(e = {}) {
     if (whatsapp.length && whatsapp.length < 3) avisos.push('WhatsApp necesita WHATSAPP_TOKEN, WHATSAPP_TELEFONO_ID y WHATSAPP_PLANTILLA: sin las tres está apagado');
     if (valor('WHATSAPP_TELEFONO_ID') && !/^\d{5,20}$/.test(valor('WHATSAPP_TELEFONO_ID'))) avisos.push('WHATSAPP_TELEFONO_ID es el número de id que da Meta (solo cifras), no el teléfono');
     if (valor('WHATSAPP_VERSION') && !/^v\d+\.\d+$/.test(valor('WHATSAPP_VERSION'))) avisos.push('WHATSAPP_VERSION tiene la forma v21.0');
+    if (valor('META_VERSION') && !/^v\d+\.\d+$/.test(valor('META_VERSION'))) avisos.push('META_VERSION tiene la forma v21.0');
+    if (Boolean(valor('FEDEX_CLIENT_ID')) !== Boolean(valor('FEDEX_CLIENT_SECRET'))) avisos.push('FEDEX_CLIENT_ID y FEDEX_CLIENT_SECRET van juntas: sin las dos, el rastreo de FedEx está apagado');
+    if (valor('FEDEX_URL') && !/^https:\/\/[^\s]+$/.test(valor('FEDEX_URL'))) errores.push('FEDEX_URL debe empezar por https:// (las credenciales de FedEx viajan a esa dirección)');
     if (valor('RESPALDO_CARPETA_ID') && !valor('CUENTA_GOOGLE_SISTEMA')) avisos.push('RESPALDO_CARPETA_ID necesita CUENTA_GOOGLE_SISTEMA: sin ella no se hacen respaldos');
     return { errores, avisos };
 }

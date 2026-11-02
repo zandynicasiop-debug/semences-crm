@@ -16,7 +16,7 @@ export const CASAS = ['Gautier Semences', 'Hexagon Seeds', 'Genome Seeds', 'Fit�
 export const CARGOS = ['vendedor', 'tecnico', 'plantulador', 'administrativo', 'master'];
 
 // Módulos con país y casa comercial (los demás son de todo el equipo: tareas, chat, fichas del mapa)
-export const MODULOS_CON_AMBITO = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador'];
+export const MODULOS_CON_AMBITO = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios'];
 
 const COMUNES = ['tareas', 'mensajes', 'sitios'];
 export const MODULOS_POR_CARGO = {
@@ -24,8 +24,15 @@ export const MODULOS_POR_CARGO = {
     tecnico: ['agronomia', 'rendimiento', 'visitas', 'germinador', ...COMUNES],
     // Plantulador: el germinador (lotes en cámara y bandejas) de sus países y casas
     plantulador: ['germinador', ...COMUNES],
-    administrativo: ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', ...COMUNES],
-    master: ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', ...COMUNES]
+    // Envíos (guías de DHL y FedEx): solo administración los registra
+    administrativo: ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', ...COMUNES],
+    master: ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', ...COMUNES]
+};
+
+// Módulos que un cargo puede ver pero no escribir: el vendedor y el plantulador siguen los envíos
+export const LECTURA_POR_CARGO = {
+    vendedor: ['envios'],
+    plantulador: ['envios']
 };
 
 // El técnico y el plantulador no gestionan clientes, pero necesitan sus nombres para sus registros
@@ -35,21 +42,22 @@ const CAMPOS_NOMBRE_CLIENTE = ['id', 'nombre', 'pais', 'casa', 'ubicacion'];
 const lista = (texto) => { try { const v = JSON.parse(texto || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
 
 /**
- * Ámbito de la persona: { estado, cargo, master, paises, casas, modulos }.
+ * Ámbito de la persona: { estado, cargo, master, paises, casas, modulos (lee y escribe), lectura (solo lee) }.
  * Un Master (ADMINS) tiene siempre todo, aunque la base diga otra cosa.
  */
 export function ambitoDe(usuario, config) {
     if (esAdmin(config, usuario.email)) {
-        return { estado: 'aprobado', cargo: 'master', master: true, paises: [...PAISES], casas: [...CASAS], modulos: MODULOS_POR_CARGO.master };
+        return { estado: 'aprobado', cargo: 'master', master: true, paises: [...PAISES], casas: [...CASAS], modulos: MODULOS_POR_CARGO.master, lectura: [] };
     }
     const estado = usuario.estado || 'pendiente';
     const cargo = CARGOS.includes(usuario.cargo) && usuario.cargo !== 'master' ? usuario.cargo : null;
-    if (estado !== 'aprobado' || !cargo) return { estado: estado === 'aprobado' ? 'pendiente' : estado, cargo: null, master: false, paises: [], casas: [], modulos: [] };
+    if (estado !== 'aprobado' || !cargo) return { estado: estado === 'aprobado' ? 'pendiente' : estado, cargo: null, master: false, paises: [], casas: [], modulos: [], lectura: [] };
     return {
         estado, cargo, master: false,
         paises: lista(usuario.paises).filter(p => PAISES.includes(p)),
         casas: lista(usuario.casas).filter(c => CASAS.includes(c)),
-        modulos: MODULOS_POR_CARGO[cargo]
+        modulos: MODULOS_POR_CARGO[cargo],
+        lectura: LECTURA_POR_CARGO[cargo] || []
     };
 }
 
@@ -63,7 +71,7 @@ export function dentroDelAmbito(ambito, modulo, registro) {
 }
 
 export function puedeLeer(ambito, modulo) {
-    return ambito.modulos.includes(modulo) || (modulo === 'clientes' && CLIENTES_SOLO_NOMBRE.includes(ambito.cargo));
+    return ambito.modulos.includes(modulo) || (ambito.lectura || []).includes(modulo) || (modulo === 'clientes' && CLIENTES_SOLO_NOMBRE.includes(ambito.cargo));
 }
 
 export function puedeEscribir(ambito, modulo, registro) {

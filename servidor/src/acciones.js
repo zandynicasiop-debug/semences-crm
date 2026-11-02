@@ -15,6 +15,8 @@ import { normalizarTelefono, suscripcionValida } from './avisos.js';
 import { errorApp, conGoogle } from './llamadasGoogle.js';
 import { encolar, estadoCola } from './cola.js';
 import { sincronizarAgenda, respaldar, documentoValido, avisarPorCorreo, enSegundoPlano } from './workspace.js';
+import { avisarEnvio, actualizarEnvio } from './envios.js';
+import { accionInstagram } from './instagram.js';
 
 export { errorApp, conGoogle }; // (en llamadasGoogle.js; se reexportan aquí como antes)
 
@@ -117,6 +119,13 @@ async function clienteVisible({ pool, ambito }, clienteId) {
 
 const carpetaDe = (cliente) => ({ id: cliente.id, nombre: String(cliente.nombre || cliente.id).replace(/[\r\n/\\]/g, ' ').trim().slice(0, 150) || cliente.id });
 
+// Envíos registrados o con estado cambiado a mano: aviso a quien le toca (envios.js)
+async function avisarEnvios(contexto, guardados) {
+    for (const { modulo, registro, anterior } of guardados) {
+        if (modulo === 'envios') await avisarEnvio(contexto, registro, anterior, contexto.usuario.id);
+    }
+}
+
 function comprobarCambios(lista, nombre) {
     if (lista === undefined) return [];
     if (!Array.isArray(lista)) throw errorApp(`"${nombre}" debe ser una lista`);
@@ -136,6 +145,7 @@ export const ACCIONES = {
         }
         const { datos: todo, guardados } = await db.sincronizar(pool, { guardar, eliminar }, usuario, (modulo, registro) => puedeEscribir(ambito, modulo, registro));
         await avisarGerminacionBaja(contexto, guardados);
+        await avisarEnvios(contexto, guardados);
         return { ok: true, datos: filtrarDatos(todo, ambito), hora: new Date().toISOString() };
     },
 
@@ -144,6 +154,7 @@ export const ACCIONES = {
         if (JSON.stringify(datos.registro || {}).length > MAX_REGISTRO) throw errorApp('El registro es demasiado grande');
         const { guardados } = await db.sincronizar(pool, { guardar: [{ modulo: datos.modulo, registro: datos.registro }] }, usuario, (m, r) => puedeEscribir(ambito, m, r));
         await avisarGerminacionBaja(contexto, guardados);
+        await avisarEnvios(contexto, guardados);
         return { ok: true };
     },
 
@@ -299,6 +310,24 @@ export const ACCIONES = {
         throw errorApp('Operación desconocida (alta, baja o consultar)');
     },
 
+    // Bandeja de Instagram de administración (instagram.js)
+    async instagram(datos, contexto) {
+        return accionInstagram(datos, contexto, { errorApp, enviarDirecto });
+    },
+
+    // Consultar ya el estado de un envío en DHL o FedEx (solo administración, dentro de su ámbito)
+    async rastrear(datos, contexto) {
+        const envio = await db.leerRegistro(contexto.pool, 'envios', String(datos.id || ''));
+        if (!envio) throw errorApp('Ese envío no existe', 404);
+        if (!puedeEscribir(contexto.ambito, 'envios', envio)) throw errorApp('Solo administración puede actualizar envíos de su país y casa', 403, 'permiso');
+        if (!contexto.transportistas || !contexto.transportistas.activo(envio.transportista)) {
+            throw errorApp(`El rastreo automático de ${envio.transportista || 'ese transportista'} no está configurado en el servidor`, 503, 'configuracion');
+        }
+        const actualizado = await actualizarEnvio(contexto, envio);
+        if (!actualizado) throw errorApp('El transportista no encontró esa guía', 404);
+        return { ok: true, envio: actualizado };
+    },
+
     // Recibir o no el resumen de la mañana ({ activo: true | false })
     async resumen(datos, { pool, usuario, config }) {
         const activo = datos.activo !== false;
@@ -392,7 +421,7 @@ export const ACCIONES = {
         const estado = ['disponible', 'en_parcela', 'en_reunion'].includes(datos.estado) ? datos.estado : null;
         await pool.query(`UPDATE usuarios SET visto = UTC_TIMESTAMP()${estado ? ', presencia = ?' : ''} WHERE id = ?`, estado ? [estado, usuario.id] : [usuario.id]);
         const [filas] = await pool.query(
-            `SELECT id, email, nombre, foto, cargo, estado, presencia, TIMESTAMPDIFF(SECOND, visto, UTC_TIMESTAMP()) segundos
+            `SELECT id, email, nombre, foto, cargo, estado, paises, casas, presencia, TIMESTAMPDIFF(SECOND, visto, UTC_TIMESTAMP()) segundos
              FROM usuarios WHERE estado = 'aprobado' OR email IN (?) ORDER BY nombre`, [config.google.admins.length ? config.google.admins : ['']]);
         const [[sinLeer]] = await pool.query('SELECT COUNT(*) n FROM directos WHERE para_id = ? AND leido = 0', [usuario.id]);
         return {

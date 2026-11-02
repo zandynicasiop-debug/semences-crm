@@ -151,6 +151,16 @@ test('resumen: horas locales, secciones según el cargo y textos para cada canal
     ] } });
     assert.deepEqual(germ, [{ clave: 'germinador', titulo: '🧫 Germinador', lineas: [
         'Lote L-2 · Pimiento: trasplante atrasado desde el 1/11', 'Lote L-1 · Tomate · Finca Hoy: trasplante hoy', 'Lote L-2 · Pimiento: germinación baja (70 %)'] }]);
+    // Envíos: al vendedor, solo los de sus clientes asignados que llegan hoy o tienen un problema
+    const env = componerResumen({ persona, ambito: { cargo: 'vendedor', modulos: ['clientes'], lectura: ['envios'] }, hoy: '2026-11-03', zona: 'America/Santo_Domingo', datos: {
+        clientes: [{ id: 'm', nombre: 'Mío', asignado: 'luis@x.com' }, { id: 'o', nombre: 'Otro', asignado: 'otro@x.com' }],
+        envios: [
+            { transportista: 'DHL', guia: 'A1', clienteId: 'm', cliente: 'Mío', estado: 'En tránsito', eta: '2026-11-03' },
+            { transportista: 'DHL', guia: 'A2', clienteId: 'o', cliente: 'Otro', estado: 'Retenido en aduana' },
+            { transportista: 'FedEx', guia: 'A3', clienteId: 'm', cliente: 'Mío', estado: 'Entregado', eta: '2026-11-02' },
+            { transportista: 'FedEx', guia: 'A4', clienteId: 'm', cliente: 'Mío', estado: 'En tránsito', eta: '2026-11-09' }
+        ] } });
+    assert.deepEqual(env.find(x => x.clave === 'envios').lineas, ['DHL A1 · Mío: En tránsito (llegada hoy)']);
     const { textoAlcance } = await import('../src/resumen.js');
     assert.equal(textoAlcance({ cargo: 'master', paises: ['RD', 'VE'], casas: ['Gautier Semences', 'Hexagon Seeds', 'Genome Seeds', 'Fitó'] }), 'Master · RD y Venezuela · todas las casas');
 });
@@ -166,4 +176,30 @@ test('Google Chat: tarjeta con botón de Meet y el texto de la persona escapado'
     assert.deepEqual(tarjetaChat('Solo título', '').cardsV2[0].card.sections, []);
     // Un enlace que no es de Meet no se convierte en botón
     assert.equal(tarjetaChat('Aviso\nhttps://meet.google.com.malvado.com/x', '').cardsV2[0].card.sections[0].widgets.length, 1);
+});
+
+test('envíos: DHL y FedEx oficiales se traducen a los estados de la app (y el token de FedEx se reutiliza)', async () => {
+    const { crearTransportistas } = await import('../src/envios.js');
+    const llamadas = [];
+    const respuestas = {
+        'api-eu.dhl.com': { shipments: [{ status: { statusCode: 'transit', description: 'Shipment is on hold at customs', location: { address: { addressLocality: 'SANTO DOMINGO' } } }, estimatedTimeOfDelivery: '2026-11-06T18:00:00Z' }] },
+        'apis.fedex.com/oauth/token': { access_token: 'tok-fedex', expires_in: 3600 },
+        'apis.fedex.com/track/v1/trackingnumbers': { output: { completeTrackResults: [{ trackResults: [{ latestStatusDetail: { code: 'OD', description: 'On FedEx vehicle for delivery', scanLocation: { city: 'CARACAS' } }, dateAndTimes: [{ type: 'ESTIMATED_DELIVERY', dateTime: '2026-11-04T20:00:00-04:00' }] }] }] } }
+    };
+    const fetchFalso = async (url, opciones) => {
+        llamadas.push({ url, opciones });
+        const clave = Object.keys(respuestas).find(k => url.includes(k));
+        return new Response(JSON.stringify(respuestas[clave]), { status: 200 });
+    };
+    const t = crearTransportistas({ envios: { dhlClave: 'clave-dhl', fedexId: 'id', fedexSecreto: 'secreto', fedexUrl: 'https://apis.fedex.com' } }, fetchFalso);
+    assert.deepEqual(await t.consultar('DHL', 'JD0144'), { estado: 'Retenido en aduana', detalle: 'Shipment is on hold at customs', ubicacion: 'SANTO DOMINGO', eta: '2026-11-06' });
+    assert.equal(llamadas[0].opciones.headers['DHL-API-Key'], 'clave-dhl');
+    assert.deepEqual(await t.consultar('FedEx', '794612345678'), { estado: 'En reparto', detalle: 'On FedEx vehicle for delivery', ubicacion: 'CARACAS', eta: '2026-11-04' });
+    await t.consultar('FedEx', '794612345678');
+    assert.equal(llamadas.filter(l => l.url.includes('oauth')).length, 1); // Un solo token para las dos consultas
+    assert.equal(llamadas.at(-1).opciones.headers.Authorization, 'Bearer tok-fedex');
+    await assert.rejects(t.consultar('DHL', 'x&y=1'), /guía no válido/);
+    const sinClaves = crearTransportistas({ envios: { dhlClave: '', fedexId: '', fedexSecreto: '', fedexUrl: 'https://apis.fedex.com' } }, fetchFalso);
+    assert.equal(sinClaves.activo('DHL'), false);
+    assert.equal(await sinClaves.consultar('DHL', 'JD0144'), null);
 });
