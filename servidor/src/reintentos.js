@@ -8,10 +8,22 @@ const pausa = (ms) => new Promise(r => setTimeout(r, ms));
 
 export const conVariacion = (ms) => ms + Math.floor(Math.random() * ms * 0.25);
 
+// Fallos de red pasajeros: los de Node (net, dns) y los de su fetch (undici), que llegan en error.cause
+const RED_PASAJERA = [
+    'ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'EPIPE',
+    'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_SOCKET'
+];
+
 export function esPasajero(error) {
-    const codigo = Number(error && (error.status || error.statusCode || error.code || (error.response && error.response.status)));
+    if (!error) return false;
+    // Tiempo agotado de AbortSignal.timeout() (avisos.js): es un DOMException cuyo .code (23) no es HTTP.
+    // Las librerías de Google (gaxios) lo dejan como error.code = 'TimeoutError'
+    if (error.name === 'TimeoutError' || error.code === 'TimeoutError') return true;
+    const http = /^\d{3}$/.test(String(error.code)) ? Number(error.code) : NaN;
+    const codigo = Number(error.status || error.statusCode || (error.response && error.response.status) || http);
     if (codigo === 429 || (codigo >= 500 && codigo < 600)) return true;
-    return ['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ECONNREFUSED'].includes(error && error.code);
+    // fetch de Node lanza "TypeError: fetch failed" con el motivo real en error.cause
+    return [error.code, error.cause && error.cause.code].some(c => RED_PASAJERA.includes(c));
 }
 
 export async function conReintentos(tarea, { intentos = 3, esperaMs = 1000 } = {}) {

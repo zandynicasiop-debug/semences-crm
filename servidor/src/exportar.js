@@ -19,9 +19,10 @@ const OCULTOS = (clave) => clave.startsWith('_') || clave === 'clienteId';
 export function filasDe(registros, etiquetas) {
     const conocidas = { ...etiquetas, ...COMUNES };
     const extra = new Set();
-    for (const r of registros) for (const clave of Object.keys(r)) if (!conocidas[clave] && !OCULTOS(clave)) extra.add(clave);
+    // Object.hasOwn: un campo que se llame como algo de Object ("constructor", "toString") también se exporta
+    for (const r of registros) for (const clave of Object.keys(r)) if (!Object.hasOwn(conocidas, clave) && !OCULTOS(clave)) extra.add(clave);
     const claves = [...Object.keys(etiquetas), ...[...extra].sort(), 'responsable', 'cuenta', 'id'];
-    const cabecera = claves.map(c => conocidas[c] || c);
+    const cabecera = claves.map(c => (Object.hasOwn(conocidas, c) ? conocidas[c] : c));
     const filas = registros.map(r => claves.map(c => {
         const v = r[c];
         if (v === undefined || v === null) return '';

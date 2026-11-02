@@ -222,11 +222,16 @@ const MODULOS_DEL_CLIENTE = ['agronomia', 'visitas', 'rendimiento', 'germinador'
 // ----- Utilidades -----
 const soloDigitos = (texto) => String(texto || '').replace(/\D/g, '');
 
-// República Dominicana: 10 dígitos (809/829/849) → se antepone el 1 para wa.me
+// Enlace de wa.me (número internacional sin "+"), con las mismas reglas que el backend (avisos.js):
+// - República Dominicana: 10 dígitos (809/829/849) → se antepone el 1
+// - Venezuela: 0412/0414/0416/0424/0426 (o fijo 02xx) + 7 dígitos → el 0 se cambia por 58
+// - Prefijo internacional 00 → se quita. Un número que siga empezando por 0 no es internacional: sin enlace
 function enlaceWhatsApp(numero) {
     let d = soloDigitos(numero);
+    if (d.startsWith('00')) d = d.slice(2);
     if (d.length === 10) d = '1' + d;
-    return d ? `https://wa.me/${d}` : '';
+    else if (/^0[24]\d{9}$/.test(d)) d = '58' + d.slice(1);
+    return d && !d.startsWith('0') ? `https://wa.me/${d}` : '';
 }
 
 // 'AAAA-MM-DD' como fecha local (new Date('AAAA-MM-DD') la toma en UTC y en RD sale el día anterior)
@@ -765,7 +770,7 @@ class CRM {
         const aviso = (texto, tipo) => { if (window.equipo) window.equipo.mostrarAviso(texto, tipo); };
         boton.disabled = true;
         boton.textContent = 'Generando reporte…';
-        const respuesta = await this.google.crearReporte(`Reporte ${cliente.nombre} ${new Date().toISOString().slice(0, 10)}`, campos, { id: cliente.id, nombre: cliente.nombre });
+        const respuesta = await this.google.crearReporte(`Reporte ${cliente.nombre} ${hoyISO()}`, campos, { id: cliente.id, nombre: cliente.nombre });
         boton.disabled = false;
         boton.textContent = 'Reporte PDF en Drive';
         if (!respuesta || !respuesta.ok) return aviso((respuesta && respuesta.error) || 'No se pudo generar el reporte. Revisa la conexión.', 'error');
@@ -1347,7 +1352,7 @@ class CRM {
                 if (campo.paso === 1 && !Number.isInteger(n)) return fallo(control, 'Escribe un número entero.');
             }
             if (campo.tipo === 'tel' && valor !== '' && soloDigitos(valor).length < 10) {
-                return fallo(control, 'El número necesita al menos 10 dígitos, por ejemplo 809 555 1234.');
+                return fallo(control, 'El número necesita al menos 10 dígitos, por ejemplo 809 555 1234 (RD) o 0414 123 4567 (Venezuela).');
             }
             if (campo.tipo === 'email' && valor !== '' && !/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(valor)) {
                 return fallo(control, 'Escribe un correo válido, por ejemplo cliente@ejemplo.com.');

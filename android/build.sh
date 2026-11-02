@@ -40,14 +40,18 @@ python3 - "$OBRA/assets/www/index.html" <<'PY'
 import sys
 ruta = sys.argv[1]
 html = open(ruta, encoding='utf-8').read()
+import re
 cambios = {
-    'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js': 'lib/three.min.js',
+    'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js': 'lib/three.min.js',
     'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js': 'lib/OrbitControls.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js': 'lib/jspdf.umd.min.js',
+    'https://cdn.jsdelivr.net/npm/jspdf@4.2.1/dist/jspdf.umd.min.js': 'lib/jspdf.umd.min.js',
 }
 for cdn, local in cambios.items():
     assert cdn in html, f'No encuentro {cdn} en index.html'
     html = html.replace(cdn, local)
+# Dentro del APK las librerías van firmadas con la app: la huella (integrity) del CDN sobra
+html = re.sub(r'(src="lib/[^"]+")\s+integrity="[^"]+"\s+crossorigin="anonymous"', r'\1', html)
+assert 'integrity=' not in html, 'Quedó un integrity en index.html del APK'
 html = html.replace('</body>', '    <!-- Solo en la app Android: botón atrás -->\n    <script src="android.js"></script>\n</body>')
 open(ruta, 'w', encoding='utf-8').write(html)
 PY

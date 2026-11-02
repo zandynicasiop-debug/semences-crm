@@ -180,6 +180,9 @@ export async function leerRegistro(conexion, modulo, id, bloquear = false) {
  * Devuelve { datos, guardados: [{ modulo, registro, anterior }] } (los guardados, para los avisos).
  */
 export async function sincronizar(pool, { guardar = [], eliminar = [] }, usuario, permitido = () => true) {
+    // Cada cambio tiene que ser un objeto: un null o un texto en la lista es un 400, no un fallo interno
+    const malformado = [...guardar, ...eliminar].some(op => !op || typeof op !== 'object' || Array.isArray(op));
+    if (malformado) throw Object.assign(new Error('Cada cambio tiene que ser un objeto { modulo, registro } o { modulo, id }'), { estado: 400 });
     const conexion = await pool.getConnection();
     const rechazo = () => Object.assign(new Error('No tienes permiso para cambiar uno de esos registros (módulo, país o casa comercial)'), { estado: 403, codigo: 'permiso' });
     const guardados = [];

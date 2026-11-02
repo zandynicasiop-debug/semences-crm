@@ -88,7 +88,16 @@ async function enviarDirecto({ pool, usuario, avisos }, destino, tipo, texto, en
  * (su país y su casa comercial), menos a quien lo registró. Nadie fuera de su ámbito se entera.
  */
 const LOTE_ACTIVO = (r) => !['Despachado', 'Descartado'].includes(r.estado);
-const germinacionDe = (r) => (r && r.germinacion !== '' && r.germinacion !== undefined && r.germinacion !== null ? Number(r.germinacion) : NaN);
+/**
+ * % de germinación de un lote como número, o NaN si no hay dato. Lo vacío (null, '', espacios) no es 0 %
+ * (si no, saltaría la alarma de germinación baja), y "84,5" (coma decimal) vale como 84.5.
+ */
+export function germinacionDe(r) {
+    const valor = r && r.germinacion;
+    if (valor === undefined || valor === null || typeof valor === 'boolean') return NaN;
+    const texto = String(valor).trim().replace(',', '.');
+    return texto === '' ? NaN : Number(texto);
+}
 
 export async function avisarGerminacionBaja({ pool, config, avisos, usuario }, guardados) {
     const umbral = config.umbralGerminacion;
@@ -152,7 +161,11 @@ export const ACCIONES = {
         return { ok: true };
     },
 
+    // Mensaje al espacio de Google Chat. La app lo pide en cada mensaje del chat del equipo: si Chat no está
+    // configurado es un aviso de configuración (503), no un error interno que llene el registro del servidor
     async chat(datos, { avisos }) {
+        if (!avisos.chatActivo) throw errorApp('Google Chat no está configurado en el servidor (CHAT_WEBHOOK)', 503, 'configuracion');
+        if (!String(datos.mensaje || '').trim()) throw errorApp('Mensaje vacío');
         await avisos.chat(datos.mensaje);
         return { ok: true };
     },
@@ -302,7 +315,7 @@ export const ACCIONES = {
     async telefono(datos, { pool, usuario, config }) {
         const texto = String(datos.telefono || '').trim();
         const telefono = texto ? normalizarTelefono(texto) : '';
-        if (texto && !telefono) throw errorApp('Teléfono no válido. Escríbelo con código de país o como 809, 829 u 849 + 7 cifras.');
+        if (texto && !telefono) throw errorApp('Teléfono no válido. Escríbelo con código de país, como 809, 829 u 849 + 7 cifras (RD) o como 0414 + 7 cifras (Venezuela).');
         await guardarTelefono(pool, usuario.id, telefono);
         return { ok: true, usuario: publico({ ...usuario, telefono }, config) };
     },
@@ -313,7 +326,7 @@ export const ACCIONES = {
         if (ambito.estado === 'aprobado') return { ok: true, usuario: publico(usuario, config) };
         if (ambito.estado === 'rechazado') throw errorApp('Tu solicitud de acceso fue rechazada. Habla con un administrador.', 403, 'rechazado');
         const telefono = normalizarTelefono(datos.telefono);
-        if (!telefono) throw errorApp('Escribe tu WhatsApp con código de país, o como 809, 829 u 849 + 7 cifras.');
+        if (!telefono) throw errorApp('Escribe tu WhatsApp con código de país, como 809, 829 u 849 + 7 cifras (RD) o como 0414 + 7 cifras (Venezuela).');
         const primeraVez = !usuario.solicitado;
         await pool.query('UPDATE usuarios SET telefono = ?, solicitado = COALESCE(solicitado, UTC_TIMESTAMP()) WHERE id = ?', [telefono, usuario.id]);
         // Aviso a los Master (push y WhatsApp), solo la primera vez

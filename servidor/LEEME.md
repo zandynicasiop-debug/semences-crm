@@ -29,7 +29,11 @@ npm install
 docker run -d --name sdc-mysql -e MYSQL_ROOT_PASSWORD=prueba -e MYSQL_DATABASE=semences_prueba -e MYSQL_USER=semences -e MYSQL_PASSWORD=prueba -p 33061:3306 mysql:8.4
 docker run -d --name sdc-mariadb -e MARIADB_ROOT_PASSWORD=prueba -e MARIADB_DATABASE=semences_prueba -e MARIADB_USER=semences -e MARIADB_PASSWORD=prueba -p 33062:3306 mariadb:10.11
 npm test
+# Pruebas de la app web (sin base de datos ni dependencias), desde la raíz del repositorio:
+node --test pruebas-web/*.test.js
 ```
+
+`npm test` ejecuta tres grupos: `pruebas/api.test.js` (el backend completo contra la base), `pruebas/unidad.test.js` y `pruebas/modulos.test.js` (unidades sueltas, sin base: permisos, configuración, teléfonos de RD y Venezuela, avisos, reintentos, correo, exportación, germinador…). Sin Docker, basta un MariaDB o MySQL local con ese usuario y esa base: `PRUEBA_BASES=127.0.0.1:3306 npm test`. Ver también `DOCUMENTACION_COMPLETA.md`.
 
 Prueban el backend completo contra MySQL 8.4 y MariaDB 10.11, con Google, Meta y los servicios push simulados: entrada y permisos, sincronización en transacción, cifrado, Gmail (incluida la inyección de cabeceras), Meet, reportes, la cola de avisos (reintentos, rechazos definitivos, mensajes atascados y suscripciones push caducadas), que solo se acepten servicios push reales, CORS, el código de un solo uso de la app Android, el límite de intentos y la hora en UTC aunque el servidor MySQL esté en otra zona. Para probar contra otra base: `PRUEBA_BASES=host:puerto npm test`. GitHub las ejecuta antes de cada publicación.
 
@@ -56,7 +60,7 @@ cPanel › **Dominios** › crea `api.semillasdata.com` (con su carpeta, p. ej. 
 
 1. Sube la carpeta `servidor/` **sin `node_modules` ni `.env`** a tu cuenta, fuera de `public_html` (p. ej. `~/semences-servidor`).
 2. cPanel › **Setup Node.js App › Create Application**:
-   - Node.js version: **20** o más
+   - Node.js version: **22** o **24** (las pruebas de GitHub pasan en las dos; Node 20 dejó de recibir parches de seguridad en abril de 2026)
    - Application mode: **Production**
    - Application root: `semences-servidor`
    - Application URL: `api.semillasdata.com`
@@ -125,7 +129,8 @@ Cada persona escribe su WhatsApp en la app (menú › Cuenta). Los administrador
   | Cargo | Módulos |
   |---|---|
   | Vendedor | Clientes, visitas, tareas y chat |
-  | Técnico | Procesos agronómicos, rendimiento, visitas, tareas y chat (de los clientes, solo el nombre) |
+  | Técnico | Procesos agronómicos, rendimiento, visitas, germinador, tareas y chat (de los clientes, solo el nombre) |
+  | Plantulador | Germinador (lotes en cámara y bandejas), tareas y chat (de los clientes, solo el nombre) |
   | Administrativo | Todo |
   | Master | Todo, más la sala de espera y los accesos |
 

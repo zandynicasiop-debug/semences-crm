@@ -29,12 +29,15 @@
     <link rel="stylesheet" href="style.css">
     <!-- Tema claro u oscuro antes de pintar la página -->
     <script src="tema.js"></script>
+    <!-- Librerías de jsDelivr (copia exacta de npm, versión fija). integrity (SRI): el navegador comprueba la
+         huella del archivo y no lo ejecuta si el CDN lo cambiara; así un CDN comprometido no puede robar la
+         sesión del CRM. Al cambiar de versión, recalcula la huella (ver DOCUMENTACION_COMPLETA.md) -->
     <!-- Three.js para el entorno 3D WebGL -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js" integrity="sha384-CI3ELBVUz9XQO+97x6nwMDPosPR5XvsxW2ua7N1Xeygeh1IxtgqtCkGfQY9WWdHu" crossorigin="anonymous"></script>
     <!-- Controles de cámara (girar, acercar, desplazar) de la misma versión de Three.js -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <!-- jsPDF para descargar las cotizaciones -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js" integrity="sha384-wagZhIFgY4hD+7awjQjR4e2E294y6J2HSnd8eTNc15ZubTeQeVRZwhQJ+W6hnBsf" crossorigin="anonymous"></script>
+    <!-- jsPDF para descargar las cotizaciones (4.2.1: corrige las vulnerabilidades de la 2.5.1) -->
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@4.2.1/dist/jspdf.umd.min.js" integrity="sha384-qovJwSBbRDPP5cEjCp8S0UP66wrvnjaa60XMOGzTNanrThcrGfXfnZkvgY8N1KT3" crossorigin="anonymous"></script>
 </head>
 <body>
     <div id="dashboard-container">

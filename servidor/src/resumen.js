@@ -16,6 +16,7 @@ import { listarTodo } from './db.js';
 import { tokenDe, actualizarToken, destinosDe } from './cuentas.js';
 import { encolar } from './cola.js';
 import { construirCorreo } from './correo.js';
+import { germinacionDe } from './acciones.js';
 
 const MAX_LINEAS = 6;
 const VENTANA_HORAS = 5;
@@ -97,8 +98,8 @@ export function componerResumen({ persona, ambito, datos, eventos = [], sinLeer 
             ...activos.filter(l => l.trasplante && l.trasplante <= hoy)
                 .sort((a, b) => String(a.trasplante).localeCompare(String(b.trasplante)))
                 .map(l => `Lote ${l.lote} · ${l.variedad}${l.cliente ? ` · ${l.cliente}` : ''}: trasplante ${l.trasplante === hoy ? 'hoy' : `atrasado desde el ${fechaCorta(l.trasplante)}`}`),
-            ...activos.filter(l => l.germinacion !== undefined && l.germinacion !== '' && Number(l.germinacion) < umbral)
-                .map(l => `Lote ${l.lote} · ${l.variedad}: germinación baja (${l.germinacion} %)`)
+            ...activos.filter(l => germinacionDe(l) < umbral)
+                .map(l => `Lote ${l.lote} · ${l.variedad}: germinación baja (${germinacionDe(l)} %)`)
         ];
         if (lineas.length) seccion('germinador', '🧫 Germinador', recortar(lineas, 'lotes'));
     }
@@ -111,7 +112,7 @@ export function componerResumen({ persona, ambito, datos, eventos = [], sinLeer 
         const vencidas = (datos.tareas || []).filter(t => !t.hecha && t.vence && t.vence < hoy).length;
         const procesosHoy = (datos.agronomia || []).filter(p => p.fechaInicio === hoy || p.fechaFin === hoy).length;
         const sinAsignar = (datos.clientes || []).filter(c => !c.asignado).length;
-        const lotesBajos = (datos.germinador || []).filter(l => !['Despachado', 'Descartado'].includes(l.estado) && l.germinacion !== undefined && l.germinacion !== '' && Number(l.germinacion) < umbral).length;
+        const lotesBajos = (datos.germinador || []).filter(l => !['Despachado', 'Descartado'].includes(l.estado) && germinacionDe(l) < umbral).length;
         const cifras = [
             atrasados && `${atrasados} seguimiento${atrasados === 1 ? '' : 's'} de clientes atrasado${atrasados === 1 ? '' : 's'}`,
             vencidas && `${vencidas} tarea${vencidas === 1 ? '' : 's'} vencida${vencidas === 1 ? '' : 's'} en el equipo`,

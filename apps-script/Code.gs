@@ -109,12 +109,18 @@ function guardarMetricas(datos) {
       hoja.setFrozenRows(1);
       hoja.getRange(1, 1, 1, COLUMNAS.length).setFontWeight('bold');
     }
-    const fila = COLUMNAS.map(col => col === 'fecha' ? new Date(datos.fecha || Date.now()) : (datos[col] ?? ''));
+    const fila = COLUMNAS.map(col => col === 'fecha' ? new Date(datos.fecha || Date.now()) : textoSeguro(datos[col] ?? ''));
     hoja.appendRow(fila);
   } finally {
     candado.releaseLock();
   }
   return { ok: true };
+}
+
+// appendRow convierte en fórmula el texto que empieza por = + - @ (p. ej. "=IMPORTXML(…)"): se guarda
+// como texto anteponiendo un apóstrofo, que Sheets no muestra. Los números quedan como números
+function textoSeguro(valor) {
+  return typeof valor === 'string' && /^[=+\-@]/.test(valor) ? "'" + valor : valor;
 }
 
 // ----- Base de datos compartida: una pestaña por módulo ("CRM · clientes", ...), una fila por registro -----
@@ -149,7 +155,9 @@ function verificarCuenta(idToken) {
 }
 
 function cuentaAutorizada(email, dominioCuenta) {
-  if (CONFIG.DOMINIO && (dominioCuenta === CONFIG.DOMINIO || email.endsWith('@' + CONFIG.DOMINIO))) return true;
+  // Por dominio solo valen las cuentas del Workspace: el claim "hd" que firma Google (no basta con que el
+  // correo termine en @dominio: una cuenta personal de Google puede llevar un correo de cualquier dominio)
+  if (CONFIG.DOMINIO && dominioCuenta === CONFIG.DOMINIO) return true;
   const cache = CacheService.getScriptCache();
   let lista = cache.get('equipo');
   if (lista === null) {

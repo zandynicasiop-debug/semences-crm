@@ -13,6 +13,11 @@
  */
 const MODULOS_DATOS = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'sitios', 'mensajes', 'tareas']; // mensajes: chat y alertas del equipo · tareas: lista de tareas del equipo
 
+// Tope por sincronización (el backend admite 500 cambios y 10 MB por petición). Si hay más pendientes
+// (p. ej. tras días sin señal en el campo), salen en varias vueltas seguidas en vez de rechazarse siempre
+const MAX_CAMBIOS_POR_ENVIO = 200;
+const MAX_BYTES_POR_ENVIO = 4 * 1024 * 1024;
+
 // En la hoja todo es texto: estos campos vuelven a ser números al leer
 const CAMPOS_NUMERICOS = {
     agronomia: ['germinacion'],
@@ -163,15 +168,19 @@ class BaseDatos {
         this.avisar('sincronizando');
 
         // Lo que se envía en esta vuelta (lo que cambie mientras tanto queda para la siguiente)
+        // (en tandas: lo que no quepa en esta vuelta sigue pendiente y sale en la siguiente)
         const guardar = [];
         const enviados = new Map();
+        let bytes = 0;
         MODULOS_DATOS.forEach(m => this.datos[m].forEach(r => {
-            if (r._pendiente || !r._remoto) {
-                guardar.push({ modulo: m, registro: this.limpio(r) });
-                enviados.set(`${m}|${r.id}`, JSON.stringify(this.limpio(r)));
-            }
+            if (!(r._pendiente || !r._remoto) || guardar.length >= MAX_CAMBIOS_POR_ENVIO) return;
+            const texto = JSON.stringify(this.limpio(r));
+            if (guardar.length && bytes + texto.length > MAX_BYTES_POR_ENVIO) return;
+            bytes += texto.length;
+            guardar.push({ modulo: m, registro: this.limpio(r) });
+            enviados.set(`${m}|${r.id}`, texto);
         }));
-        const eliminar = [...this.borrados];
+        const eliminar = this.borrados.slice(0, MAX_CAMBIOS_POR_ENVIO);
 
         const respuesta = await this.conector.sincronizarDatos({ guardar, eliminar });
         this.sincronizando = false;

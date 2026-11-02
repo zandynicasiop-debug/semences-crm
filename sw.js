@@ -6,7 +6,7 @@
  * - Lo demás (el Apps Script de Google, Chat…) no pasa por aquí: siempre va a la red.
  * Al publicar cambios grandes, sube VERSION para descartar las copias viejas.
  */
-const VERSION = 'semences-v9';
+const VERSION = 'semences-v10';
 const APP = [
     './', './index.html', './style.css', './manifest.webmanifest',
     './googleSync.js', './app.js', './datos.js', './usuario.js', './mapa.js', './cotizador.js',
@@ -14,10 +14,12 @@ const APP = [
     './iconos/icono-192.png', './iconos/icono-512.png',
     './marcas/gautier.png', './marcas/hexagon.png', './marcas/genome.png', './marcas/fito.png'
 ];
+// Las mismas direcciones que index.html. Se piden en modo CORS (como las pide la página con integrity):
+// una copia "opaca" no serviría a un <script crossorigin> y el navegador la rechazaría
 const CDN = [
-    'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
+    'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js',
     'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
+    'https://cdn.jsdelivr.net/npm/jspdf@4.2.1/dist/jspdf.umd.min.js'
 ];
 const ORIGENES_CDN = ['https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net', 'https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
 
@@ -25,7 +27,7 @@ self.addEventListener('install', (evento) => {
     evento.waitUntil(caches.open(VERSION).then(async (cache) => {
         await cache.addAll(APP);
         // Las librerías se guardan una a una: si un CDN falla, la instalación sigue
-        await Promise.all(CDN.map(url => cache.add(url).catch(() => {})));
+        await Promise.all(CDN.map(url => cache.add(new Request(url, { mode: 'cors' })).catch(() => {})));
     }));
     self.skipWaiting();
 });
@@ -57,8 +59,12 @@ self.addEventListener('fetch', (evento) => {
 
     if (ORIGENES_CDN.includes(url.origin)) {
         evento.respondWith(caches.match(peticion).then(guardada => guardada || fetch(peticion).then(respuesta => {
-            const copia = respuesta.clone();
-            caches.open(VERSION).then(cache => cache.put(peticion, copia));
+            // Solo se guarda lo que llegó bien (o la hoja de fuentes, que llega "opaca"): un 404 o un 500
+            // del CDN guardado aquí se serviría para siempre en lugar de la librería
+            if (respuesta.ok || respuesta.type === 'opaque') {
+                const copia = respuesta.clone();
+                caches.open(VERSION).then(cache => cache.put(peticion, copia));
+            }
             return respuesta;
         })));
     }

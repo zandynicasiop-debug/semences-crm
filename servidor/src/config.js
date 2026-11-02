@@ -8,6 +8,16 @@
 
 const lista = (texto) => String(texto || '').split(',').map(s => s.trim()).filter(Boolean);
 
+// Hora del resumen de la mañana (0-23), o null con "no". Vacío o no numérico: las 7 (antes, una variable
+// vacía en el panel daba 0 y el resumen salía a medianoche)
+export function horaResumen(texto) {
+    const valor = String(texto ?? '').trim();
+    if (/^no$/i.test(valor)) return null;
+    const hora = Number(valor);
+    if (valor === '' || !Number.isFinite(hora)) return 7;
+    return Math.min(23, Math.max(0, Math.trunc(hora)));
+}
+
 export function leerConfig(entorno = process.env) {
     const config = {
         puerto: Number(entorno.PORT) || 3000,
@@ -46,7 +56,7 @@ export function leerConfig(entorno = process.env) {
         umbralGerminacion: Number(entorno.UMBRAL_GERMINACION) || 85,
 
         // Resumen de la mañana ("Borja"): hora local a la que sale (0-23); "no" para no enviarlo
-        resumenHora: /^no$/i.test(entorno.RESUMEN_HORA || '') ? null : Math.min(23, Math.max(0, Number(entorno.RESUMEN_HORA ?? 7) || 0)),
+        resumenHora: horaResumen(entorno.RESUMEN_HORA),
 
         chatWebhook: entorno.CHAT_WEBHOOK || '',
         // Avisos de Google Chat como tarjetas con botones (CHAT_TARJETAS=no para texto simple)

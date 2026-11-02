@@ -132,11 +132,17 @@ export function suscripcionValida(suscripcion) {
 
 /**
  * Teléfono en formato internacional sin "+" (lo que pide WhatsApp), o '' si no es válido.
- * Los números dominicanos de 10 cifras (809, 829, 849) reciben el código de país 1.
+ * - República Dominicana: 10 cifras (809, 829, 849) → se antepone el código de país 1.
+ * - Venezuela: 11 cifras con el 0 de larga distancia (0412, 0414, 0416, 0422, 0424, 0426 o fijos 02xx)
+ *   → el 0 se cambia por el código de país 58 (0414 123 4567 → 584141234567).
+ * - Prefijo internacional "00" (0058…, 0034…) → se quita.
+ * Un número internacional nunca empieza por 0 (E.164): lo que empiece por 0 y no sea venezolano no vale.
  */
 export function normalizarTelefono(texto) {
-    const cifras = String(texto || '').replace(/\D/g, '');
+    let cifras = String(texto || '').replace(/\D/g, '');
+    if (cifras.startsWith('00')) cifras = cifras.slice(2);
     if (/^(809|829|849)\d{7}$/.test(cifras)) return `1${cifras}`;
-    if (/^\d{11,15}$/.test(cifras)) return cifras;
+    if (/^0[24]\d{9}$/.test(cifras)) return `58${cifras.slice(1)}`;
+    if (/^[1-9]\d{10,14}$/.test(cifras)) return cifras;
     return '';
 }

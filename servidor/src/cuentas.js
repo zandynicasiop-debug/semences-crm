@@ -10,11 +10,17 @@ import { ambitoDe } from './permisos.js';
 
 const ahoraMas = (ms) => new Date(Date.now() + ms);
 
-// ¿Puede entrar esta cuenta? Todo el dominio de Workspace, los admins y quien esté en la tabla equipo
+/**
+ * ¿Puede entrar esta cuenta? Todo el dominio de Workspace, los admins y quien esté en la tabla equipo.
+ * dominioCuenta: al entrar, el claim "hd" que firma Google (solo lo tienen las cuentas gestionadas por el
+ * Workspace). Google recomienda fiarse de "hd" y no de cómo termina el correo: una cuenta personal de
+ * Google puede llevar un correo de cualquier dominio. En cada petición se pasa el dominio del correo ya
+ * verificado al entrar.
+ */
 export async function cuentaAutorizada(pool, config, email, dominioCuenta) {
     const correo = String(email).toLowerCase();
     const { dominio, admins } = config.google;
-    if (dominio && (dominioCuenta === dominio || correo.endsWith(`@${dominio}`))) return true;
+    if (dominio && String(dominioCuenta || '').toLowerCase() === dominio) return true;
     if (admins.includes(correo)) return true;
     const [filas] = await pool.query('SELECT 1 FROM equipo WHERE email = ?', [correo]);
     return filas.length > 0;

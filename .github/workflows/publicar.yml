@@ -24,9 +24,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Pruebas del backend (servidor/) contra MySQL y MariaDB reales: si fallan, no se publica nada
+  # Pruebas del backend (servidor/) contra MySQL y MariaDB reales: si fallan, no se publica nada.
+  # En Node 22 y en Node 24 (la LTS activa): así se sabe antes de cambiar la versión de Node del hosting
   probar-servidor:
     runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        node: ['22', '24']
     services:
       mysql:
         image: mysql:8.4
@@ -45,11 +49,14 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: '22'
+          node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: servidor/package-lock.json
       - run: npm ci
       - run: npm test
+      # Pruebas de la app web (cotizador, WhatsApp, sincronización sin conexión): sin dependencias
+      - name: Pruebas de la app web
+        run: node --test ../pruebas-web/*.test.js
 
   compilar:
     needs: probar-servidor
@@ -115,9 +122,13 @@ jobs:
       - id: pages
         uses: actions/configure-pages@v6
 
+      # La dirección va por una variable de entorno y no escrita dentro del script: es la práctica que
+      # recomienda GitHub para que un valor de ${{ }} nunca se interprete como código de la terminal
       - name: Carpeta de la web, con el APK para descargar
+        env:
+          URL_PAGINAS: ${{ steps.pages.outputs.base_url }}
         run: |
-          ./publicar.sh "${{ steps.pages.outputs.base_url }}"
+          ./publicar.sh "$URL_PAGINAS"
           cp android/salida/Semences.apk publicar/Semences.apk
 
       - uses: actions/upload-pages-artifact@v5

@@ -11,6 +11,27 @@ const PATRON_PRECIO = /^\s*[-•*]?\s*(.+?)\s*:\s*((?:RD|US)?\$)\s*([\d.,]+)\s*(
 
 const dinero = (n) => n.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/**
+ * Importe de la lista de precios, escrito como en RD ("1,250.50") o como en Venezuela ("1.250,50", "45,50"):
+ * - Con coma y punto: el último que aparece es el separador decimal; el otro, el de miles.
+ * - Solo comas: "1,500" o "12,500,000" (grupos de 3 cifras) son miles, como hasta ahora; "45,50" es decimal.
+ * - Solo puntos: "1.500.000" (varios grupos de 3) son miles; "45.50" o "1.500" es decimal, como hasta ahora.
+ * Devuelve NaN si no es un importe.
+ */
+function leerImporte(texto) {
+    let t = String(texto || '').trim();
+    const coma = t.lastIndexOf(','), punto = t.lastIndexOf('.');
+    if (coma >= 0 && punto >= 0) {
+        const [miles, decimal] = coma > punto ? ['.', ','] : [',', '.'];
+        t = t.split(miles).join('').replace(decimal, '.');
+    } else if (coma >= 0) {
+        t = /^\d{1,3}(,\d{3})+$/.test(t) ? t.replace(/,/g, '') : t.replace(',', '.');
+    } else if (/^\d{1,3}(\.\d{3}){2,}$/.test(t)) {
+        t = t.replace(/\./g, '');
+    }
+    return Number(t);
+}
+
 class Cotizador {
     constructor() {
         this.lineas = []; // { producto, cantidad }: se conservan al cerrar y volver a abrir la ficha
@@ -21,7 +42,7 @@ class Cotizador {
         return String(texto || '').split('\n').map(linea => {
             const m = linea.match(PATRON_PRECIO);
             if (!m) return null;
-            const precio = Number(m[3].replace(/,/g, ''));
+            const precio = leerImporte(m[3]);
             if (!precio) return null;
             return { nombre: m[1], moneda: m[2].toUpperCase(), precio, unidad: (m[4] || 'unidad').trim() };
         }).filter(Boolean);
