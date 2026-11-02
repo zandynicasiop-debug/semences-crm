@@ -83,9 +83,10 @@ jobs:
         env:
           SEMENCES_ALMACEN: ${{ runner.temp }}/semences.keystore
           SEMENCES_CLAVE: ${{ secrets.SEMENCES_CLAVE }}
-          VERSION_CODE: ${{ 200 + github.run_number }}
           VERSION_NAME: ${{ env.VERSION_APP }}
         run: |
+          # versionCode: 200 (2.0.0) más el número de la ejecución, para que cada APK actualice al anterior
+          export VERSION_CODE=$((200 + GITHUB_RUN_NUMBER))
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon --stacktrace
       - name: Comprobar la firma y nombrar el APK
