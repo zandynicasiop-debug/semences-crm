@@ -444,12 +444,13 @@ class CanalEquipo {
         this.db.guardar('mensajes', alerta);
         this.vistos.add(alerta.id);
         if (this.google) {
-            this.google.enviarGoogleChat(`🚨 ALERTA · ${alerta.motivo} · ${alerta.parcela}\n${alerta.texto}\n— ${alerta.autor}`);
+            // Con el backend, la alerta llega también por WhatsApp a todo el equipo
+            this.google.avisarEquipo(`🚨 ALERTA · ${alerta.motivo} · ${alerta.parcela}\n${alerta.texto}\n— ${alerta.autor}`);
             this.google.enviarNotificacionMovil(`Alerta · ${alerta.motivo}`, `${alerta.parcela}: ${alerta.texto}`);
         }
         this.dialogoAlerta.close();
         this.mostrarAviso(this.db.compartida
-            ? 'Alerta enviada al equipo y a Google Chat.'
+            ? `Alerta enviada al equipo${this.google && this.google.conBackend ? ' (Google Chat y WhatsApp).' : ' y a Google Chat.'}`
             : 'Alerta guardada solo en este navegador: falta la URL de Google para avisar al equipo.',
         this.db.compartida ? 'ok' : 'error');
     }

@@ -642,6 +642,54 @@ class CRM {
     }
 
     // ----- Expediente del cliente: todo lo suyo en un solo sitio -----
+    /**
+     * Reporte del cliente con la plantilla de Google Docs del backend. En la plantilla se escriben
+     * {{cliente}}, {{ubicacion}}, {{telefono}}, {{whatsapp}}, {{marca}}, {{seguimiento}}, {{fecha}},
+     * {{responsable}}, {{procesos}}, {{visitas}} y {{rendimientos}} (ver servidor/LEEME.md).
+     */
+    async generarReporte(clienteId, boton) {
+        const cliente = this.cliente(clienteId);
+        if (!cliente) return;
+        const lineas = (lista, texto) => lista.length ? lista.map(texto).join('\n') : 'Sin registros';
+        const procesos = this.delCliente('agronomia', clienteId).sort(MODULOS_CRM.agronomia.ordenar);
+        const visitas = this.delCliente('visitas', clienteId).sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
+        const rendimientos = this.delCliente('rendimiento', clienteId).sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
+        const campos = {
+            cliente: cliente.nombre,
+            ubicacion: cliente.ubicacion || '',
+            telefono: cliente.telefono || '',
+            whatsapp: cliente.whatsapp || '',
+            marca: cliente.marca || '',
+            seguimiento: cliente.seguimiento ? formatearFecha(cliente.seguimiento) : '',
+            fecha: new Date().toLocaleDateString('es-DO', { day: 'numeric', month: 'long', year: 'numeric' }),
+            responsable: window.responsable ? window.responsable.nombre : '',
+            procesos: lineas(procesos, p => `${p.lote} · ${p.variedad || ''} · ${p.proceso}: ${formatearFecha(p.fechaInicio)} – ${p.fechaFin ? formatearFecha(p.fechaFin) : 'pendiente'}`),
+            visitas: lineas(visitas, v => `${formatearFecha(v.fecha)} · ${v.estado}${v.comentarios ? `: ${v.comentarios}` : ''}`),
+            rendimientos: lineas(rendimientos, r => `${formatearFecha(r.fecha)} · ${r.lote}: ${r.unidades} unidades${r.canastos ? `, ${r.canastos} canastos` : ''}`)
+        };
+        const aviso = (texto, tipo) => { if (window.equipo) window.equipo.mostrarAviso(texto, tipo); };
+        boton.disabled = true;
+        boton.textContent = 'Generando reporte…';
+        const respuesta = await this.google.crearReporte(`Reporte ${cliente.nombre} ${new Date().toISOString().slice(0, 10)}`, campos);
+        boton.disabled = false;
+        boton.textContent = 'Reporte PDF en Drive';
+        if (!respuesta || !respuesta.ok) return aviso((respuesta && respuesta.error) || 'No se pudo generar el reporte. Revisa la conexión.', 'error');
+        aviso('Reporte guardado en Google Drive.');
+        // Enlace junto al botón (abrir una pestaña tras esperar al servidor lo bloquean los navegadores)
+        if (respuesta.enlace && /^https:\/\/(drive|docs)\.google\.com\//.test(respuesta.enlace)) {
+            const previo = boton.parentElement.querySelector('.enlace-reporte');
+            if (previo) previo.remove();
+            const enlace = document.createElement('a');
+            enlace.className = 'btn-secondary enlace-reporte';
+            enlace.href = respuesta.enlace;
+            enlace.target = '_blank';
+            enlace.rel = 'noopener';
+            enlace.textContent = 'Abrir el reporte';
+            boton.after(enlace);
+            enlace.focus();
+        }
+    }
+
     abrirExpediente(clienteId, { enfocar = true } = {}) {
         const cliente = this.cliente(clienteId);
         if (!cliente) return;
@@ -680,6 +728,15 @@ class CRM {
             b.addEventListener('click', () => this.abrirFormulario(m, { clienteId }, () => this.abrirExpediente(clienteId)));
             atajos.appendChild(b);
         });
+        // Con el backend: reporte del cliente en PDF, desde la plantilla de Google Docs, guardado en Drive
+        if (this.google && this.google.conBackend) {
+            const reporte = document.createElement('button');
+            reporte.type = 'button';
+            reporte.className = 'btn-secondary';
+            reporte.textContent = 'Reporte PDF en Drive';
+            reporte.addEventListener('click', () => this.generarReporte(clienteId, reporte));
+            atajos.appendChild(reporte);
+        }
         caja.appendChild(atajos);
 
         // Procesos agronómicos: un bloque por lote, en orden de fechas (línea de tiempo)

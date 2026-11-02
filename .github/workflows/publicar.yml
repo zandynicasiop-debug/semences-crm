@@ -4,8 +4,9 @@
 # Secretos del repositorio (Settings › Secrets and variables › Actions):
 #   SEMENCES_FIRMA  el archivo android/firma/semences.keystore en base64
 #   SEMENCES_CLAVE  el contenido de android/firma/clave.txt
-#   SEMENCES_URL    URL del Web App de Apps Script (termina en /exec)        } conexión con Google;
-#   SEMENCES_TOKEN  la misma clave que la propiedad TOKEN del Apps Script   } sin ellos, la app va sin ella
+#   SEMENCES_API    dirección del backend Node (p. ej. https://api.semillasdata.com): base MySQL y Google
+#   SEMENCES_URL    URL del Web App de Apps Script (termina en /exec)        } solo si no hay backend;
+#   SEMENCES_TOKEN  la misma clave que la propiedad TOKEN del Apps Script   } sin nada, la app va sin conexión
 name: Compilar APK y publicar la app
 
 on:
@@ -23,7 +24,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Pruebas del backend (servidor/) contra MySQL y MariaDB reales: si fallan, no se publica nada
+  probar-servidor:
+    runs-on: ubuntu-24.04
+    services:
+      mysql:
+        image: mysql:8.4
+        env: { MYSQL_ROOT_PASSWORD: prueba, MYSQL_DATABASE: semences_prueba, MYSQL_USER: semences, MYSQL_PASSWORD: prueba }
+        ports: ['33061:3306']
+        options: --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pprueba" --health-interval=5s --health-timeout=5s --health-retries=30
+      mariadb:
+        image: mariadb:10.11
+        env: { MARIADB_ROOT_PASSWORD: prueba, MARIADB_DATABASE: semences_prueba, MARIADB_USER: semences, MARIADB_PASSWORD: prueba }
+        ports: ['33062:3306']
+        options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=5s --health-timeout=5s --health-retries=30
+    defaults:
+      run:
+        working-directory: servidor
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: servidor/package-lock.json
+      - run: npm ci
+      - run: npm test
+
   compilar:
+    needs: probar-servidor
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -49,23 +78,28 @@ jobs:
           echo "$FIRMA" | base64 -d > android/firma/semences.keystore
           printf '%s' "$CLAVE" > android/firma/clave.txt
 
-      - name: Conexión con Google (URL del Apps Script y su clave, desde los secretos)
+      - name: Conexión con el backend o con Google (desde los secretos)
         env:
+          API_BACKEND: ${{ secrets.SEMENCES_API }}
           URL_APPS_SCRIPT: ${{ secrets.SEMENCES_URL }}
           TOKEN_APP: ${{ secrets.SEMENCES_TOKEN }}
         run: |
-          if [ -z "$URL_APPS_SCRIPT" ] || [ -z "$TOKEN_APP" ]; then
-            echo "::warning::Sin SEMENCES_URL o SEMENCES_TOKEN: la app se publica sin conexión con Google"
-            exit 0
-          fi
           python3 - <<'PY'
           import json, os
           ruta = 'googleSync.js'
           js = open(ruta, encoding='utf-8').read()
-          for campo, valor in (('url', os.environ['URL_APPS_SCRIPT']), ('token', os.environ['TOKEN_APP'])):
+          # Con el backend (SEMENCES_API) basta su dirección; si no, el Apps Script necesita URL y clave
+          if os.environ.get('API_BACKEND', '').strip():
+              campos = {'api': os.environ['API_BACKEND'].strip().rstrip('/')}
+          elif os.environ.get('URL_APPS_SCRIPT', '').strip() and os.environ.get('TOKEN_APP', '').strip():
+              campos = {'url': os.environ['URL_APPS_SCRIPT'].strip(), 'token': os.environ['TOKEN_APP'].strip()}
+          else:
+              print('::warning::Sin SEMENCES_API ni SEMENCES_URL/SEMENCES_TOKEN: la app se publica sin conexión')
+              campos = {}
+          for campo, valor in campos.items():
               hueco = f"    {campo}: '',"
               assert hueco in js, f'No encuentro {hueco!r} en googleSync.js'
-              js = js.replace(hueco, f"    {campo}: {json.dumps(valor.strip())},", 1)
+              js = js.replace(hueco, f"    {campo}: {json.dumps(valor)},", 1)
           open(ruta, 'w', encoding='utf-8').write(js)
           PY
 

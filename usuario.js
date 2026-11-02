@@ -3,15 +3,29 @@
  *
  * Firma los registros del CRM ("Registró"), los mensajes y alertas del chat y las cotizaciones.
  *
- * Dos modos, según CONFIG_GOOGLE.clientId (googleSync.js):
- * - Sin Client ID: se pide un nombre al entrar. No es una contraseña: cualquiera puede escribir otro nombre.
- * - Con Client ID: se entra con la cuenta de Google. Nombre y correo salen de la cuenta, y cada envío al
- *   Apps Script lleva la prueba firmada por Google (ID token), que Code.gs verifica antes de aceptar nada.
- *   El token dura una hora; antes de que caduque se pide otro sin molestar (Google One Tap).
+ * Tres modos, según CONFIG_GOOGLE (googleSync.js):
+ * - Con api (backend Node): se entra con la cuenta de Google en la página de Google, que vuelve a la app con
+ *   un código de un solo uso; la app lo canjea por una sesión del backend (30 días). Igual en el navegador
+ *   y en la app Android (allí Google se abre en Chrome y vuelve por semences://sesion). Ver servidor/LEEME.md.
+ * - Con clientId (Apps Script): se entra con Google One Tap y cada envío lleva el ID token, que Code.gs verifica.
+ *   El token dura una hora; antes de que caduque se pide otro sin molestar.
+ * - Sin nada: se pide un nombre al entrar. No es una contraseña: cualquiera puede escribir otro nombre.
  */
 const CLAVE_RESPONSABLE = 'sdc_nombre'; // La misma que usaba el chat: quien ya escribió allí no tiene que repetirlo
 const CLAVE_SESION = 'sdc_sesion';
+const CLAVE_VERIFICADOR = 'sdc_verificador'; // Secreto de la entrada en curso: solo esta app puede canjear su código
 const SCRIPT_GOOGLE = 'https://accounts.google.com/gsi/client';
+
+// Texto aleatorio en base64url (para el secreto de la entrada) y su huella SHA-256 (el "reto" que va a Google)
+function aleatorioB64(bytes = 32) {
+    const datos = crypto.getRandomValues(new Uint8Array(bytes));
+    return btoa(String.fromCharCode(...datos)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function retoDe(verificador) {
+    const huella = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verificador)));
+    return btoa(String.fromCharCode(...huella)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
 
 /**
  * Navegadores donde Google no deja iniciar sesión: el APK y las páginas abiertas dentro de otras apps
@@ -28,12 +42,14 @@ function navegadorIntegrado(ua = navigator.userAgent || '', standalone = window.
 class Responsable {
     constructor() {
         this.oyentes = [];
-        this.conGoogle = Boolean(typeof CONFIG_GOOGLE !== 'undefined' && CONFIG_GOOGLE.clientId);
+        this.conBackend = Boolean(typeof CONFIG_GOOGLE !== 'undefined' && CONFIG_GOOGLE.api);
+        this.conGoogle = this.conBackend || Boolean(typeof CONFIG_GOOGLE !== 'undefined' && CONFIG_GOOGLE.clientId);
         this.boton = document.getElementById('btn-responsable');
         this.crearDialogo();
         this.boton.addEventListener('click', () => this.pedir());
         this.pintar();
-        if (this.conGoogle) this.iniciarGoogle();
+        if (this.conBackend) this.iniciarBackend();
+        else if (this.conGoogle) this.iniciarGoogle();
         else if (!this.nombre) this.pedir({ primeraVez: true });
         // En el teléfono el botón de la barra no cabe: el cambio de responsable va al final del menú de módulos
         window.addEventListener('load', () => setTimeout(() => this.crearOpcionMenu()));
@@ -73,7 +89,7 @@ class Responsable {
         const nombre = this.nombre;
         if (this.opcionMenu) {
             this.opcionMenu.hidden = !nombre;
-            this.opcionMenu.textContent = this.conGoogle ? `Cuenta: ${nombre} · cerrar sesión` : `Responsable: ${nombre} · cambiar`;
+            this.opcionMenu.textContent = this.conBackend ? `Cuenta: ${nombre}` : this.conGoogle ? `Cuenta: ${nombre} · cerrar sesión` : `Responsable: ${nombre} · cambiar`;
         }
         this.boton.hidden = !nombre;
         this.boton.innerHTML = '';
@@ -87,8 +103,9 @@ class Responsable {
         texto.textContent = nombre;
         this.boton.append(inicial, texto);
         const sesion = this.conGoogle && this.sesion;
-        this.boton.title = sesion ? `${nombre} (${sesion.email}). Pulsa para cerrar sesión.` : `Responsable: ${nombre}. Pulsa para cambiarlo.`;
-        this.boton.setAttribute('aria-label', sesion ? `Cuenta: ${nombre}, ${sesion.email}. Cerrar sesión` : `Responsable: ${nombre}. Cambiar`);
+        const accion = this.conBackend ? 'Ver tu cuenta' : 'Cerrar sesión';
+        this.boton.title = sesion ? `${nombre} (${sesion.email}). ${accion}.` : `Responsable: ${nombre}. Pulsa para cambiarlo.`;
+        this.boton.setAttribute('aria-label', sesion ? `Cuenta: ${nombre}, ${sesion.email}. ${accion}` : `Responsable: ${nombre}. Cambiar`);
     }
 
     crearDialogo() {
@@ -139,6 +156,7 @@ class Responsable {
     }
 
     pedir({ primeraVez = false } = {}) {
+        if (this.conBackend) return this.sesionBackend() ? this.abrirCuenta() : this.mostrarEntrada();
         if (this.conGoogle) {
             const sesion = this.sesion;
             if (!sesion) return this.mostrarEntrada();
@@ -167,7 +185,7 @@ class Responsable {
 
     // Prueba de identidad para el Apps Script; si está por caducar, se pide otra en segundo plano
     credencial() {
-        if (!this.conGoogle) return '';
+        if (!this.conGoogle || this.conBackend) return '';
         const sesion = this.sesion;
         if (!sesion) return '';
         if (sesion.exp * 1000 - Date.now() < 2 * 60 * 1000) this.renovar();
@@ -245,6 +263,7 @@ class Responsable {
     // El Apps Script rechazó el envío: sesión caducada ('sesion') o cuenta sin permiso ('acceso')
     rechazado(codigo, mensaje) {
         if (!this.conGoogle) return;
+        if (this.conBackend) return this.rechazadoBackend(codigo, mensaje);
         if (codigo === 'acceso') return this.cerrarSesion(mensaje);
         if (codigo === 'sesion') {
             const sesion = this.sesion;
@@ -259,6 +278,8 @@ class Responsable {
     }
 
     cerrarSesion(mensaje = '') {
+        // Con el backend, la sesión se cierra también allí (si no hay conexión, caduca sola)
+        if (this.conBackend && this.sesionBackend()) this.conector.backend('/api/salir', {});
         if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
         this.guardarSesion(null);
         this.pintar();
@@ -284,7 +305,15 @@ class Responsable {
         this.dialogoGoogle = dialogo;
         this.contenedorBoton = dialogo.querySelector('.boton-google');
         this.errorGoogle = dialogo.querySelector('.form-error');
-        if (window.AndroidApp) {
+        if (this.conBackend && !(navegadorIntegrado() && !window.AndroidApp)) {
+            // Backend: Google se abre en su propia página (en la app Android, en Chrome) y vuelve aquí
+            const boton = document.createElement('button');
+            boton.type = 'button';
+            boton.className = 'btn-primary btn-entrar-google';
+            boton.textContent = 'Entrar con Google';
+            boton.addEventListener('click', () => this.irAGoogle());
+            this.contenedorBoton.appendChild(boton);
+        } else if (window.AndroidApp) {
             this.contenedorBoton.innerHTML = `<p class="dialogo-nota">Dentro de la app Android no se puede entrar con Google. Abre la dirección de la app en Chrome e instálala desde el menú de módulos › <b>Instalar la app en este dispositivo</b>.</p>`;
         } else if (navegadorIntegrado()) {
             // Enlace abierto desde Instagram, Facebook u otra app: Google bloquea el inicio de sesión ahí dentro
@@ -306,6 +335,168 @@ class Responsable {
         // Sin sesión no se entra: Escape no cierra (y si el navegador lo cierra igual, se vuelve a abrir)
         dialogo.addEventListener('cancel', (e) => e.preventDefault());
         dialogo.addEventListener('close', () => { if (!this.sesion) setTimeout(() => this.mostrarEntrada(this.errorGoogle.textContent)); });
+    }
+
+    // ----- Backend Node (solo con CONFIG_GOOGLE.api) -----
+
+    // La sesión del backend que va en cada petición ("Authorization: Bearer …"), o '' si no hay
+    sesionBackend() {
+        const sesion = this.conBackend && this.sesion;
+        return (sesion && sesion.sesion) || '';
+    }
+
+    get conector() {
+        if (!this.conectorBackend) this.conectorBackend = new GoogleWorkspaceConnector(CONFIG_GOOGLE);
+        return this.conectorBackend;
+    }
+
+    iniciarBackend() {
+        this.crearDialogoGoogle();
+        this.crearDialogoCuenta();
+        // La app Android recibe la vuelta de Google por semences://sesion y avisa con esta función
+        window.alVolverDeGoogle = () => this.recogerVueltaAndroid();
+        if (this.recogerVueltaWeb() || this.recogerVueltaAndroid()) return;
+        if (!this.sesionBackend()) this.mostrarEntrada();
+        else setTimeout(() => this.refrescarCuenta());
+    }
+
+    // Lleva a la página de Google. Al volver, solo esta app puede canjear el código: tiene el secreto
+    async irAGoogle() {
+        const verificador = aleatorioB64();
+        try { localStorage.setItem(CLAVE_VERIFICADOR, verificador); } catch (e) { /* sin almacenamiento */ }
+        const parametros = new URLSearchParams({ reto: await retoDe(verificador) });
+        if (!window.AndroidApp) parametros.set('vuelta', location.origin + location.pathname);
+        // En la app Android, la dirección externa se abre en Chrome (MainActivity) y vuelve por semences://sesion
+        location.href = `${CONFIG_GOOGLE.api}/api/auth/google/inicio?${parametros}`;
+    }
+
+    // Web: Google vuelve a esta página con #google-codigo=… (o #google-error=…)
+    recogerVueltaWeb() {
+        const fragmento = new URLSearchParams(location.hash.slice(1));
+        const codigo = fragmento.get('google-codigo');
+        const error = fragmento.get('google-error');
+        if (!codigo && !error) return false;
+        history.replaceState(null, '', location.pathname + location.search); // El código no se queda en la barra
+        if (error) this.mostrarEntrada(error);
+        else this.canjearCodigo(codigo);
+        return true;
+    }
+
+    recogerVueltaAndroid() {
+        if (!window.AndroidApp || !window.AndroidApp.tomarVueltaGoogle) return false;
+        let vuelta = null;
+        try { vuelta = JSON.parse(window.AndroidApp.tomarVueltaGoogle() || 'null'); } catch (e) { /* nada pendiente */ }
+        if (!vuelta || (!vuelta.codigo && !vuelta.error)) return false;
+        if (vuelta.error) this.mostrarEntrada(vuelta.error);
+        else this.canjearCodigo(vuelta.codigo);
+        return true;
+    }
+
+    async canjearCodigo(codigo) {
+        let verificador = '';
+        try {
+            verificador = localStorage.getItem(CLAVE_VERIFICADOR) || '';
+            localStorage.removeItem(CLAVE_VERIFICADOR);
+        } catch (e) { /* sin almacenamiento */ }
+        this.mostrarEntrada('Entrando…');
+        const respuesta = this.conector ? await this.conector.backend('/api/auth/canjear', { codigo, verificador }) : null;
+        if (!respuesta) return this.mostrarEntrada('No se pudo conectar con el servidor. Revisa la conexión e inténtalo de nuevo.');
+        if (!respuesta.ok) return this.mostrarEntrada(respuesta.error || 'No se pudo entrar. Inténtalo de nuevo.');
+        this.entrarBackend(respuesta.sesion, respuesta.usuario);
+    }
+
+    entrarBackend(sesion, usuario) {
+        this.guardarSesion({ sesion, ...usuario });
+        this.nombre = usuario.nombre || usuario.email.split('@')[0];
+        if (this.dialogoGoogle.open) this.dialogoGoogle.close();
+        if (window.baseDatos) window.baseDatos.sincronizar();
+    }
+
+    // Datos al día de la persona (teléfono, si Google sigue conectado…)
+    async refrescarCuenta() {
+        const respuesta = this.conector ? await this.conector.backend('/api/yo', null, 'GET') : null;
+        if (respuesta && respuesta.ok) this.guardarSesion({ ...this.sesion, ...respuesta.usuario });
+        return this.sesion;
+    }
+
+    rechazadoBackend(codigo, mensaje) {
+        if (codigo === 'sesion' || codigo === 'acceso') {
+            this.guardarSesion(null);
+            this.pintar();
+            return this.mostrarEntrada(mensaje);
+        }
+        // 'google': la sesión sigue, pero hay que volver a dar permiso a Gmail, Calendar y Drive
+        if (codigo === 'google') {
+            const sesion = this.sesion;
+            if (sesion) this.guardarSesion({ ...sesion, googleConectado: false });
+            if (window.equipo) window.equipo.mostrarAviso(`${mensaje} Menú de módulos › Cuenta.`, 'alerta');
+        }
+    }
+
+    crearDialogoCuenta() {
+        const dialogo = document.createElement('dialog');
+        dialogo.className = 'dialogo';
+        dialogo.setAttribute('aria-labelledby', 'cuenta-titulo');
+        dialogo.innerHTML = `
+            <form class="dialogo-form" method="dialog" novalidate>
+                <h3 id="cuenta-titulo">Tu cuenta</h3>
+                <p class="dialogo-nota cuenta-quien"></p>
+                <p class="dialogo-nota cuenta-google"></p>
+                <button type="button" class="btn-secondary cuenta-reconectar" hidden>Volver a conectar Google</button>
+                <div class="form-group">
+                    <label for="cuenta-telefono">Tu WhatsApp para los avisos del equipo (opcional)</label>
+                    <input id="cuenta-telefono" type="tel" autocomplete="tel" inputmode="tel" placeholder="809 555 1234" aria-describedby="cuenta-error">
+                    <p class="form-error" id="cuenta-error" role="alert" hidden></p>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-texto btn-peligro cuenta-salir">Cerrar sesión</button>
+                    <button type="button" class="btn-secondary cuenta-cancelar">Cancelar</button>
+                    <button type="submit" class="btn-primary">Guardar</button>
+                </div>
+            </form>`;
+        document.body.appendChild(dialogo);
+        this.dialogoCuenta = dialogo;
+        const telefono = dialogo.querySelector('#cuenta-telefono');
+        const error = dialogo.querySelector('#cuenta-error');
+        dialogo.querySelector('.cuenta-cancelar').addEventListener('click', () => dialogo.close());
+        dialogo.querySelector('.cuenta-reconectar').addEventListener('click', () => this.irAGoogle());
+        dialogo.querySelector('.cuenta-salir').addEventListener('click', () => {
+            dialogo.close();
+            this.cerrarSesion();
+        });
+        telefono.addEventListener('input', () => { error.hidden = true; telefono.removeAttribute('aria-invalid'); });
+        dialogo.querySelector('form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const sesion = this.sesion || {};
+            if (telefono.value.trim() === (sesion.telefono || '')) return dialogo.close();
+            const respuesta = this.conector ? await this.conector.backend('/api/accion', { accion: 'telefono', telefono: telefono.value }) : null;
+            if (!respuesta || !respuesta.ok) {
+                error.textContent = (respuesta && respuesta.error) || 'No se pudo guardar. Revisa la conexión.';
+                error.hidden = false;
+                telefono.setAttribute('aria-invalid', 'true');
+                return telefono.focus();
+            }
+            this.guardarSesion({ ...this.sesion, ...respuesta.usuario });
+            dialogo.close();
+            if (window.equipo) window.equipo.mostrarAviso(respuesta.usuario.telefono ? 'Recibirás los avisos del equipo por WhatsApp.' : 'Ya no recibirás avisos por WhatsApp.');
+        });
+    }
+
+    async abrirCuenta() {
+        const pintarCuenta = (sesion) => {
+            const d = this.dialogoCuenta;
+            d.querySelector('.cuenta-quien').textContent = `${sesion.nombre || ''} · ${sesion.email}${sesion.admin ? ' · administrador' : ''}`;
+            d.querySelector('.cuenta-google').textContent = sesion.googleConectado
+                ? 'Google conectado: los correos, eventos, reuniones y reportes salen con tu cuenta.'
+                : 'Google no está conectado: para enviar correos, crear reuniones o reportes, vuelve a conectarlo.';
+            d.querySelector('.cuenta-reconectar').hidden = Boolean(sesion.googleConectado);
+            d.querySelector('#cuenta-telefono').value = sesion.telefono || '';
+            d.querySelector('#cuenta-error').hidden = true;
+        };
+        pintarCuenta(this.sesion || {});
+        if (!this.dialogoCuenta.open) this.dialogoCuenta.showModal();
+        const actual = await this.refrescarCuenta();
+        if (actual && this.dialogoCuenta.open) pintarCuenta(actual);
     }
 
     mostrarEntrada(mensaje = '') {

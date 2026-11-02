@@ -1,0 +1,26 @@
+{
+  "name": "semences-crm-servidor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Backend de Semences del Caribe: base de datos del CRM (MySQL), inicio de sesión con Google Workspace, Gmail, Calendar, Meet, reportes PDF desde Docs y avisos por Google Chat y WhatsApp.",
+  "type": "module",
+  "main": "app.js",
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "start": "node app.js",
+    "test": "node --test --test-concurrency=1 pruebas/*.test.js",
+    "equipo": "node herramientas/equipo.js",
+    "clave": "node herramientas/clave.js"
+  },
+  "dependencies": {
+    "@googleapis/calendar": "^20.1.0",
+    "@googleapis/docs": "^14.1.1",
+    "@googleapis/drive": "^27.0.0",
+    "@googleapis/gmail": "^22.0.2",
+    "express": "^5.3.0",
+    "google-auth-library": "^11.3.2",
+    "mysql2": "^3.24.6"
+  }
+}

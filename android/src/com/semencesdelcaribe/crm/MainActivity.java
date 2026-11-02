@@ -19,6 +19,9 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -50,6 +53,8 @@ public class MainActivity extends Activity {
     }
 
     private WebView web;
+    // Vuelta de Google aún no recogida por la página (JSON { codigo } o { error }), o null
+    private String vueltaGoogle;
 
     @Override
     protected void onCreate(Bundle estado) {
@@ -104,8 +109,32 @@ public class MainActivity extends Activity {
         });
 
         setContentView(web);
+        guardarVueltaGoogle(getIntent());
         if (estado != null) web.restoreState(estado);
         else web.loadUrl(INICIO);
+    }
+
+    // Google vuelve por semences://sesion: con la app ya abierta llega aquí (launchMode singleTask)
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (guardarVueltaGoogle(intent)) web.evaluateJavascript("window.alVolverDeGoogle && window.alVolverDeGoogle()", null);
+    }
+
+    // Guarda el código (o el error) de la vuelta de Google; la página lo recoge con tomarVueltaGoogle()
+    private boolean guardarVueltaGoogle(Intent intent) {
+        Uri uri = intent == null ? null : intent.getData();
+        if (uri == null || !"semences".equals(uri.getScheme()) || !"sesion".equals(uri.getHost())) return false;
+        try {
+            JSONObject vuelta = new JSONObject();
+            if (uri.getQueryParameter("codigo") != null) vuelta.put("codigo", uri.getQueryParameter("codigo"));
+            if (uri.getQueryParameter("error") != null) vuelta.put("error", uri.getQueryParameter("error"));
+            vueltaGoogle = vuelta.toString();
+        } catch (JSONException e) {
+            return false;
+        }
+        intent.setData(null); // Que no se vuelva a usar al girar la pantalla
+        return true;
     }
 
     @Override
@@ -136,6 +165,14 @@ public class MainActivity extends Activity {
 
     /** Lo que la página puede pedirle a Android (window.AndroidApp). */
     private class Puente {
+        // La vuelta pendiente del inicio de sesión con Google (una sola vez): JSON o "null"
+        @JavascriptInterface
+        public String tomarVueltaGoogle() {
+            String vuelta = vueltaGoogle;
+            vueltaGoogle = null;
+            return vuelta == null ? "null" : vuelta;
+        }
+
         // Datos para el widget de la pantalla de inicio (JSON con tareas, alertas, parcelas, detalle y hora)
         @JavascriptInterface
         public void actualizarWidget(String json) {

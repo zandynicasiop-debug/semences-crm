@@ -4,7 +4,8 @@
  * Los precios salen de la propia ficha (la lista que el equipo edita y comparte), una línea por producto:
  *   - Semilla de tomate saladette F1: $45 / sobre
  * Las líneas sin precio (p. ej. "Asesoría técnica: incluida") no se cotizan.
- * La cotización se descarga en PDF con jsPDF.
+ * La cotización se descarga en PDF con jsPDF. Con el backend (CONFIG_GOOGLE.api) también se puede enviar
+ * por correo desde el Gmail de quien la prepara, con el PDF adjunto.
  */
 const PATRON_PRECIO = /^\s*[-•*]?\s*(.+?)\s*:\s*((?:RD|US)?\$)\s*([\d.,]+)\s*(?:\/\s*(.+?))?\s*$/i;
 
@@ -57,7 +58,8 @@ class Cotizador {
             </form>
             <ul class="cotizador-lineas" aria-label="Productos de la cotización"></ul>
             <p class="cotizador-total" aria-live="polite"></p>
-            <button type="button" class="btn-primary cotizador-pdf">Descargar cotización (PDF)</button>`;
+            <button type="button" class="btn-primary cotizador-pdf">Descargar cotización (PDF)</button>
+            <button type="button" class="btn-secondary cotizador-correo" hidden>Enviar por correo</button>`;
 
         const form = contenedor.querySelector('form');
         const vacio = contenedor.querySelector('.mapa-extra-vacio');
@@ -67,10 +69,13 @@ class Cotizador {
         this.listaLineas = contenedor.querySelector('.cotizador-lineas');
         this.total = contenedor.querySelector('.cotizador-total');
         this.botonPdf = contenedor.querySelector('.cotizador-pdf');
+        this.botonCorreo = contenedor.querySelector('.cotizador-correo');
+        this.conector = window.baseDatos && window.baseDatos.conector;
+        this.botonCorreo.hidden = !(this.conector && this.conector.conBackend);
 
         if (!this.precios.length) {
             vacio.hidden = false;
-            [form, this.listaLineas, this.total, this.botonPdf].forEach(el => { el.hidden = true; });
+            [form, this.listaLineas, this.total, this.botonPdf, this.botonCorreo].forEach(el => { el.hidden = true; });
             return;
         }
 
@@ -100,6 +105,7 @@ class Cotizador {
             this.agregar();
         });
         this.botonPdf.addEventListener('click', () => this.descargar());
+        this.botonCorreo.addEventListener('click', () => this.enviarPorCorreo());
         this.pintarLineas();
     }
 
@@ -163,18 +169,51 @@ class Cotizador {
         this.listaLineas.hidden = !filas.length;
         this.total.textContent = filas.length ? `Total: ${totales.join(' + ')}` : 'Añade productos para cotizar.';
         this.botonPdf.disabled = !filas.length;
+        this.botonCorreo.disabled = !filas.length;
     }
 
     descargar() {
+        const pdf = this.crearPdf();
+        if (!pdf) return;
+        // En la app Android no hay descargas del navegador: el PDF se entrega a Android, que lo guarda en Descargas
+        if (window.AndroidApp) window.AndroidApp.guardarArchivo(pdf.archivo, pdf.doc.output('datauristring').split(',')[1], 'application/pdf');
+        else pdf.doc.save(pdf.archivo);
+    }
+
+    // Envía el PDF desde el Gmail de quien usa la app (backend); el destinatario se escribe en el momento
+    async enviarPorCorreo() {
+        const pdf = this.crearPdf();
+        if (!pdf) return;
+        const para = window.prompt(`¿A qué correo envías la cotización de ${pdf.cliente}? (varios, separados por comas)`, this.ultimoCorreo || '');
+        if (!para || !para.trim()) return;
+        this.ultimoCorreo = para.trim();
+        const aviso = (texto, tipo) => { if (window.equipo) window.equipo.mostrarAviso(texto, tipo); };
+        this.botonCorreo.disabled = true;
+        this.botonCorreo.textContent = 'Enviando…';
+        const preparo = window.responsable ? window.responsable.nombre : '';
+        const respuesta = await this.conector.enviarCorreo({
+            para: this.ultimoCorreo,
+            asunto: `Cotización de Semences del Caribe · ${pdf.cliente}`,
+            texto: `Hola:\n\nAdjunto la cotización solicitada (${pdf.total}).\n\nQuedamos a su disposición.\n${preparo ? `${preparo}\n` : ''}Semences del Caribe`,
+            adjunto: { nombre: pdf.archivo, tipo: 'application/pdf', base64: pdf.doc.output('datauristring').split(',')[1] }
+        });
+        this.botonCorreo.disabled = false;
+        this.botonCorreo.textContent = 'Enviar por correo';
+        if (respuesta && respuesta.ok) aviso(`Cotización enviada a ${this.ultimoCorreo}.`);
+        else aviso((respuesta && respuesta.error) || 'No se pudo enviar el correo. Revisa la conexión.', 'error');
+    }
+
+    // El PDF de la cotización ({ doc, archivo, cliente, total }), o null si falta algo
+    crearPdf() {
         const cliente = this.inputCliente.value.trim();
         if (!cliente) {
             this.error(this.inputCliente, 'Escribe para quién es la cotización.');
             this.inputCliente.focus();
-            return;
+            return null;
         }
         if (!window.jspdf) {
             window.alert('No se pudo cargar el generador de PDF. Revisa la conexión y recarga la página.');
-            return;
+            return null;
         }
         const { filas, totales } = this.calcular();
         const hoy = new Date();
@@ -252,9 +291,7 @@ class Cotizador {
         doc.text(pie, margen, alto - 18);
 
         const archivo = `Cotizacion_${cliente.replace(/[^\p{L}\p{N}]+/gu, '_')}_${hoyISO()}.pdf`;
-        // En la app Android no hay descargas del navegador: el PDF se entrega a Android, que lo guarda en Descargas
-        if (window.AndroidApp) window.AndroidApp.guardarArchivo(archivo, doc.output('datauristring').split(',')[1], 'application/pdf');
-        else doc.save(archivo);
+        return { doc, archivo, cliente, total: totales.join(' + ') };
     }
 }
 

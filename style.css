@@ -2353,3 +2353,10 @@ body.ventana-flotante {
     color: var(--ui-texto-suave);
     font-size: var(--sdc-texto-md);
 }
+
+/* Enlace al reporte de Drive junto a los atajos del expediente: se ve como un botón */
+.enlace-reporte {
+    display: inline-flex;
+    align-items: center;
+    text-decoration: none;
+}

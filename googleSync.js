@@ -1,12 +1,14 @@
 /**
  * Conector de Integración con Google Workspace y notificaciones del navegador.
- * Sincroniza telemetría con Google Sheets, agenda en Calendar, crea reuniones en Meet
- * y envía avisos a Google Chat a través de un Web App de Google Apps Script.
+ * Sincroniza los datos del equipo, agenda en Calendar, crea reuniones en Meet y avisa por Google Chat.
  *
- * El Web App (apps-script/Code.gs) recibe un POST con el cuerpo en JSON, la acción en el campo
- * "accion" ('sheets', 'chat', 'calendar' o 'meet') y la clave compartida en "token".
+ * Dos destinos posibles (el primero que esté configurado):
+ * - api: el backend Node (servidor/), con base MySQL. Cada envío va a POST <api>/api/accion con la
+ *   sesión de la persona ("Authorization: Bearer …"). Añade correo con Gmail, reportes PDF y avisos
+ *   por WhatsApp. Ver servidor/LEEME.md.
+ * - url: el Web App de Apps Script de antes (apps-script/Code.gs), con la clave compartida "token".
  *
- * Sin scriptUrl configurada el conector no envía nada: la app funciona igual, sin integraciones.
+ * Sin ninguno de los dos el conector no envía nada: la app funciona igual, sin integraciones.
  */
 /**
  * Configuración de la integración. Con url vacía no se envía nada fuera del navegador.
@@ -16,6 +18,9 @@
  * puede verlo: frena envíos al azar; la protección de verdad es el inicio de sesión con Google.
  */
 const CONFIG_GOOGLE = {
+    // Dirección del backend Node, sin barra final (p. ej. https://api.semillasdata.com). Al publicar, GitHub la
+    // pone desde el secreto SEMENCES_API. Con ella se ignoran url y token y se entra con Google siempre.
+    api: '',
     url: '', // URL del Web App de Apps Script (termina en /exec)
     token: '',
     // Inicio de sesión con Google: ID de cliente OAuth (tipo "Aplicación web") de Google Cloud, termina en
@@ -28,13 +33,45 @@ const CONFIG_GOOGLE = {
 
 class GoogleWorkspaceConnector {
     constructor(config = CONFIG_GOOGLE) {
+        this.api = String(config.api || '').replace(/\/+$/, ''); // Backend Node: si está, manda sobre el Apps Script
         this.scriptUrl = config.url || config.scriptUrl || ''; // URL del Web App desplegado en Google Apps Script
         this.token = config.token || '';         // Clave compartida con CONFIG.TOKEN de Code.gs
         this.icono = config.icono || '';         // Imagen opcional para las notificaciones del navegador
     }
 
     get activo() {
-        return Boolean(this.scriptUrl);
+        return Boolean(this.api || this.scriptUrl);
+    }
+
+    get conBackend() {
+        return Boolean(this.api);
+    }
+
+    /**
+     * Petición al backend Node con la sesión de la persona. Devuelve el JSON de la respuesta (también
+     * los errores: { ok: false, codigo, error }), o null si no hubo conexión.
+     * codigo 'sesion' o 'acceso': hay que volver a entrar; 'google': hay que volver a conectar la cuenta.
+     */
+    async backend(ruta, cuerpo, metodo = 'POST') {
+        const cabeceras = { 'Content-Type': 'application/json' };
+        const sesion = window.responsable ? window.responsable.sesionBackend() : '';
+        if (sesion) cabeceras.Authorization = `Bearer ${sesion}`;
+        try {
+            const respuesta = await fetch(this.api + ruta, {
+                method: metodo,
+                mode: 'cors',
+                headers: cabeceras,
+                body: metodo === 'GET' ? undefined : JSON.stringify(cuerpo || {})
+            });
+            const datos = await respuesta.json();
+            if (datos && datos.codigo && ['sesion', 'acceso', 'google'].includes(datos.codigo) && window.responsable) {
+                window.responsable.rechazado(datos.codigo, datos.error);
+            }
+            return datos;
+        } catch (error) {
+            console.error(`Backend (${ruta}):`, error);
+            return null;
+        }
     }
 
     /**
@@ -44,6 +81,13 @@ class GoogleWorkspaceConnector {
      */
     async enviar(accion, datos, esperarRespuesta = false) {
         if (!this.activo) return null;
+        if (this.conBackend) {
+            // Sin sesión no se envía nada: la app pide entrar con Google y sincroniza al volver
+            if (!(window.responsable && window.responsable.sesionBackend())) return null;
+            const respuesta = await this.backend('/api/accion', { accion, ...datos });
+            if (!esperarRespuesta && respuesta && respuesta.ok === false) console.warn(`Backend (${accion}): ${respuesta.error}`);
+            return esperarRespuesta ? respuesta : null;
+        }
         try {
             const respuesta = await fetch(this.scriptUrl, {
                 method: 'POST',
@@ -85,6 +129,21 @@ class GoogleWorkspaceConnector {
      */
     sincronizarDatos(cambios) {
         return this.enviar('sincronizar', cambios, true);
+    }
+
+    // Aviso a todo el equipo: con el backend, Google Chat y WhatsApp a la vez; con el Apps Script, solo Chat
+    avisarEquipo(mensaje) {
+        return this.conBackend ? this.enviar('avisar', { mensaje }) : this.enviarGoogleChat(mensaje);
+    }
+
+    // Solo con el backend: correo desde el Gmail de quien usa la app ({ para, asunto, texto, adjunto })
+    enviarCorreo(correo) {
+        return this.conBackend ? this.enviar('correo', correo, true) : Promise.resolve(null);
+    }
+
+    // Solo con el backend: reporte PDF en Drive a partir de la plantilla de Docs; devuelve { ok, enlace }
+    crearReporte(titulo, campos) {
+        return this.conBackend ? this.enviar('reporte', { titulo, campos }, true) : Promise.resolve(null);
     }
 
     // 4. Sala de emergencia técnica en Google Meet; devuelve el enlace o '' si no se pudo crear
