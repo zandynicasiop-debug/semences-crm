@@ -11,7 +11,7 @@
  * la base (resumen_fecha). Si el servidor estaba dormido a esa hora (Passenger), sale en cuanto despierta,
  * hasta 5 horas después; si no hay nada que contar, no se envía.
  */
-import { ambitoDe, filtrarDatos } from './permisos.js';
+import { ambitoDe, filtrarDatos, PAISES, CASAS } from './permisos.js';
 import { listarTodo } from './db.js';
 import { tokenDe, actualizarToken, destinosDe } from './cuentas.js';
 import { encolar } from './cola.js';
@@ -51,17 +51,16 @@ function recortar(lineas, resto) {
  */
 export function componerResumen({ persona, ambito, datos, eventos = [], sinLeer = 0, hoy, zona }) {
     const secciones = [];
+    const seccion = (clave, titulo, lineas) => secciones.push({ clave, titulo, lineas });
     const yo = [normal(persona.nombre), normal(persona.email)].filter(Boolean);
     const esMio = (texto) => yo.includes(normal(texto));
 
     if (eventos.length) {
-        secciones.push({
-            titulo: '📅 Tu agenda de hoy',
-            lineas: recortar(eventos.map(e => {
+        seccion('agenda', '📅 Tu agenda de hoy',
+            recortar(eventos.map(e => {
                 const hora = e.todoElDia ? 'Todo el día' : new Date(e.inicio).toLocaleTimeString('es-DO', { timeZone: zona, hour: 'numeric', minute: '2-digit' });
                 return `${hora} · ${e.titulo}${e.meet ? ` (Meet: ${e.meet})` : ''}`;
-            }), 'eventos')
-        });
+            }), 'eventos'));
     }
 
     if (ambito.modulos.includes('clientes')) {
@@ -70,10 +69,8 @@ export function componerResumen({ persona, ambito, datos, eventos = [], sinLeer 
             .filter(c => c.seguimiento && c.seguimiento <= hoy && (!c.asignado || esMio(c.asignado)))
             .sort((a, b) => String(a.seguimiento).localeCompare(String(b.seguimiento)));
         if (seguimientos.length) {
-            secciones.push({
-                titulo: '🤝 Seguimientos de clientes',
-                lineas: recortar(seguimientos.map(c => `${c.nombre} (${c.seguimiento === hoy ? 'hoy' : `atrasado desde el ${fechaCorta(c.seguimiento)}`})`), 'clientes')
-            });
+            seccion('seguimientos', '🤝 Seguimientos de clientes',
+                recortar(seguimientos.map(c => `${c.nombre} (${c.seguimiento === hoy ? 'hoy' : `atrasado desde el ${fechaCorta(c.seguimiento)}`})`), 'clientes'));
         }
     }
 
@@ -81,35 +78,67 @@ export function componerResumen({ persona, ambito, datos, eventos = [], sinLeer 
         .filter(t => !t.hecha && esMio(t.para) && t.vence && t.vence <= hoy)
         .sort((a, b) => String(a.vence).localeCompare(String(b.vence)));
     if (tareas.length) {
-        secciones.push({
-            titulo: '📋 Tus tareas',
-            lineas: recortar(tareas.map(t => `${t.titulo} (${t.vence === hoy ? 'vence hoy' : `vencida desde el ${fechaCorta(t.vence)}`}${t.prioridad === 'Alta' ? ', prioridad alta' : ''})`), 'tareas')
-        });
+        seccion('tareas', '📋 Tus tareas',
+            recortar(tareas.map(t => `${t.titulo} (${t.vence === hoy ? 'vence hoy' : `vencida desde el ${fechaCorta(t.vence)}`}${t.prioridad === 'Alta' ? ', prioridad alta' : ''})`), 'tareas'));
     }
 
     if (ambito.modulos.includes('agronomia')) {
         const procesos = (datos.agronomia || []).filter(p => p.fechaInicio === hoy || p.fechaFin === hoy);
         if (procesos.length) {
-            secciones.push({
-                titulo: '🌱 Procesos agronómicos de hoy',
-                lineas: recortar(procesos.map(p => `${p.proceso} · ${p.cliente || 'sin cliente'} · ${p.lote}${p.fechaFin === hoy ? ' (termina hoy)' : ' (empieza hoy)'}`), 'procesos')
-            });
+            seccion('procesos', '🌱 Procesos agronómicos de hoy',
+                recortar(procesos.map(p => `${p.proceso} · ${p.cliente || 'sin cliente'} · ${p.lote}${p.fechaFin === hoy ? ' (termina hoy)' : ' (empieza hoy)'}`), 'procesos'));
         }
     }
 
-    if (sinLeer) secciones.push({ titulo: '💬 Tablero del equipo', lineas: [`${sinLeer} mensaje${sinLeer === 1 ? '' : 's'} sin leer`] });
+    if (sinLeer) seccion('mensajes', '💬 Tablero del equipo', [`${sinLeer} mensaje${sinLeer === 1 ? '' : 's'} sin leer`]);
+
+    // Administrativos y Master: además, el consolidado del equipo dentro de su ámbito (solo cifras)
+    if (ambito.cargo === 'administrativo' || ambito.cargo === 'master') {
+        const atrasados = (datos.clientes || []).filter(c => c.seguimiento && c.seguimiento < hoy).length;
+        const vencidas = (datos.tareas || []).filter(t => !t.hecha && t.vence && t.vence < hoy).length;
+        const procesosHoy = (datos.agronomia || []).filter(p => p.fechaInicio === hoy || p.fechaFin === hoy).length;
+        const sinAsignar = (datos.clientes || []).filter(c => !c.asignado).length;
+        const cifras = [
+            atrasados && `${atrasados} seguimiento${atrasados === 1 ? '' : 's'} de clientes atrasado${atrasados === 1 ? '' : 's'}`,
+            vencidas && `${vencidas} tarea${vencidas === 1 ? '' : 's'} vencida${vencidas === 1 ? '' : 's'} en el equipo`,
+            procesosHoy && `${procesosHoy} proceso${procesosHoy === 1 ? '' : 's'} agronómico${procesosHoy === 1 ? '' : 's'} hoy`,
+            sinAsignar && `${sinAsignar} cliente${sinAsignar === 1 ? '' : 's'} sin asignar`
+        ].filter(Boolean);
+        if (cifras.length) seccion('equipo', '📊 Consolidado del equipo', cifras);
+    }
     return secciones;
 }
 
-// Los textos para cada canal
-export function textosResumen(secciones, persona, hoy) {
-    const saludo = `☀️ Buenos días, ${String(persona.nombre || '').split(' ')[0] || persona.email}. Soy Borja, tu resumen de hoy`;
+const BANDERA = { RD: '🇩🇴 RD', VE: '🇻🇪 Venezuela' };
+const NOMBRE_CARGO = { vendedor: 'Vendedor', tecnico: 'Técnico', administrativo: 'Administrativo', master: 'Master' };
+
+// "Vendedor · 🇩🇴 RD · Gautier Semences, Fitó" (o "todas las casas" si tiene las cuatro)
+export function textoAlcance(ambito) {
+    const paises = ambito.paises.length === PAISES.length ? 'RD y Venezuela' : ambito.paises.map(p => BANDERA[p] || p).join(', ');
+    const casas = ambito.casas.length === CASAS.length ? 'todas las casas' : ambito.casas.join(', ');
+    return [NOMBRE_CARGO[ambito.cargo], paises, casas].filter(Boolean).join(' · ');
+}
+
+/**
+ * Los textos para cada canal. Para WhatsApp, si hay plantilla de resumen (WHATSAPP_PLANTILLA_RESUMEN),
+ * van 7 variables para su cuerpo de varias líneas: nombre, alcance, agenda, seguimientos, tareas,
+ * procesos y "equipo y mensajes". Meta no deja saltos de línea dentro de una variable: los saltos los pone
+ * la plantilla y cada variable es una línea. Sin esa plantilla, todo en una línea con la del equipo.
+ */
+export function textosResumen(secciones, persona, hoy, ambito) {
+    const nombre = String(persona.nombre || '').split(' ')[0] || persona.email;
+    const saludo = `☀️ Buenos días, ${nombre}. Soy Borja, tu resumen de hoy`;
+    const alcance = ambito ? textoAlcance(ambito) : '';
     const completo = secciones.map(s => `${s.titulo}\n${s.lineas.map(l => `• ${l}`).join('\n')}`).join('\n\n');
+    const de = (...claves) => secciones.filter(s => claves.includes(s.clave)).flatMap(s => s.lineas).join('; ').slice(0, 900) || 'Sin pendientes';
     return {
-        // WhatsApp (variable de plantilla): una sola línea
-        whatsapp: `${saludo}: ${secciones.map(s => `${s.titulo}: ${s.lineas.join('; ')}`).join(' · ')}`.slice(0, 1000),
+        whatsapp: `${saludo}${alcance ? ` (${alcance})` : ''}: ${secciones.map(s => `${s.titulo}: ${s.lineas.join('; ')}`).join(' · ')}`.slice(0, 1000),
+        parametros: [nombre, alcance || '—', de('agenda'), de('seguimientos'), de('tareas'), de('procesos'), de('equipo', 'mensajes')],
         push: `${saludo}\n${secciones.map(s => `${s.titulo}: ${s.lineas.length} · ${s.lineas[0]}`).join('\n')}`,
-        correo: { asunto: `☀️ Tu resumen de hoy (${fechaCorta(hoy)}) · Semences del Caribe`, texto: `${saludo}.\n\n${completo}\n\nBorja · Semences del Caribe` }
+        correo: {
+            asunto: `☀️ Tu resumen de hoy (${fechaCorta(hoy)}) · Semences del Caribe`,
+            texto: `${saludo}.${alcance ? `\nTu alcance: ${alcance}.` : ''}\n\n${completo}\n\nBorja · Semences del Caribe`
+        }
     };
 }
 
@@ -129,10 +158,14 @@ async function resumirPersona(contexto, persona, datosTodos, hoy) {
     const secciones = componerResumen({ persona, ambito, datos: filtrarDatos(datosTodos, ambito), eventos, sinLeer: Number(sinLeer.n), hoy, zona: config.zonaHoraria });
     if (!secciones.length) return null;
 
-    const textos = textosResumen(secciones, persona, hoy);
+    const textos = textosResumen(secciones, persona, hoy, ambito);
     const { huellas, telefonos } = await destinosDe(pool, [persona.id]);
     const canales = [];
-    if (avisos.whatsappActivo && telefonos.length) canales.push(encolar(pool, 'whatsapp', telefonos, textos.whatsapp).then(() => 'whatsapp'));
+    if (avisos.whatsappActivo && telefonos.length) {
+        // Con plantilla de resumen: varias líneas (7 variables); si no, una línea con la plantilla del equipo
+        const plantilla = config.whatsapp.plantillaResumen;
+        canales.push(encolar(pool, 'whatsapp', telefonos, textos.whatsapp, plantilla || null, plantilla ? textos.parametros : null).then(() => 'whatsapp'));
+    }
     if (avisos.pushActivo && huellas.length) canales.push(encolar(pool, 'push', huellas, textos.push).then(() => 'push'));
     if (!canales.length && token) {
         // Ni WhatsApp ni push: por correo, de sí misma a sí misma

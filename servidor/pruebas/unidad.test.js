@@ -126,9 +126,23 @@ test('resumen: horas locales, secciones según el cargo y textos para cada canal
     assert.equal(tecnico[1].lineas[0], 'Trasplante · Finca Hoy · L1 (empieza hoy)');
     assert.deepEqual(componerResumen({ persona, ambito: vendedor, datos: {}, hoy: '2026-11-03', zona: 'America/Santo_Domingo' }), []);
 
-    const textos = textosResumen(s, persona, '2026-11-03');
+    const ambitoLuis = { cargo: 'vendedor', paises: ['RD'], casas: ['Gautier Semences', 'Fitó'], modulos: vendedor.modulos };
+    const textos = textosResumen(s, persona, '2026-11-03', ambitoLuis);
     assert.ok(!textos.whatsapp.includes('\n') && textos.whatsapp.length <= 1000);
-    assert.match(textos.whatsapp, /^☀️ Buenos días, Luis\. Soy Borja/);
+    assert.match(textos.whatsapp, /^☀️ Buenos días, Luis\. Soy Borja, tu resumen de hoy \(Vendedor · 🇩🇴 RD · Gautier Semences, Fitó\)/);
+    // Las 7 variables de la plantilla de varias líneas: cada una en una sola línea; lo vacío, "Sin pendientes"
+    assert.equal(textos.parametros.length, 7);
+    assert.deepEqual(textos.parametros.slice(0, 2), ['Luis', 'Vendedor · 🇩🇴 RD · Gautier Semences, Fitó']);
+    assert.equal(textos.parametros[3], 'Finca Atrasada (atrasado desde el 30/10); Finca Hoy (hoy)');
+    assert.equal(textos.parametros[5], 'Sin pendientes');
+    assert.ok(textos.parametros.every(p => !p.includes('\n')));
+    assert.match(textos.correo.texto, /Tu alcance: Vendedor · 🇩🇴 RD · Gautier Semences, Fitó\./);
     assert.match(textos.correo.texto, /• Finca Hoy \(hoy\)/);
     assert.equal(textos.correo.asunto, '☀️ Tu resumen de hoy (3/11) · Semences del Caribe');
+
+    // Administrativo: además, las cifras del equipo en su ámbito
+    const admin = componerResumen({ persona: { nombre: 'Ana', email: 'ana@x.com' }, ambito: { cargo: 'administrativo', modulos: ['clientes', 'agronomia', 'tareas'] }, datos, hoy: '2026-11-03', zona: 'America/Santo_Domingo' });
+    assert.deepEqual(admin.at(-1), { clave: 'equipo', titulo: '📊 Consolidado del equipo', lineas: ['1 seguimiento de clientes atrasado', '1 tarea vencida en el equipo', '1 proceso agronómico hoy', '3 clientes sin asignar'] });
+    const { textoAlcance } = await import('../src/resumen.js');
+    assert.equal(textoAlcance({ cargo: 'master', paises: ['RD', 'VE'], casas: ['Gautier Semences', 'Hexagon Seeds', 'Genome Seeds', 'Fitó'] }), 'Master · RD y Venezuela · todas las casas');
 });

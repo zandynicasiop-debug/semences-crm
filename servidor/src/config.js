@@ -66,6 +66,8 @@ export function leerConfig(entorno = process.env) {
             plantilla: entorno.WHATSAPP_PLANTILLA || '',
             // Opcional: plantilla para avisar a un CLIENTE de que le llegó un correo o una invitación
             plantillaClientes: entorno.WHATSAPP_PLANTILLA_CLIENTES || '',
+            // Opcional: plantilla del resumen de la mañana, de varias líneas, con 7 variables (ver LEEME.md)
+            plantillaResumen: entorno.WHATSAPP_PLANTILLA_RESUMEN || '',
             idioma: entorno.WHATSAPP_IDIOMA || 'es',
             version: entorno.WHATSAPP_VERSION || 'v21.0'
         }

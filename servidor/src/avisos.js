@@ -57,10 +57,12 @@ export function crearAvisos(config, hacerFetch = fetch, enviarPush = webpush.sen
 
         // Un mensaje de plantilla a un teléfono, en un solo intento: los reintentos los lleva la cola (cola.js).
         // plantilla: otra plantilla aprobada (p. ej. la de clientes); por defecto, la del equipo
+        // mensaje: un texto (una variable) o una lista de textos (una variable por cada uno, en orden)
         async whatsappUno(telefono, mensaje, plantilla) {
             if (!whatsappActivo) throw new Error('WhatsApp no está configurado (WHATSAPP_TOKEN, WHATSAPP_TELEFONO_ID, WHATSAPP_PLANTILLA)');
-            const texto = textoWhatsapp(mensaje);
-            if (!texto) throw new Error('Mensaje vacío');
+            // Meta rechaza variables vacías: lo vacío va como "—"
+            const variables = (Array.isArray(mensaje) ? mensaje : [mensaje]).map(v => textoWhatsapp(v) || '—');
+            if (!Array.isArray(mensaje) && variables[0] === '—') throw new Error('Mensaje vacío');
             await enviarJson(`https://graph.facebook.com/${whatsapp.version}/${whatsapp.telefonoId}/messages`, {
                 messaging_product: 'whatsapp',
                 to: telefono,
@@ -68,7 +70,7 @@ export function crearAvisos(config, hacerFetch = fetch, enviarPush = webpush.sen
                 template: {
                     name: plantilla || whatsapp.plantilla,
                     language: { code: whatsapp.idioma },
-                    components: [{ type: 'body', parameters: [{ type: 'text', text: texto }] }]
+                    components: [{ type: 'body', parameters: variables.map(text => ({ type: 'text', text })) }]
                 }
             }, { Authorization: `Bearer ${whatsapp.token}` }, hacerFetch);
         }

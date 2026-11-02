@@ -90,6 +90,7 @@ const ESQUEMA = [
         canal ENUM('whatsapp', 'push') NOT NULL DEFAULT 'whatsapp',
         destino VARCHAR(64) NOT NULL,
         plantilla VARCHAR(100) NULL,
+        parametros TEXT NULL,
         texto VARCHAR(1000) NOT NULL,
         estado ENUM('pendiente', 'enviando', 'enviado', 'fallido') NOT NULL DEFAULT 'pendiente',
         intentos TINYINT UNSIGNED NOT NULL DEFAULT 0,

@@ -150,6 +150,23 @@ Cada mañana a las 7:00 (hora de Santo Domingo, que es también la de Caracas; s
 - los procesos agronómicos que empiezan o terminan hoy (técnicos y administrativos);
 - sus mensajes sin leer del tablero.
 
+Lleva también su **alcance** (p. ej. *Vendedor · 🇩🇴 RD · Gautier Semences*), y a los administrativos y Master se les añade el **consolidado del equipo** en su ámbito: seguimientos atrasados, tareas vencidas, procesos de hoy y clientes sin asignar (solo cifras).
+
+**WhatsApp en varias líneas (opcional).** Meta no permite saltos de línea dentro de una variable de plantilla, así que el resumen va en una línea con la plantilla del equipo. Para que llegue como tarjeta de varias líneas, crea en WhatsApp Manager una plantilla de categoría **Utilidad** con este cuerpo (los saltos de línea los pone la plantilla; cada variable es una línea) y pon su nombre en `WHATSAPP_PLANTILLA_RESUMEN`:
+
+```
+☀️ Buenos días, {{1}}. Soy Borja, tu resumen de hoy.
+🛡️ {{2}}
+
+📅 Agenda: {{3}}
+🤝 Seguimientos: {{4}}
+📋 Tareas: {{5}}
+🌱 Procesos: {{6}}
+📊 Equipo y mensajes: {{7}}
+```
+
+Lo que no aplica a la persona llega como "Sin pendientes".
+
 Es privado: se arma con el mismo filtro de cargo, país y casa comercial que la app, y le llega solo a esa persona por WhatsApp y push (si no tiene ninguno, por correo a sí misma desde su Gmail). Si no hay nada que contar, no se envía. Sale una vez al día por persona aunque haya varios procesos del servidor. Si a las 7:00 el servidor estaba dormido (Passenger), sale en cuanto despierta, hasta las 12:00; el Cron de cPanel que llama a `/api/salud` cada 5 minutos lo mantiene despierto. Cada quien puede dejar de recibirlo en menú › **Cuenta**.
 
 ## Equipo y acceso

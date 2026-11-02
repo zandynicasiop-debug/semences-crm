@@ -674,16 +674,25 @@ for (const base of BASES) {
             // La jefa, sin WhatsApp ni push: el resumen le tiene que llegar por correo
             await pool.query("UPDATE usuarios SET telefono = '' WHERE email = 'jefa@gmail.com'");
             await pool.query("DELETE p FROM push_suscripciones p JOIN usuarios u ON u.id = p.usuario_id WHERE u.email = 'jefa@gmail.com'");
-            const ctx = { pool, config: { ...config, resumenHora: 7 }, google, avisos, registrar: { error: () => {} } };
+            const ctx = { pool, config: { ...config, resumenHora: 7, whatsapp: { ...config.whatsapp, plantillaResumen: 'resumen_diario' } }, google, avisos, registrar: { error: () => {} } };
             // 6:59 en Santo Domingo (10:59 UTC): aún no
             assert.equal((await enviarResumenes(ctx, new Date('2026-11-03T10:59:00Z'))).enviados, 0);
             // 7:05
             const r = await enviarResumenes(ctx, new Date('2026-11-03T11:05:00Z'));
             const luis = r.personas.find(p => p.email === 'luis@semillasdata.com');
             assert.equal(luis.canal, 'whatsapp'); // Tiene WhatsApp
-            const [[wa]] = await pool.query("SELECT texto FROM cola_avisos WHERE destino = '18295550202'");
+            const [[wa]] = await pool.query("SELECT texto, plantilla, parametros FROM cola_avisos WHERE destino = '18295550202'");
             assert.match(wa.texto, /Soy Borja.*Finca RD Gautier \(hoy\).*Llevar muestras \(vence hoy, prioridad alta\)/);
             assert.ok(!wa.texto.includes('Finca VE Gautier')); // Venezuela no es de su ámbito
+            // Con la plantilla de resumen, a Meta le llegan sus 7 variables
+            assert.equal(wa.plantilla, 'resumen_diario');
+            assert.deepEqual(JSON.parse(wa.parametros).slice(0, 4), ['Luis', 'Vendedor · 🇩🇴 RD · Gautier Semences', 'Sin pendientes', 'Finca RD Gautier (hoy)']);
+            peticionesMeta.length = 0;
+            await repasar(pool, avisos);
+            const plantilla = peticionesMeta.find(p => p.cuerpo.to === '18295550202').cuerpo.template;
+            assert.equal(plantilla.name, 'resumen_diario');
+            assert.equal(plantilla.components[0].parameters.length, 7);
+            assert.equal(plantilla.components[0].parameters[4].text, 'Llevar muestras (vence hoy, prioridad alta)');
             // La jefa: por correo, a sí misma, con su agenda de Google Calendar
             assert.deepEqual(r.personas.find(p => p.email === 'jefa@gmail.com'), { email: 'jefa@gmail.com', canal: 'correo' });
             const correo = Buffer.from(google.llamadas.filter(l => l.tipo === 'correo').at(-1).crudo, 'base64url').toString();

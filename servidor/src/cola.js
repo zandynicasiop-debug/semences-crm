@@ -20,10 +20,12 @@ const LOTE = 10;              // Mensajes por repaso (Meta admite muchos más; a
 const ESPERA_BASE_S = 30;
 const BLOQUEO_MIN = 5;        // Lo que lleva tanto "enviando" se da por perdido (el proceso se cayó) y se repite
 
-export async function encolar(pool, canal, destinos, mensaje, plantilla = null) {
+// parametros: variables de una plantilla de varias (p. ej. la del resumen); sin ellas, el texto es la única
+export async function encolar(pool, canal, destinos, mensaje, plantilla = null, parametros = null) {
     const texto = String(mensaje || '').trim().slice(0, 1000);
     if (!texto || !destinos.length) return 0;
-    await pool.query('INSERT INTO cola_avisos (canal, destino, texto, plantilla) VALUES ?', [destinos.map(d => [canal, d, texto, plantilla])]);
+    const variables = parametros ? JSON.stringify(parametros) : null;
+    await pool.query('INSERT INTO cola_avisos (canal, destino, texto, plantilla, parametros) VALUES ?', [destinos.map(d => [canal, d, texto, plantilla, variables])]);
     return destinos.length;
 }
 
@@ -36,7 +38,11 @@ function contenidoPush(texto) {
 }
 
 async function enviarUno(pool, avisos, fila) {
-    if (fila.canal === 'whatsapp') return avisos.whatsappUno(fila.destino, textoWhatsapp(fila.texto), fila.plantilla);
+    if (fila.canal === 'whatsapp') {
+        let parametros = null;
+        try { parametros = fila.parametros ? JSON.parse(fila.parametros) : null; } catch (e) { /* sin variables */ }
+        return avisos.whatsappUno(fila.destino, parametros || textoWhatsapp(fila.texto), fila.plantilla);
+    }
     const [subs] = await pool.query('SELECT endpoint, p256dh, auth FROM push_suscripciones WHERE huella = ?', [fila.destino]);
     if (!subs.length) throw Object.assign(new Error('La suscripción push ya no existe'), { definitivo: true });
     try {
@@ -63,7 +69,7 @@ export async function repasar(pool, avisos) {
          WHERE canal IN (?) AND ((estado = 'pendiente' AND proximo <= UTC_TIMESTAMP())
             OR (estado = 'enviando' AND reclamado < UTC_TIMESTAMP() - INTERVAL ${BLOQUEO_MIN} MINUTE))
          ORDER BY id LIMIT ${LOTE}`, [marca, canales]);
-    const [filas] = await pool.query('SELECT id, canal, destino, texto, plantilla, intentos FROM cola_avisos WHERE marca = ? AND estado = \'enviando\'', [marca]);
+    const [filas] = await pool.query('SELECT id, canal, destino, texto, plantilla, parametros, intentos FROM cola_avisos WHERE marca = ? AND estado = \'enviando\'', [marca]);
     for (const fila of filas) {
         const intentos = fila.intentos + 1;
         try {
