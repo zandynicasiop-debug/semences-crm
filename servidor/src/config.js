@@ -61,6 +61,8 @@ export function leerConfig(entorno = process.env) {
             token: entorno.WHATSAPP_TOKEN || '',
             telefonoId: entorno.WHATSAPP_TELEFONO_ID || '',
             plantilla: entorno.WHATSAPP_PLANTILLA || '',
+            // Opcional: plantilla para avisar a un CLIENTE de que le llegó un correo o una invitación
+            plantillaClientes: entorno.WHATSAPP_PLANTILLA_CLIENTES || '',
             idioma: entorno.WHATSAPP_IDIOMA || 'es',
             version: entorno.WHATSAPP_VERSION || 'v21.0'
         }

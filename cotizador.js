@@ -184,7 +184,10 @@ class Cotizador {
     async enviarPorCorreo() {
         const pdf = this.crearPdf();
         if (!pdf) return;
-        const para = window.prompt(`¿A qué correo envías la cotización de ${pdf.cliente}? (varios, separados por comas)`, this.ultimoCorreo || '');
+        // Si es un cliente registrado con correo, se propone su correo; y si tiene WhatsApp, se le avisa por allí
+        const normal = (t) => String(t || '').trim().toLocaleLowerCase('es');
+        const ficha = (window.baseDatos.datos.clientes || []).find(c => normal(c.nombre) === normal(pdf.cliente));
+        const para = window.prompt(`¿A qué correo envías la cotización de ${pdf.cliente}? (varios, separados por comas)`, (ficha && ficha.correo) || this.ultimoCorreo || '');
         if (!para || !para.trim()) return;
         this.ultimoCorreo = para.trim();
         const aviso = (texto, tipo) => { if (window.equipo) window.equipo.mostrarAviso(texto, tipo); };
@@ -195,11 +198,12 @@ class Cotizador {
             para: this.ultimoCorreo,
             asunto: `Cotización de Semences del Caribe · ${pdf.cliente}`,
             texto: `Hola:\n\nAdjunto la cotización solicitada (${pdf.total}).\n\nQuedamos a su disposición.\n${preparo ? `${preparo}\n` : ''}Semences del Caribe`,
-            adjunto: { nombre: pdf.archivo, tipo: 'application/pdf', base64: pdf.doc.output('datauristring').split(',')[1] }
+            adjunto: { nombre: pdf.archivo, tipo: 'application/pdf', base64: pdf.doc.output('datauristring').split(',')[1] },
+            whatsapp: (ficha && ficha.whatsapp) || ''
         });
         this.botonCorreo.disabled = false;
         this.botonCorreo.textContent = 'Enviar por correo';
-        if (respuesta && respuesta.ok) aviso(`Cotización enviada a ${this.ultimoCorreo}.`);
+        if (respuesta && respuesta.ok) aviso(`Cotización enviada a ${this.ultimoCorreo}${respuesta.avisoWhatsapp ? '; se le avisa por WhatsApp' : ''}.`);
         else aviso((respuesta && respuesta.error) || 'No se pudo enviar el correo. Revisa la conexión.', 'error');
     }
 

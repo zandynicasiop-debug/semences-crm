@@ -8,8 +8,11 @@ Reemplaza al Apps Script como base de datos y conecta la app con Google Workspac
 | Inicio de sesión | Google OAuth 2.0 con código; solo cuentas del `DOMINIO`, los `ADMINS` y la tabla `equipo` |
 | Sesiones | Valor aleatorio en `Authorization: Bearer`; en la base solo su huella SHA-256; 30 días |
 | Tokens de Google | Token de refresco cifrado con AES-256-GCM (`CLAVE_CIFRADO`) |
-| Gmail | Correos desde la cuenta de cada quien (cotización con el PDF adjunto) |
-| Calendar y Meet | Eventos en el calendario de cada quien; reuniones con enlace real de Meet |
+| Gmail | Correos desde la cuenta de cada quien (cotización con el PDF adjunto). Solo se envían: el backend no puede leer el correo de nadie |
+| Calendar y Meet | Eventos en el calendario de cada quien; reuniones con enlace real de Meet. Desde la ficha del cliente, **Reunión con Meet** invita al cliente por correo (invitación de Google) |
+| Horario ocupado | Antes de agendar una reunión o un seguimiento, avisa si ya hay algo a esa hora (solo mira ocupado/libre, no qué hay); no impide agendar |
+| Exportar a Sheets | Menú › **Exportar el CRM a Google Sheets**: una pestaña por módulo en una hoja del Drive de quien exporta; cada exportación actualiza la misma hoja. Los textos se escriben tal cual (un "=" no se convierte en fórmula) |
+| WhatsApp al cliente | Opcional: al enviarle un correo (cotización) o una invitación, el cliente recibe además un WhatsApp avisándole |
 | Reportes PDF | Copia de una plantilla de Google Docs con `{{campos}}`, exportada a PDF en una carpeta de Drive |
 | Avisos | Google Chat (webhook) y WhatsApp (API en la nube de Meta) a todo el equipo |
 | Avisos push | En el teléfono y el ordenador **con la app cerrada** (Web Push con claves VAPID): Android (Chrome), ordenadores y iPhone con la app instalada en la pantalla de inicio (iOS 16.4+). No funcionan dentro del APK |
@@ -35,7 +38,7 @@ Prueban el backend completo contra MySQL 8.4 y MariaDB 10.11, con Google, Meta y
 ### 1. Google Cloud (una vez)
 
 1. https://console.cloud.google.com con una cuenta de administrador del Workspace: crea un proyecto "Semences CRM".
-2. **APIs y servicios › Biblioteca**: activa **Gmail API**, **Google Calendar API**, **Google Drive API** y **Google Docs API**.
+2. **APIs y servicios › Biblioteca**: activa **Gmail API**, **Google Calendar API**, **Google Drive API**, **Google Docs API** y **Google Sheets API**.
 3. **Pantalla de consentimiento de OAuth**: tipo de usuario **Interno**. Así solo entran cuentas de la empresa y Google no exige verificar la app, aunque pida permisos de Gmail y Drive.
 4. **Credenciales › Crear credenciales › ID de cliente de OAuth › Aplicación web**:
    - URI de redireccionamiento autorizado: `https://api.semillasdata.com/api/auth/google/vuelta`
@@ -105,6 +108,8 @@ WhatsApp no deja que una empresa escriba a nadie con mensajes libres: los avisos
 3. Crea un **token permanente** (usuario del sistema con permiso `whatsapp_business_messaging`).
 4. Configura `WHATSAPP_TOKEN`, `WHATSAPP_TELEFONO_ID` (el id del número, no el número), `WHATSAPP_PLANTILLA` (el nombre de la plantilla) y `WHATSAPP_IDIOMA` (`es`).
 
+**Aviso a los clientes (opcional).** Al enviar una cotización por correo o invitar a un cliente a una reunión, si su ficha tiene WhatsApp, se le avisa por allí. Necesita una segunda plantilla aprobada, pensada para clientes, por ejemplo *"Hola, Semences del Caribe le informa: {{1}}"*, en `WHATSAPP_PLANTILLA_CLIENTES`. Sin ella, no se avisa a los clientes. Meta exige que el cliente haya aceptado recibir mensajes de la empresa por WhatsApp.
+
 Los mensajes salen de la cola `cola_avisos` cada 5 segundos. En `GET /api/salud` (`colaWhatsapp`) se ve cuántos hay pendientes, enviados y fallidos; los administradores ven además los últimos fallidos con su motivo (acción `equipo`, operación `listar`). En cPanel, Passenger puede dormir la app Node si nadie la usa: lo pendiente sale en cuanto vuelve a recibir una petición. Si quieres que salga aunque nadie use la app, crea en cPanel › **Cron Jobs** una tarea cada 5 minutos con `curl -s https://api.semillasdata.com/api/salud > /dev/null`.
 
 Cada persona escribe su WhatsApp en la app (menú › Cuenta). Los administradores también pueden añadir teléfonos con `npm run equipo -- agregar correo@… "Nombre" 8095551234`. Las alertas de "Notificar al equipo" llegan por Google Chat y por WhatsApp a todos. Meta cobra cada conversación iniciada por la empresa, según su tarifa por país.
@@ -124,4 +129,4 @@ Cada persona escribe su WhatsApp en la app (menú › Cuenta). Los administrador
 | `GET /api/auth/google/vuelta` | Google vuelve aquí; redirige a la app con un código de un solo uso (2 min) |
 | `POST /api/auth/canjear` | `{ codigo, verificador }` → `{ sesion, usuario }` |
 | `GET /api/yo` · `POST /api/salir` | La persona de la sesión · cerrar sesión |
-| `POST /api/accion` | `{ accion, … }`: `sincronizar`, `crm`, `sheets`, `chat`, `avisar`, `calendar`, `meet`, `correo`, `reporte`, `push`, `telefono`, `equipo` |
+| `POST /api/accion` | `{ accion, … }`: `sincronizar`, `crm`, `sheets`, `chat`, `avisar`, `calendar` (con `invitados`, `conMeet`, `whatsapp`), `disponibilidad`, `meet`, `correo` (con `whatsapp`), `reporte`, `exportar`, `push`, `telefono`, `equipo` |

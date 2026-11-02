@@ -36,6 +36,14 @@ function googleFalso() {
             alRenovar('token-renovado');
             return { id: 'evento-1', enlace: 'https://calendar.google.com/evento-1', meet: conMeet ? 'https://meet.google.com/abc-defg-hij' : '' };
         },
+        ocupado: async (token, alRenovar, inicio, fin) => {
+            g.llamadas.push({ tipo: 'ocupado', inicio, fin });
+            return [{ inicio: '2026-11-03T14:00:00Z', fin: '2026-11-03T15:00:00Z' }];
+        },
+        exportarHoja: async (token, alRenovar, datos) => {
+            g.llamadas.push({ tipo: 'exportar', datos });
+            return { id: datos.hojaId || 'hoja-1', enlace: `https://docs.google.com/spreadsheets/d/${datos.hojaId || 'hoja-1'}/edit` };
+        },
         crearReporte: async (token, alRenovar, datos) => {
             g.llamadas.push({ tipo: 'reporte', token, datos });
             return { id: 'pdf-1', enlace: 'https://drive.google.com/file/d/pdf-1/view' };
@@ -84,7 +92,7 @@ for (const base of BASES) {
                 CLAVE_CIFRADO: crypto.randomBytes(32).toString('hex'),
                 ORIGENES: 'https://semillasdata.com', ENTRADAS_POR_MINUTO: '1000',
                 CHAT_WEBHOOK: 'https://chat.googleapis.com/v1/spaces/X/messages?key=k',
-                WHATSAPP_TOKEN: 'meta-token', WHATSAPP_TELEFONO_ID: '123', WHATSAPP_PLANTILLA: 'aviso_equipo',
+                WHATSAPP_TOKEN: 'meta-token', WHATSAPP_TELEFONO_ID: '123', WHATSAPP_PLANTILLA: 'aviso_equipo', WHATSAPP_PLANTILLA_CLIENTES: 'aviso_cliente',
                 VAPID_PUBLICA: 'BPublica', VAPID_PRIVADA: 'privada'
             });
             // MariaDB tarda unos segundos en aceptar conexiones la primera vez
@@ -133,7 +141,7 @@ for (const base of BASES) {
             const r = await llamar('/api/salud', { metodo: 'GET' });
             assert.equal(r.estado, 200);
             assert.equal(r.json.base, 'ok');
-            assert.deepEqual(r.json.integraciones, { chat: true, whatsapp: true, push: true, reportes: false });
+            assert.deepEqual(r.json.integraciones, { chat: true, whatsapp: true, whatsappClientes: true, push: true, reportes: false });
             assert.deepEqual(r.json.colaAvisos, {});
             assert.equal(r.json.clavePush, 'BPublica');
         });
@@ -228,11 +236,74 @@ for (const base of BASES) {
             assert.equal((await accion(sesiones.ana, { accion: 'calendar', inicio: 'mañana' })).estado, 400);
         });
 
+        test('reunión con el cliente: invitación de Calendar, Meet y aviso por WhatsApp', async () => {
+            await pool.query('DELETE FROM cola_avisos');
+            const r = await accion(sesiones.ana, {
+                accion: 'calendar', titulo: 'Reunión · Finca Ñapa', inicio: '2026-11-03T14:00:00Z', fin: '2026-11-03T14:30:00Z',
+                invitados: ['cliente@finca.do'], conMeet: true, whatsapp: '809 555 7777'
+            });
+            assert.equal(r.json.meetUrl, 'https://meet.google.com/abc-defg-hij');
+            assert.equal(r.json.avisoWhatsapp, true);
+            const evento = google.llamadas.at(-1);
+            assert.equal(evento.conMeet, true);
+            assert.deepEqual(evento.evento.attendees, [{ email: 'cliente@finca.do' }]);
+            assert.ok(evento.evento.conferenceData.createRequest.requestId);
+            const [[cola]] = await pool.query("SELECT destino, plantilla, texto FROM cola_avisos WHERE canal = 'whatsapp'");
+            assert.equal(cola.destino, '18095557777');
+            assert.equal(cola.plantilla, 'aviso_cliente');
+            assert.match(cola.texto, /invitación a "Reunión · Finca Ñapa" el martes, 3 de noviembre.*10:00.*Google Meet/);
+            // Sale con la plantilla de clientes, no con la del equipo
+            peticionesMeta.length = 0;
+            await repasar(pool, avisos);
+            assert.equal(peticionesMeta.find(p => p.destino.startsWith('https://graph.facebook.com')).cuerpo.template.name, 'aviso_cliente');
+
+            // Sin invitados no hay aviso al cliente; un invitado inválido se rechaza
+            assert.equal((await accion(sesiones.ana, { accion: 'calendar', titulo: 'Solo yo', whatsapp: '8095557777' })).json.avisoWhatsapp, false);
+            assert.equal((await accion(sesiones.ana, { accion: 'calendar', invitados: ['no es correo'] })).estado, 400);
+        });
+
+        test('disponibilidad: tramos ocupados del calendario', async () => {
+            const r = await accion(sesiones.ana, { accion: 'disponibilidad', inicio: '2026-11-03T13:00:00Z', fin: '2026-11-03T16:00:00Z' });
+            assert.deepEqual(r.json.ocupado, [{ inicio: '2026-11-03T14:00:00Z', fin: '2026-11-03T15:00:00Z' }]);
+            assert.equal((await accion(sesiones.ana, { accion: 'disponibilidad', inicio: '2026-11-03T16:00:00Z', fin: '2026-11-03T13:00:00Z' })).estado, 400);
+            assert.equal((await accion(sesiones.ana, { accion: 'disponibilidad', inicio: '2026-01-01T00:00:00Z', fin: '2026-12-31T00:00:00Z' })).estado, 400);
+        });
+
+        test('exportar a Google Sheets: una pestaña por módulo y la misma hoja cada vez', async () => {
+            await accion(sesiones.ana, { accion: 'sincronizar', guardar: [
+                { modulo: 'clientes', registro: { id: 'c9', nombre: '=HYPERLINK("http://malo")', correo: 'c@finca.do', _pendiente: true, clienteId: 'x', nuevoCampo: 'sí' } },
+                { modulo: 'visitas', registro: { id: 'v1', fecha: '2026-11-01', cliente: 'Finca Ñame', estado: 'Bueno' } }
+            ] });
+            const r = await accion(sesiones.ana, { accion: 'exportar' });
+            assert.equal(r.json.enlace, 'https://docs.google.com/spreadsheets/d/hoja-1/edit');
+            const { pestanas, hojaId } = google.llamadas.at(-1).datos;
+            assert.equal(hojaId, '');
+            assert.deepEqual(pestanas.map(p => p.nombre), ['Clientes', 'Visitas', 'Procesos agronómicos', 'Rendimiento', 'Tareas']);
+            const [cabecera, ...filas] = pestanas[0].filas;
+            assert.deepEqual(cabecera.slice(0, 3), ['Nombre', 'Correo', 'Teléfono']);
+            assert.ok(cabecera.includes('nuevoCampo') && cabecera.includes('Registró') && !cabecera.includes('_pendiente') && !cabecera.includes('clienteId'));
+            const fila = filas.find(f => f[cabecera.indexOf('Id')] === 'c9');
+            assert.equal(fila[0], '=HYPERLINK("http://malo")'); // Se escribe tal cual (RAW): no es una fórmula
+            assert.equal(fila[cabecera.indexOf('Cuenta')], 'ana@semillasdata.com');
+            assert.equal(r.json.filas.Visitas, 1);
+            // La segunda vez reescribe la misma hoja
+            await accion(sesiones.ana, { accion: 'exportar' });
+            assert.equal(google.llamadas.at(-1).datos.hojaId, 'hoja-1');
+            assert.equal((await llamar('/api/yo', { metodo: 'GET', sesion: sesiones.ana })).json.usuario.hojaExportacion, 'https://docs.google.com/spreadsheets/d/hoja-1/edit');
+        });
+
         test('correo desde el Gmail de la persona', async () => {
             const r = await accion(sesiones.ana, { accion: 'correo', para: 'cliente@finca.do', asunto: 'Cotización', texto: 'Adjunta', adjunto: { nombre: 'cot.pdf', tipo: 'application/pdf', base64: Buffer.from('%PDF').toString('base64') } });
             assert.equal(r.json.ok, true);
             const crudo = Buffer.from(google.llamadas.at(-1).crudo, 'base64url').toString();
             assert.match(crudo, /^To: cliente@finca.do/);
+            assert.equal(r.json.avisoWhatsapp, false);
+            await pool.query('DELETE FROM cola_avisos');
+            const conAviso = await accion(sesiones.ana, { accion: 'correo', para: 'cliente@finca.do', asunto: 'Cotización de Semences', texto: 'Hola', whatsapp: '8295551212' });
+            assert.equal(conAviso.json.avisoWhatsapp, true);
+            const [[cola]] = await pool.query("SELECT destino, plantilla, texto FROM cola_avisos");
+            assert.deepEqual(cola, { destino: '18295551212', plantilla: 'aviso_cliente', texto: 'Le enviamos un correo a cliente@finca.do: "Cotización de Semences". Revise su bandeja de entrada.' });
+            await pool.query('DELETE FROM cola_avisos');
             assert.equal((await accion(sesiones.ana, { accion: 'correo', para: 'a@b.com', asunto: 'x\nBcc: c@d.com' })).estado, 400);
         });
 

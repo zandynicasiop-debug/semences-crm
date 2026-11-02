@@ -12,13 +12,15 @@ import { gmail } from '@googleapis/gmail';
 import { calendar } from '@googleapis/calendar';
 import { drive } from '@googleapis/drive';
 import { docs } from '@googleapis/docs';
+import { sheets } from '@googleapis/sheets';
 import { Readable } from 'node:stream';
 
 export const PERMISOS = [
     'openid', 'email', 'profile',
     'https://www.googleapis.com/auth/gmail.send',          // Enviar correos (no puede leerlos)
     'https://www.googleapis.com/auth/calendar.events',     // Crear eventos y reuniones de Meet
-    'https://www.googleapis.com/auth/drive',               // Copiar la plantilla de reporte y guardar el PDF
+    'https://www.googleapis.com/auth/calendar.freebusy',   // Saber si una hora está ocupada (sin ver qué hay)
+    'https://www.googleapis.com/auth/drive',               // Plantilla de reporte, PDF y hoja de exportación (Sheets acepta este permiso)
     'https://www.googleapis.com/auth/documents'            // Rellenar la copia de la plantilla
 ];
 
@@ -81,16 +83,57 @@ export function crearGoogle(config) {
             return r.data.id;
         },
 
+        // Con invitados (evento.attendees), Google les manda la invitación por correo (sendUpdates: all)
         async crearEvento(tokenRefresco, alRenovar, evento, conMeet) {
             const servicio = calendar({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });
             const r = await servicio.events.insert({
                 calendarId: 'primary',
                 conferenceDataVersion: conMeet ? 1 : 0,
+                sendUpdates: evento.attendees && evento.attendees.length ? 'all' : 'none',
                 requestBody: evento
             });
             const meet = r.data.hangoutLink ||
                 ((r.data.conferenceData && r.data.conferenceData.entryPoints) || []).filter(p => p.entryPointType === 'video').map(p => p.uri)[0] || '';
             return { id: r.data.id, enlace: r.data.htmlLink || '', meet };
+        },
+
+        // Tramos ocupados del calendario de la persona entre inicio y fin: [{ inicio, fin }]
+        async ocupado(tokenRefresco, alRenovar, inicio, fin) {
+            const servicio = calendar({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });
+            const r = await servicio.freebusy.query({ requestBody: { timeMin: inicio.toISOString(), timeMax: fin.toISOString(), items: [{ id: 'primary' }] } });
+            const tramos = (r.data.calendars && r.data.calendars.primary && r.data.calendars.primary.busy) || [];
+            return tramos.map(t => ({ inicio: t.start, fin: t.end }));
+        },
+
+        /**
+         * Escribe las pestañas ({ nombre, filas }) en la hoja de exportación de la persona. Si hojaId no
+         * existe (o se borró), crea una hoja nueva. Cada pestaña se vacía y se reescribe entera. Los
+         * valores van tal cual (RAW): un texto que empiece por "=" no se convierte en fórmula.
+         */
+        async exportarHoja(tokenRefresco, alRenovar, { hojaId, titulo, pestanas }) {
+            const servicio = sheets({ version: 'v4', auth: autenticado(tokenRefresco, alRenovar) });
+            let hoja = null;
+            if (hojaId) {
+                hoja = await servicio.spreadsheets.get({ spreadsheetId: hojaId, fields: 'spreadsheetId,spreadsheetUrl,sheets.properties.title' })
+                    .then(r => r.data).catch(e => { if ([403, 404].includes(Number(e.code || e.status))) return null; throw e; });
+            }
+            if (!hoja) {
+                hoja = (await servicio.spreadsheets.create({
+                    requestBody: { properties: { title: titulo, locale: 'es_DO' }, sheets: pestanas.map(p => ({ properties: { title: p.nombre } })) },
+                    fields: 'spreadsheetId,spreadsheetUrl,sheets.properties.title'
+                })).data;
+            }
+            const existentes = new Set((hoja.sheets || []).map(h => h.properties.title));
+            const faltan = pestanas.filter(p => !existentes.has(p.nombre));
+            if (faltan.length) {
+                await servicio.spreadsheets.batchUpdate({ spreadsheetId: hoja.spreadsheetId, requestBody: { requests: faltan.map(p => ({ addSheet: { properties: { title: p.nombre } } })) } });
+            }
+            await servicio.spreadsheets.values.batchClear({ spreadsheetId: hoja.spreadsheetId, requestBody: { ranges: pestanas.map(p => `'${p.nombre}'`) } });
+            await servicio.spreadsheets.values.batchUpdate({
+                spreadsheetId: hoja.spreadsheetId,
+                requestBody: { valueInputOption: 'RAW', data: pestanas.map(p => ({ range: `'${p.nombre}'!A1`, values: p.filas })) }
+            });
+            return { id: hoja.spreadsheetId, enlace: hoja.spreadsheetUrl };
         },
 
         /**

@@ -2360,3 +2360,31 @@ body.ventana-flotante {
     align-items: center;
     text-decoration: none;
 }
+
+/* Casilla con su texto al lado (p. ej. "Invitar al cliente" en la reunión con Meet) */
+.casilla {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sdc-espacio-3);
+    font-size: var(--sdc-texto-md);
+    color: var(--ui-texto);
+    cursor: pointer;
+}
+
+.casilla input {
+    width: 20px;
+    height: 20px;
+    margin-top: 2px;
+    flex-shrink: 0;
+    accent-color: var(--sdc-primario);
+}
+
+.reunion-ocupado:empty {
+    display: none;
+}
+
+.reunion-fila {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--sdc-espacio-4);
+}

@@ -53,8 +53,11 @@ export function crearAvisos(config, hacerFetch = fetch, enviarPush = webpush.sen
             await conReintentos(() => enviarJson(config.chatWebhook, { text: texto.slice(0, 4000) }, {}, hacerFetch));
         },
 
-        // Un mensaje de plantilla a un teléfono, en un solo intento: los reintentos los lleva la cola (cola.js)
-        async whatsappUno(telefono, mensaje) {
+        whatsappClientesActivo: whatsappActivo && Boolean(whatsapp.plantillaClientes),
+
+        // Un mensaje de plantilla a un teléfono, en un solo intento: los reintentos los lleva la cola (cola.js).
+        // plantilla: otra plantilla aprobada (p. ej. la de clientes); por defecto, la del equipo
+        async whatsappUno(telefono, mensaje, plantilla) {
             if (!whatsappActivo) throw new Error('WhatsApp no está configurado (WHATSAPP_TOKEN, WHATSAPP_TELEFONO_ID, WHATSAPP_PLANTILLA)');
             const texto = textoWhatsapp(mensaje);
             if (!texto) throw new Error('Mensaje vacío');
@@ -63,7 +66,7 @@ export function crearAvisos(config, hacerFetch = fetch, enviarPush = webpush.sen
                 to: telefono,
                 type: 'template',
                 template: {
-                    name: whatsapp.plantilla,
+                    name: plantilla || whatsapp.plantilla,
                     language: { code: whatsapp.idioma },
                     components: [{ type: 'body', parameters: [{ type: 'text', text: texto }] }]
                 }

@@ -8,7 +8,8 @@
 import * as db from './db.js';
 import { tokenDe, actualizarToken, olvidarToken, telefonosDelEquipo, guardarTelefono, esAdmin, publico,
     guardarSuscripcion, borrarSuscripcion, suscripcionesDelEquipo, tieneSuscripcion } from './cuentas.js';
-import { construirCorreo } from './correo.js';
+import { construirCorreo, destinatarios } from './correo.js';
+import { pestanasDe } from './exportar.js';
 import { normalizarTelefono, suscripcionValida } from './avisos.js';
 import { conReintentos } from './reintentos.js';
 import { encolar, estadoCola } from './cola.js';
@@ -48,6 +49,17 @@ async function conGoogle({ pool, config, usuario }, tarea) {
         throw error;
     }
 }
+
+// Aviso por WhatsApp a un cliente de que le llegó un correo o una invitación (si hay plantilla de clientes).
+// Devuelve true si quedó en la cola
+async function avisarCliente({ pool, avisos, config }, telefono, texto) {
+    if (!telefono || !avisos.whatsappClientesActivo) return false;
+    const numero = normalizarTelefono(telefono);
+    if (!numero) return false;
+    return (await encolar(pool, 'whatsapp', [numero], texto, config.whatsapp.plantillaClientes)) > 0;
+}
+
+const horaLocal = (fecha, config) => fecha.toLocaleString('es-DO', { timeZone: config.zonaHoraria, weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' });
 
 function comprobarCambios(lista, nombre) {
     if (lista === undefined) return [];
@@ -107,18 +119,48 @@ export const ACCIONES = {
         return resultado;
     },
 
-    // Evento en el calendario de la persona ({ titulo, inicio, fin, descripcion })
+    /**
+     * Evento en el calendario de la persona ({ titulo, inicio, fin, descripcion }). Opcional:
+     * invitados (correos: Google les manda la invitación), conMeet (sala de Meet) y whatsapp (teléfono
+     * del cliente invitado, para avisarle por WhatsApp de que tiene la invitación en el correo).
+     */
     async calendar(datos, contexto) {
         const inicio = datos.inicio ? fecha(datos.inicio, 'inicio') : new Date();
         const fin = datos.fin ? fecha(datos.fin, 'fin') : new Date(inicio.getTime() + contexto.config.minutosReunion * 60000);
         if (fin <= inicio) throw errorApp('La hora de fin debe ser posterior a la de inicio');
+        const invitados = datos.invitados && [].concat(datos.invitados).filter(Boolean).length ? destinatarios(datos.invitados) : [];
+        const titulo = String(datos.titulo || 'Inspección · Semences del Caribe').slice(0, 300);
         const evento = await conGoogle(contexto, (token, alRenovar) => contexto.google.crearEvento(token, alRenovar, {
-            summary: String(datos.titulo || 'Inspección · Semences del Caribe').slice(0, 300),
+            summary: titulo,
             description: String(datos.descripcion || '').slice(0, 8000),
             start: { dateTime: inicio.toISOString(), timeZone: contexto.config.zonaHoraria },
-            end: { dateTime: fin.toISOString(), timeZone: contexto.config.zonaHoraria }
-        }, false));
-        return { ok: true, eventoId: evento.id, enlace: evento.enlace };
+            end: { dateTime: fin.toISOString(), timeZone: contexto.config.zonaHoraria },
+            ...(invitados.length ? { attendees: invitados.map(email => ({ email })) } : {}),
+            ...(datos.conMeet ? { conferenceData: { createRequest: { requestId: crypto.randomUUID(), conferenceSolutionKey: { type: 'hangoutsMeet' } } } } : {})
+        }, Boolean(datos.conMeet)));
+        const whatsapp = invitados.length && await avisarCliente(contexto, datos.whatsapp,
+            `Le enviamos por correo (${invitados[0]}) la invitación a "${titulo}" el ${horaLocal(inicio, contexto.config)}${evento.meet ? ', por videollamada de Google Meet' : ''}.`);
+        return { ok: true, eventoId: evento.id, enlace: evento.enlace, meetUrl: evento.meet || '', avisoWhatsapp: Boolean(whatsapp) };
+    },
+
+    // ¿Está ocupada esa hora en el calendario de la persona? ({ inicio, fin }) → { ocupado: [{ inicio, fin }] }
+    async disponibilidad(datos, contexto) {
+        const inicio = fecha(datos.inicio, 'inicio');
+        const fin = fecha(datos.fin, 'fin');
+        if (fin <= inicio || fin - inicio > 31 * 86400000) throw errorApp('Intervalo de fechas no válido');
+        const ocupado = await conGoogle(contexto, (token, alRenovar) => contexto.google.ocupado(token, alRenovar, inicio, fin));
+        return { ok: true, ocupado };
+    },
+
+    // Todo el CRM a una hoja de Google Sheets de la persona (la misma hoja cada vez, reescrita)
+    async exportar(datos, contexto) {
+        const { pool, usuario } = contexto;
+        const pestanas = pestanasDe(await db.listarTodo(pool));
+        const hoja = await conGoogle(contexto, (token, alRenovar) => contexto.google.exportarHoja(token, alRenovar, {
+            hojaId: usuario.hoja_exportacion, titulo: 'Semences del Caribe · CRM', pestanas
+        }));
+        if (hoja.id !== usuario.hoja_exportacion) await pool.query('UPDATE usuarios SET hoja_exportacion = ? WHERE id = ?', [hoja.id, usuario.id]);
+        return { ok: true, hojaId: hoja.id, enlace: hoja.enlace, filas: Object.fromEntries(pestanas.map(p => [p.nombre, p.filas.length - 1])) };
     },
 
     // Reunión que empieza ahora, con enlace real de Google Meet
@@ -135,11 +177,15 @@ export const ACCIONES = {
         return { ok: true, meetUrl: evento.meet, eventoId: evento.id };
     },
 
-    // Correo desde el Gmail de la persona ({ para, asunto, texto, adjunto: { nombre, tipo, base64 } })
+    // Correo desde el Gmail de la persona ({ para, asunto, texto, adjunto: { nombre, tipo, base64 } }).
+    // Con whatsapp (teléfono del cliente), además se le avisa por WhatsApp de que tiene un correo
     async correo(datos, contexto) {
         const crudo = construirCorreo(datos);
         const id = await conGoogle(contexto, (token, alRenovar) => contexto.google.enviarCorreo(token, alRenovar, crudo));
-        return { ok: true, id };
+        const para = destinatarios(datos.para);
+        const whatsapp = await avisarCliente(contexto, datos.whatsapp,
+            `Le enviamos un correo a ${para[0]}${para.length > 1 ? ' (y otros)' : ''}: "${String(datos.asunto).slice(0, 150)}". Revise su bandeja de entrada.`);
+        return { ok: true, id, avisoWhatsapp: whatsapp };
     },
 
     // Reporte PDF desde la plantilla de Google Docs ({ titulo, campos: { nombre: valor }, cliente: { id, nombre } })

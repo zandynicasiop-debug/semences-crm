@@ -18,6 +18,7 @@ const ESQUEMA = [
         token_google TEXT NULL,
         permisos_google TEXT NULL,
         telefono VARCHAR(20) NOT NULL DEFAULT '',
+        hoja_exportacion VARCHAR(100) NOT NULL DEFAULT '',
         creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         ultimo_acceso DATETIME NULL
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
@@ -64,6 +65,7 @@ const ESQUEMA = [
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         canal ENUM('whatsapp', 'push') NOT NULL DEFAULT 'whatsapp',
         destino VARCHAR(64) NOT NULL,
+        plantilla VARCHAR(100) NULL,
         texto VARCHAR(1000) NOT NULL,
         estado ENUM('pendiente', 'enviando', 'enviado', 'fallido') NOT NULL DEFAULT 'pendiente',
         intentos TINYINT UNSIGNED NOT NULL DEFAULT 0,

@@ -127,6 +127,7 @@ export const publico = (usuario, config) => ({
     telefono: usuario.telefono,
     admin: esAdmin(config, usuario.email),
     googleConectado: Boolean(usuario.token_google),
+    hojaExportacion: usuario.hoja_exportacion ? `https://docs.google.com/spreadsheets/d/${usuario.hoja_exportacion}/edit` : '',
     permisos: String(usuario.permisos_google || '').split(' ').filter(Boolean)
 });
 

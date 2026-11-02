@@ -49,6 +49,7 @@ const MODULOS_CRM = {
             { id: 'nombre', etiqueta: 'Nombre', tipo: 'text', requerido: true, autocomplete: 'name' },
             { id: 'telefono', etiqueta: 'Teléfono', tipo: 'tel', ejemplo: '809 555 1234' },
             { id: 'whatsapp', etiqueta: 'WhatsApp', tipo: 'tel', ejemplo: '829 555 1234' },
+            { id: 'correo', etiqueta: 'Correo', tipo: 'email', ejemplo: 'cliente@ejemplo.com', autocomplete: 'email' },
             { id: 'ubicacion', etiqueta: 'Ubicación', tipo: 'text', ejemplo: 'Constanza, La Vega' },
             { id: 'marca', etiqueta: 'Marca que compra', tipo: 'select', opciones: MARCAS, vacia: 'Sin indicar' },
             { id: 'seguimiento', etiqueta: 'Próximo seguimiento', tipo: 'date' }
@@ -57,6 +58,7 @@ const MODULOS_CRM = {
             { titulo: 'Nombre', valor: r => r.nombre, expediente: true },
             { titulo: 'Teléfono', valor: r => r.telefono, enlace: r => r.telefono && `tel:${soloDigitos(r.telefono)}` },
             { titulo: 'WhatsApp', valor: r => r.whatsapp, enlace: r => r.whatsapp && enlaceWhatsApp(r.whatsapp) },
+            { titulo: 'Correo', valor: r => r.correo, enlace: r => r.correo && `mailto:${r.correo}` },
             { titulo: 'Ubicación', valor: r => r.ubicacion },
             { titulo: 'Marca', valor: r => r.marca },
             { titulo: 'Próx. seguimiento', valor: r => formatearFecha(r.seguimiento), orden: r => r.seguimiento },
@@ -159,6 +161,14 @@ function enlaceWhatsApp(numero) {
 }
 
 // 'AAAA-MM-DD' como fecha local (new Date('AAAA-MM-DD') la toma en UTC y en RD sale el día anterior)
+// "(miércoles, 4 de noviembre, de 10:00 a. m. a 11:00 a. m.)" para un tramo { inicio, fin } del calendario.
+// Entre paréntesis: la hora termina en "a. m." y así no queda un punto doble al cerrar la frase
+function textoTramo({ inicio, fin }) {
+    const a = new Date(inicio), b = new Date(fin);
+    const hora = (d) => d.toLocaleTimeString('es-DO', { hour: 'numeric', minute: '2-digit' });
+    return `(${a.toLocaleDateString('es-DO', { weekday: 'long', day: 'numeric', month: 'long' })}, de ${hora(a)} a ${hora(b)})`;
+}
+
 function fechaLocal(iso, hora = 0, minutos = 0) {
     const [a, m, d] = String(iso).split('-').map(Number);
     return new Date(a, m - 1, d, hora, minutos);
@@ -210,6 +220,8 @@ class CRM {
         this.crearListas();
         Object.keys(MODULOS_CRM).forEach(m => this.crearModulo(m));
         this.iniciarPestanas();
+        // El CRM se crea en "load": la opción se añade justo después, cuando tema.js ya puso la suya
+        setTimeout(() => this.crearOpcionExportar());
         this.crearIndicadorSync();
         this.renderTodo();
 
@@ -690,6 +702,174 @@ class CRM {
         }
     }
 
+    /**
+     * Avisa (sin impedir nada) si el calendario de la persona ya tiene algo entre inicio y fin.
+     * Devuelve los tramos ocupados ([] si está libre o no se pudo saber).
+     */
+    async avisarSiOcupado(inicio, fin, que) {
+        const respuesta = await this.google.enviar('disponibilidad', { inicio: inicio.toISOString(), fin: fin.toISOString() }, true);
+        const ocupado = (respuesta && respuesta.ok && respuesta.ocupado) || [];
+        if (ocupado.length && que && window.equipo) {
+            window.equipo.mostrarAviso(`Ojo: ya tienes algo en tu calendario ${textoTramo(ocupado[0])}. ${que} se agendó igual.`, 'alerta');
+        }
+        return ocupado;
+    }
+
+    // Reunión con el cliente: evento con Meet en el calendario y, si tiene correo, invitación de Google
+    abrirReunion(clienteId) {
+        const cliente = this.cliente(clienteId);
+        if (!cliente) return;
+        const ahora = new Date();
+        const proxima = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), ahora.getHours() + 1);
+        const dos = (n) => String(n).padStart(2, '0');
+        const form = document.createElement('form');
+        form.className = 'dialogo-form';
+        form.noValidate = true;
+        form.innerHTML = `
+            <h3 id="dialogo-titulo"></h3>
+            <div class="reunion-fila">
+                <div class="form-group"><label for="reunion-fecha">Fecha</label><input id="reunion-fecha" type="date" required></div>
+                <div class="form-group"><label for="reunion-hora">Hora</label><input id="reunion-hora" type="time" step="900" required></div>
+            </div>
+            <div class="form-group">
+                <label for="reunion-duracion">Duración</label>
+                <select id="reunion-duracion"><option value="30">30 minutos</option><option value="45">45 minutos</option><option value="60">1 hora</option></select>
+            </div>
+            <label class="casilla"><input type="checkbox" id="reunion-invitar"> <span class="reunion-invitar-texto"></span></label>
+            <p class="dialogo-nota reunion-ocupado" aria-live="polite"></p>
+            <p class="form-error" role="alert" hidden></p>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary reunion-cancelar">Cancelar</button>
+                <button type="submit" class="btn-primary">Agendar reunión</button>
+            </div>`;
+        form.querySelector('h3').textContent = `Reunión con ${cliente.nombre}`;
+        const fecha = form.querySelector('#reunion-fecha');
+        const hora = form.querySelector('#reunion-hora');
+        const duracion = form.querySelector('#reunion-duracion');
+        const invitar = form.querySelector('#reunion-invitar');
+        const ocupado = form.querySelector('.reunion-ocupado');
+        const error = form.querySelector('.form-error');
+        fecha.value = `${proxima.getFullYear()}-${dos(proxima.getMonth() + 1)}-${dos(proxima.getDate())}`;
+        hora.value = `${dos(proxima.getHours())}:00`;
+        invitar.checked = Boolean(cliente.correo);
+        invitar.disabled = !cliente.correo;
+        form.querySelector('.reunion-invitar-texto').textContent = cliente.correo
+            ? `Invitar a ${cliente.nombre} (${cliente.correo}): le llega la invitación de Google con el enlace de Meet${cliente.whatsapp ? ' y un aviso por WhatsApp' : ''}.`
+            : 'Para invitar al cliente, añade su correo en su ficha.';
+
+        const intervalo = () => {
+            if (!fecha.value || !hora.value) return null;
+            const [h, m] = hora.value.split(':').map(Number);
+            const inicio = fechaLocal(fecha.value, h, m);
+            return { inicio, fin: new Date(inicio.getTime() + Number(duracion.value) * 60000) };
+        };
+        // Mientras se elige la hora se mira si ya hay algo en el calendario (avisa, no impide)
+        let consulta = 0;
+        const revisar = async () => {
+            const tramo = intervalo();
+            ocupado.textContent = '';
+            if (!tramo) return;
+            const n = ++consulta;
+            const tramos = await this.avisarSiOcupado(tramo.inicio, tramo.fin);
+            if (n !== consulta) return;
+            ocupado.textContent = tramos.length ? `⚠️ Ya tienes algo en tu calendario ${textoTramo(tramos[0])}. Puedes agendarla igual.` : '';
+        };
+        [fecha, hora, duracion].forEach(c => c.addEventListener('change', revisar));
+        revisar();
+
+        form.querySelector('.reunion-cancelar').addEventListener('click', () => this.abrirExpediente(clienteId));
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const tramo = intervalo();
+            error.hidden = true;
+            if (!tramo) {
+                error.textContent = 'Elige la fecha y la hora.';
+                error.hidden = false;
+                return;
+            }
+            const boton = form.querySelector('button[type="submit"]');
+            boton.disabled = true;
+            boton.textContent = 'Agendando…';
+            const conInvitacion = invitar.checked && cliente.correo;
+            const respuesta = await this.google.enviar('calendar', {
+                titulo: `Reunión · ${cliente.nombre} · Semences del Caribe`,
+                inicio: tramo.inicio.toISOString(),
+                fin: tramo.fin.toISOString(),
+                descripcion: [cliente.ubicacion, cliente.telefono && `Tel. ${cliente.telefono}`, window.responsable && `Agendó: ${window.responsable.nombre}`].filter(Boolean).join('\n'),
+                conMeet: true,
+                invitados: conInvitacion ? [cliente.correo] : [],
+                whatsapp: conInvitacion ? cliente.whatsapp : ''
+            }, true);
+            boton.disabled = false;
+            boton.textContent = 'Agendar reunión';
+            if (!respuesta || !respuesta.ok) {
+                error.textContent = (respuesta && respuesta.error) || 'No se pudo agendar. Revisa la conexión.';
+                error.hidden = false;
+                return;
+            }
+            this.abrirExpediente(clienteId);
+            if (window.equipo) {
+                window.equipo.mostrarAviso(conInvitacion
+                    ? `Reunión agendada. Google envió la invitación a ${cliente.correo}${respuesta.avisoWhatsapp ? ' y se le avisa por WhatsApp' : ''}.`
+                    : 'Reunión agendada en tu calendario.');
+            }
+            if (respuesta.meetUrl && /^https:\/\/meet\.google\.com\//.test(respuesta.meetUrl)) {
+                const atajos = this.dialogo.querySelector('.expediente-atajos');
+                const enlace = document.createElement('a');
+                enlace.className = 'btn-secondary enlace-reporte';
+                enlace.href = respuesta.meetUrl;
+                enlace.target = '_blank';
+                enlace.rel = 'noopener';
+                enlace.textContent = 'Enlace de la reunión (Meet)';
+                if (atajos) atajos.appendChild(enlace);
+            }
+        });
+        this.mostrarEnDialogo(form);
+        fecha.focus();
+    }
+
+    // Todo el CRM a una hoja de Google Sheets (la misma hoja cada vez, en tu Drive)
+    async exportarSheets() {
+        const aviso = (texto, tipo) => { if (window.equipo) window.equipo.mostrarAviso(texto, tipo); };
+        aviso('Exportando el CRM a Google Sheets…');
+        const respuesta = await this.google.enviar('exportar', {}, true);
+        if (!respuesta || !respuesta.ok) return aviso((respuesta && respuesta.error) || 'No se pudo exportar. Revisa la conexión.', 'error');
+        const caja = document.createElement('div');
+        caja.className = 'dialogo-form';
+        caja.innerHTML = `
+            <h3 id="dialogo-titulo">CRM exportado a Google Sheets</h3>
+            <p class="dialogo-nota"></p>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary">Cerrar</button>
+                <a class="btn-primary enlace-reporte" target="_blank" rel="noopener">Abrir la hoja</a>
+            </div>`;
+        caja.querySelector('p').textContent = `${Object.entries(respuesta.filas || {}).map(([pestana, n]) => `${pestana}: ${n}`).join(' · ')}. Cada vez que exportes se actualiza la misma hoja, en tu Google Drive.`;
+        const abrir = caja.querySelector('a');
+        if (/^https:\/\/docs\.google\.com\//.test(respuesta.enlace || '')) abrir.href = respuesta.enlace;
+        else abrir.hidden = true;
+        caja.querySelector('button').addEventListener('click', () => this.dialogo.close());
+        this.mostrarEnDialogo(caja);
+        abrir.focus();
+    }
+
+    // Opción del menú de módulos (con el backend), junto al tema y a "Compartir la app"
+    crearOpcionExportar() {
+        const lista = document.getElementById('lista-modulos');
+        if (!lista || !(this.google && this.google.conBackend)) return;
+        const opcion = document.createElement('button');
+        opcion.type = 'button';
+        opcion.className = 'menu-extra';
+        opcion.textContent = 'Exportar el CRM a Google Sheets';
+        opcion.addEventListener('click', () => {
+            lista.hidden = true;
+            document.getElementById('btn-modulos').setAttribute('aria-expanded', 'false');
+            this.exportarSheets();
+        });
+        const referencia = document.getElementById('menu-tema');
+        if (referencia) referencia.before(opcion);
+        else lista.appendChild(opcion);
+    }
+
     abrirExpediente(clienteId, { enfocar = true } = {}) {
         const cliente = this.cliente(clienteId);
         if (!cliente) return;
@@ -728,8 +908,14 @@ class CRM {
             b.addEventListener('click', () => this.abrirFormulario(m, { clienteId }, () => this.abrirExpediente(clienteId)));
             atajos.appendChild(b);
         });
-        // Con el backend: reporte del cliente en PDF, desde la plantilla de Google Docs, guardado en Drive
+        // Con el backend: reunión con Meet (invitando al cliente por correo) y reporte en PDF en Drive
         if (this.google && this.google.conBackend) {
+            const reunion = document.createElement('button');
+            reunion.type = 'button';
+            reunion.className = 'btn-secondary';
+            reunion.textContent = 'Reunión con Meet';
+            reunion.addEventListener('click', () => this.abrirReunion(clienteId));
+            atajos.appendChild(reunion);
             const reporte = document.createElement('button');
             reporte.type = 'button';
             reporte.className = 'btn-secondary';
@@ -921,6 +1107,7 @@ class CRM {
                 if (campo.max !== undefined) control.max = campo.max;
                 if (campo.paso !== undefined) control.step = campo.paso;
                 if (campo.tipo === 'tel') control.inputMode = 'tel';
+                if (campo.tipo === 'email') control.inputMode = 'email';
                 if (campo.tipo === 'number') control.inputMode = campo.paso === 1 ? 'numeric' : 'decimal';
             }
             control.id = id;
@@ -1033,6 +1220,9 @@ class CRM {
             if (campo.tipo === 'tel' && valor !== '' && soloDigitos(valor).length < 10) {
                 return fallo(control, 'El número necesita al menos 10 dígitos, por ejemplo 809 555 1234.');
             }
+            if (campo.tipo === 'email' && valor !== '' && !/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(valor)) {
+                return fallo(control, 'Escribe un correo válido, por ejemplo cliente@ejemplo.com.');
+            }
         });
         if (modulo === 'agronomia') {
             const ini = form.elements.fechaInicio.value, fin = form.elements.fechaFin.value;
@@ -1073,9 +1263,10 @@ class CRM {
             window.alert('El navegador no permite guardar datos en este momento: el registro se perderá al cerrar la página.');
         }
 
-        // Cliente con próximo seguimiento: recordatorio en Google Calendar (9:00 a 9:30 de ese día)
+        // Cliente con próximo seguimiento: recordatorio en Google Calendar (9:00 a 9:30 de ese día).
+        // Con el backend, antes se mira si esa hora ya está ocupada (se agenda igual, pero se avisa)
         if (modulo === 'clientes' && registro.seguimiento && this.google) {
-            this.google.agendarCalendar({
+            const agendar = () => this.google.agendarCalendar({
                 titulo: `Seguimiento · ${registro.nombre}`,
                 inicio: fechaLocal(registro.seguimiento, 9).toISOString(),
                 fin: fechaLocal(registro.seguimiento, 9, 30).toISOString(),
@@ -1083,6 +1274,9 @@ class CRM {
                     registro.whatsapp && `WhatsApp ${registro.whatsapp}`, registro.marca, registro.responsable && `Registró: ${registro.responsable}`]
                     .filter(Boolean).join('\n')
             });
+            // Primero se mira (si no, se encontraría a sí mismo en el calendario) y luego se agenda
+            if (this.google.conBackend) this.avisarSiOcupado(fechaLocal(registro.seguimiento, 9), fechaLocal(registro.seguimiento, 9, 30), 'El seguimiento').finally(agendar);
+            else agendar();
         }
 
         // Procesos agronómicos: se agendan en Google Calendar (de 8:00 a 17:00 del último día)

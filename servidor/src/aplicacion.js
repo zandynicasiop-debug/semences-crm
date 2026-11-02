@@ -117,7 +117,7 @@ export function crearApp({ config, pool, google, avisos, registrar = console }) 
         res.json({
             ok: base === 'ok', servicio: 'Semences del Caribe · backend', base,
             integraciones: {
-                chat: avisos.chatActivo, whatsapp: avisos.whatsappActivo, push: avisos.pushActivo,
+                chat: avisos.chatActivo, whatsapp: avisos.whatsappActivo, whatsappClientes: avisos.whatsappClientesActivo, push: avisos.pushActivo,
                 reportes: Boolean(config.reportes.plantillaId)
             },
             colaAvisos: cola,
