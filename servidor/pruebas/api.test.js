@@ -25,7 +25,7 @@ function googleFalso() {
             if (!g.identidades[codigo]) throw new Error('invalid code');
             return g.identidades[codigo];
         },
-        urlAutorizacion: (estado) => `https://accounts.google.com/o/oauth2/v2/auth?state=${encodeURIComponent(estado)}`,
+        urlAutorizacion: (estado, opciones = {}) => { g.ultimaAutorizacion = opciones; return `https://accounts.google.com/o/oauth2/v2/auth?state=${encodeURIComponent(estado)}`; },
         enviarCorreo: async (token, alRenovar, crudo) => {
             if (g.fallo) throw g.fallo;
             g.llamadas.push({ tipo: 'correo', token, crudo });
@@ -94,6 +94,8 @@ for (const base of BASES) {
                 MYSQL_HOST: host, MYSQL_PUERTO: puerto, MYSQL_USUARIO: 'semences', MYSQL_CLAVE: 'prueba', MYSQL_BASE: 'semences_prueba',
                 GOOGLE_CLIENT_ID: 'id.apps.googleusercontent.com', GOOGLE_CLIENT_SECRET: 'secreto',
                 DOMINIO: 'semillasdata.com', ADMINS: 'jefa@gmail.com',
+                // Las pruebas de siempre, con el acceso cerrado; las cuentas personales (opción B) se prueban al final
+                CUENTAS_PERSONALES: 'no',
                 CLAVE_CIFRADO: crypto.randomBytes(32).toString('hex'),
                 ORIGENES: 'https://semillasdata.com', ENTRADAS_POR_MINUTO: '1000',
                 CHAT_WEBHOOK: 'https://chat.googleapis.com/v1/spaces/X/messages?key=k',
@@ -775,6 +777,51 @@ for (const base of BASES) {
             assert.equal(r.json.codigo, 'rechazado');
             await accion(sesiones.jefa, { accion: 'accesos', operacion: 'reabrir', email: 'tec@semillasdata.com' });
             assert.equal((await llamar('/api/yo', { metodo: 'GET', sesion: otra.json.sesion })).json.usuario.estado, 'pendiente');
+        });
+
+        test('cuentas personales (opción B): entran a la sala de espera y no ven nada hasta que un Master las aprueba', async () => {
+            const reto = 'b'.repeat(43);
+            // Apagadas: el botón de cuenta personal no sirve y quien no es del dominio no entra
+            assert.equal((await llamar(`/api/auth/google/inicio?reto=${reto}&cuenta=personal`, { metodo: 'GET' })).estado, 403);
+            assert.equal((await llamar(`/api/auth/google/inicio?reto=${reto}&cuenta=otra`, { metodo: 'GET' })).estado, 400);
+            assert.equal((await llamar(`/api/auth/google/inicio?reto=${reto}&cuenta=conectar`, { metodo: 'GET' })).estado, 302);
+            assert.equal(google.ultimaAutorizacion.cuenta, 'conectar');
+
+            config.google.cuentasPersonales = true;
+            try {
+                assert.equal((await llamar('/api/salud', { metodo: 'GET' })).json.acceso.cuentasPersonales, true);
+                assert.equal((await llamar(`/api/auth/google/inicio?reto=${reto}&cuenta=personal`, { metodo: 'GET' })).estado, 302);
+                assert.equal(google.ultimaAutorizacion.cuenta, 'personal');
+
+                // Cuenta de Gmail sin permisos de Workspace (sin token de refresco): entra, pero a la sala de espera
+                google.identidades['codigo-gmail'] = { email: 'Productor@gmail.com', verificado: true, dominio: '', nombre: 'Productor', foto: '', tokenRefresco: '', permisos: 'openid email profile' };
+                const r = await entrarComo('codigo-gmail');
+                assert.equal(r.estado, 200);
+                assert.equal(r.json.usuario.estado, 'pendiente');
+                assert.equal(r.json.usuario.tipoCuenta, 'personal');
+                assert.equal(r.json.usuario.googleConectado, false);
+                const productor = r.json.sesion;
+                assert.equal((await accion(productor, { accion: 'sincronizar' })).estado, 403);
+                assert.equal((await accion(productor, { accion: 'exportar' })).estado, 403);
+                assert.equal((await accion(productor, { accion: 'sala', telefono: '0414 123 4567' })).json.usuario.telefono, '584141234567');
+                // Sin el correo verificado, tampoco con la opción B
+                assert.match((await entrarComo('codigo-sinverificar')).error, /verificado/);
+
+                // El Master la ve marcada como cuenta personal y la aprueba como cualquier otra
+                const lista = await accion(sesiones.jefa, { accion: 'accesos', operacion: 'listar' });
+                assert.equal(lista.json.personas.find(p => p.email === 'productor@gmail.com').tipoCuenta, 'personal');
+                assert.equal(lista.json.personas.find(p => p.email === 'ana@semillasdata.com').tipoCuenta, 'empresa');
+                await accion(sesiones.jefa, { accion: 'accesos', operacion: 'aprobar', email: 'productor@gmail.com', cargo: 'vendedor', paises: ['VE'], casas: ['Fitó'] });
+                const datos = await accion(productor, { accion: 'sincronizar' });
+                assert.equal(datos.estado, 200);
+                assert.ok(datos.json.datos.clientes.every(c => c.pais === 'VE' && c.casa === 'Fitó'));
+                // Sin Gmail conectado, lo que usa Google pide conectarlo
+                const correo = await accion(productor, { accion: 'correo', para: 'x@y.com', asunto: 'Hola', texto: 'x' });
+                assert.equal(correo.estado, 403);
+                assert.equal(correo.json.codigo, 'google');
+            } finally {
+                config.google.cuentasPersonales = false;
+            }
         });
 
         test('salir cierra la sesión', async () => {

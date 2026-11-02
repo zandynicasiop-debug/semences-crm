@@ -202,7 +202,7 @@ class Responsable {
         this.crearDialogoGoogle();
         const sesion = this.sesion;
         if (!sesion) this.mostrarEntrada();
-        if (window.AndroidApp || navegadorIntegrado()) return; // Google no permite entrar desde aquí (ver el diálogo)
+        if (window.AppNativa || navegadorIntegrado()) return; // Google no permite entrar desde aquí (ver el diálogo)
         this.cargarGoogle().then(() => {
             google.accounts.id.initialize({
                 client_id: CONFIG_GOOGLE.clientId,
@@ -306,7 +306,7 @@ class Responsable {
                     <path d="M4 9a5 5 0 0 1 8 4 5 5 0 0 1-8-4"/><path d="M5 21h14"/>
                 </svg>
                 <h3 id="google-titulo">Entra con tu cuenta de Google</h3>
-                <p class="dialogo-nota">Usa tu cuenta del equipo de Semences del Caribe. Tu nombre y tu correo quedan en lo que registres, en el chat y en las cotizaciones.</p>
+                <p class="dialogo-nota entrada-texto">Usa tu cuenta del equipo de Semences del Caribe. Tu nombre y tu correo quedan en lo que registres, en el chat y en las cotizaciones.</p>
                 <div class="boton-google"></div>
                 <p class="form-error" role="alert" hidden></p>
             </div>`;
@@ -314,15 +314,23 @@ class Responsable {
         this.dialogoGoogle = dialogo;
         this.contenedorBoton = dialogo.querySelector('.boton-google');
         this.errorGoogle = dialogo.querySelector('.form-error');
-        if (this.conBackend && !(navegadorIntegrado() && !window.AndroidApp)) {
-            // Backend: Google se abre en su propia página (en la app Android, en Chrome) y vuelve aquí
+        if (this.conBackend && !(navegadorIntegrado() && !window.AppNativa)) {
+            // Backend: Google se abre en su propia página (en las apps, en el navegador del sistema) y vuelve aquí.
+            // Primero, la cuenta de la empresa; como opción B, una cuenta personal de Google (si el servidor la admite)
             const boton = document.createElement('button');
             boton.type = 'button';
             boton.className = 'btn-primary btn-entrar-google';
-            boton.textContent = 'Entrar con Google';
-            boton.addEventListener('click', () => this.irAGoogle());
-            this.contenedorBoton.appendChild(boton);
-        } else if (window.AndroidApp) {
+            boton.textContent = 'Entrar con la cuenta de la empresa';
+            boton.addEventListener('click', () => this.irAGoogle('empresa'));
+            const personal = document.createElement('button');
+            personal.type = 'button';
+            personal.className = 'btn-texto btn-entrar-personal';
+            personal.textContent = '¿No tienes cuenta de la empresa? Entra con tu cuenta personal de Google';
+            personal.hidden = true;
+            personal.addEventListener('click', () => this.irAGoogle('personal'));
+            this.contenedorBoton.append(boton, personal);
+            this.mostrarOpcionPersonal(dialogo, boton, personal);
+        } else if (window.AppNativa) {
             this.contenedorBoton.innerHTML = `<p class="dialogo-nota">Dentro de la app Android no se puede entrar con Google. Abre la dirección de la app en Chrome e instálala desde el menú de módulos › <b>Instalar la app en este dispositivo</b>.</p>`;
         } else if (navegadorIntegrado()) {
             // Enlace abierto desde Instagram, Facebook u otra app: Google bloquea el inicio de sesión ahí dentro
@@ -344,6 +352,16 @@ class Responsable {
         // Sin sesión no se entra: Escape no cierra (y si el navegador lo cierra igual, se vuelve a abrir)
         dialogo.addEventListener('cancel', (e) => e.preventDefault());
         dialogo.addEventListener('close', () => { if (!this.sesion) setTimeout(() => this.mostrarEntrada(this.errorGoogle.textContent)); });
+    }
+
+    // El servidor dice si admite cuentas personales y cuál es el dominio de la empresa (para el texto del botón)
+    async mostrarOpcionPersonal(dialogo, boton, personal) {
+        const salud = this.conector ? await this.conector.backend('/api/salud', null, 'GET') : null;
+        const acceso = (salud && salud.acceso) || {};
+        if (acceso.dominio) boton.textContent = `Entrar con tu cuenta @${acceso.dominio}`;
+        if (!acceso.cuentasPersonales) return;
+        personal.hidden = false;
+        dialogo.querySelector('.entrada-texto').textContent = `Usa preferiblemente tu cuenta de la empresa${acceso.dominio ? ` (@${acceso.dominio})` : ''}. Si no tienes, entra con tu cuenta personal de Google: un Master revisará tu solicitud antes de que veas los datos. Tu nombre y tu correo quedan en lo que registres, en el chat y en las cotizaciones.`;
     }
 
     // ----- Backend Node (solo con CONFIG_GOOGLE.api) -----
@@ -467,14 +485,21 @@ class Responsable {
         }
     }
 
-    // Lleva a la página de Google. Al volver, solo esta app puede canjear el código: tiene el secreto
-    async irAGoogle() {
+    /**
+     * Lleva a la página de Google. Al volver, solo esta app puede canjear el código: tiene el secreto.
+     * cuenta: 'empresa' (Workspace, con Gmail, Calendar y Drive), 'personal' (opción B: cualquier cuenta de
+     * Google, solo identidad) o 'conectar' (dar los permisos de Gmail, Calendar y Drive a la cuenta actual)
+     */
+    async irAGoogle(cuenta = 'empresa') {
         const verificador = aleatorioB64();
         try { localStorage.setItem(CLAVE_VERIFICADOR, verificador); } catch (e) { /* sin almacenamiento */ }
-        const parametros = new URLSearchParams({ reto: await retoDe(verificador) });
-        if (!window.AndroidApp) parametros.set('vuelta', location.origin + location.pathname);
-        // En la app Android, la dirección externa se abre en Chrome (MainActivity) y vuelve por semences://sesion
-        location.href = `${CONFIG_GOOGLE.api}/api/auth/google/inicio?${parametros}`;
+        const parametros = new URLSearchParams({ reto: await retoDe(verificador), cuenta });
+        if (!window.AppNativa) parametros.set('vuelta', location.origin + location.pathname);
+        // En las apps, Google se abre en el navegador del sistema y vuelve por semences://sesion: la app Android
+        // propia lo hace al navegar (MainActivity); Capacitor y Electron, con abrirExterno (nativo.js)
+        const url = `${CONFIG_GOOGLE.api}/api/auth/google/inicio?${parametros}`;
+        if (window.AppNativa && window.AppNativa.abrirExterno) window.AppNativa.abrirExterno(url);
+        else location.href = url;
     }
 
     // Web: Google vuelve a esta página con #google-codigo=… (o #google-error=…)
@@ -489,10 +514,11 @@ class Responsable {
         return true;
     }
 
+    // Apps (Android, iPhone, escritorio): la vuelta de Google llega por semences://sesion y la guarda la app
     recogerVueltaAndroid() {
-        if (!window.AndroidApp || !window.AndroidApp.tomarVueltaGoogle) return false;
+        if (!window.AppNativa || !window.AppNativa.tomarVueltaGoogle) return false;
         let vuelta = null;
-        try { vuelta = JSON.parse(window.AndroidApp.tomarVueltaGoogle() || 'null'); } catch (e) { /* nada pendiente */ }
+        try { vuelta = JSON.parse(window.AppNativa.tomarVueltaGoogle() || 'null'); } catch (e) { /* nada pendiente */ }
         if (!vuelta || (!vuelta.codigo && !vuelta.error)) return false;
         if (vuelta.error) this.mostrarEntrada(vuelta.error);
         else this.canjearCodigo(vuelta.codigo);
@@ -578,7 +604,7 @@ class Responsable {
         const telefono = dialogo.querySelector('#cuenta-telefono');
         const error = dialogo.querySelector('#cuenta-error');
         dialogo.querySelector('.cuenta-cancelar').addEventListener('click', () => dialogo.close());
-        dialogo.querySelector('.cuenta-reconectar').addEventListener('click', () => this.irAGoogle());
+        dialogo.querySelector('.cuenta-reconectar').addEventListener('click', () => this.irAGoogle('conectar'));
         dialogo.querySelector('.cuenta-push-boton').addEventListener('click', () => this.cambiarPush());
         const resumen = dialogo.querySelector('#cuenta-resumen');
         resumen.addEventListener('change', async () => {
@@ -622,8 +648,10 @@ class Responsable {
             d.querySelector('.cuenta-quien').textContent = `${sesion.nombre || ''} · ${sesion.email}${sesion.admin ? ' · administrador' : ''}`;
             d.querySelector('.cuenta-google').textContent = sesion.googleConectado
                 ? 'Google conectado: los correos, eventos, reuniones y reportes salen con tu cuenta.'
-                : 'Google no está conectado: para enviar correos, crear reuniones o reportes, vuelve a conectarlo.';
-            d.querySelector('.cuenta-reconectar').hidden = Boolean(sesion.googleConectado);
+                : 'Gmail, Calendar y Drive no están conectados: para enviar correos, crear reuniones o reportes, conéctalos.';
+            const reconectar = d.querySelector('.cuenta-reconectar');
+            reconectar.hidden = Boolean(sesion.googleConectado);
+            reconectar.textContent = sesion.tipoCuenta === 'personal' && !(sesion.permisos || []).length ? 'Conectar Gmail, Calendar y Drive' : 'Volver a conectar Google';
             d.querySelector('#cuenta-telefono').value = sesion.telefono || '';
             d.querySelector('#cuenta-resumen').checked = sesion.resumen !== false;
             d.querySelector('.cuenta-resumen').hidden = sesion.estado !== 'aprobado';
@@ -640,7 +668,7 @@ class Responsable {
 
     // ¿Puede este navegador recibir avisos push? En iPhone solo con la app en la pantalla de inicio
     get pushPosible() {
-        return !window.AndroidApp && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+        return !window.AppNativa && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
     }
 
     async suscripcionPush() {
@@ -660,8 +688,8 @@ class Responsable {
         caja.hidden = !this.clavePush;
         if (!this.clavePush) return;
         boton.hidden = false;
-        if (window.AndroidApp) {
-            estado.textContent = 'Los avisos push no funcionan dentro de la app Android. Ábrela en Chrome e instálala desde el menú de módulos para recibirlos, o usa WhatsApp.';
+        if (window.AppNativa) {
+            estado.textContent = 'Los avisos push del navegador no funcionan dentro de la app instalada. Para recibirlos con la app cerrada, deja tu WhatsApp aquí abajo, o abre la app en Chrome o Safari e instálala desde el menú de módulos.';
             boton.hidden = true;
         } else if (!this.pushPosible) {
             const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);

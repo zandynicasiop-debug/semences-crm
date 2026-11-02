@@ -126,6 +126,8 @@ export function crearApp({ config, pool, google, avisos, registrar = console }) 
                 reportes: Boolean(config.reportes.plantillaId)
             },
             colaAvisos: cola,
+            // Para la pantalla de entrada: el dominio de la empresa y si se admiten cuentas personales
+            acceso: { dominio: config.google.dominio, cuentasPersonales: config.google.cuentasPersonales },
             // Clave pública VAPID: la app la necesita para suscribirse a los avisos push (no es secreta)
             clavePush: avisos.clavePush,
             clientId: config.google.clientId
@@ -150,7 +152,13 @@ export function crearApp({ config, pool, google, avisos, registrar = console }) 
         if (!/^[\w-]{43}$/.test(reto)) return res.status(400).json({ ok: false, codigo: 'datos', error: 'Falta el reto de la app' });
         const vuelta = vueltaValida(String(req.query.vuelta || ''));
         if (vuelta === null) return res.status(400).json({ ok: false, codigo: 'datos', error: 'Página de vuelta no permitida' });
-        res.redirect(google.urlAutorizacion(firmarEstado(config, { reto, vuelta })));
+        // empresa (por defecto), personal (opción B) o conectar (dar permisos de Gmail, Calendar y Drive)
+        const cuenta = String(req.query.cuenta || 'empresa');
+        if (!['empresa', 'personal', 'conectar'].includes(cuenta)) return res.status(400).json({ ok: false, codigo: 'datos', error: 'Tipo de cuenta no válido' });
+        if (cuenta === 'personal' && !config.google.cuentasPersonales) {
+            return res.status(403).json({ ok: false, codigo: 'acceso', error: 'Solo se puede entrar con la cuenta de la empresa' });
+        }
+        res.redirect(google.urlAutorizacion(firmarEstado(config, { reto, vuelta }), { cuenta }));
     });
 
     api.get('/auth/google/vuelta', limiteEntrada, async (req, res) => {

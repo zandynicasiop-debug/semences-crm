@@ -6,7 +6,7 @@
  */
 class VentanaFlotante {
     constructor() {
-        this.soportada = 'documentPictureInPicture' in window && !window.AndroidApp &&
+        this.soportada = 'documentPictureInPicture' in window && !window.AppNativa &&
             window.matchMedia('(pointer: fine)').matches;
         this.ventana = null;
     }

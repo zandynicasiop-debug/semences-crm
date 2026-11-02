@@ -7,7 +7,7 @@
  * También añade "Compartir la app con el equipo": el menú de compartir del teléfono (WhatsApp, correo…)
  * o, en el ordenador, WhatsApp con el mensaje y el enlace ya escritos.
  */
-const EN_APK = Boolean(window.AndroidApp);
+const EN_APK = Boolean(window.AppNativa);
 const INSTALADA = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
 const ES_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 

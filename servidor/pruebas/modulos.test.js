@@ -13,7 +13,8 @@ import { esPasajero, conReintentos } from '../src/reintentos.js';
 import { destinatarios, construirCorreo } from '../src/correo.js';
 import { encolar } from '../src/cola.js';
 import * as db from '../src/db.js';
-import { cuentaAutorizada, publico, retoDe } from '../src/cuentas.js';
+import { cuentaAutorizada, publico, retoDe, tipoCuenta } from '../src/cuentas.js';
+import { opcionesAutorizacion, PERMISOS, PERMISOS_BASICOS } from '../src/google.js';
 import { germinacionDe, avisarGerminacionBaja, conGoogle, errorApp, ACCIONES } from '../src/acciones.js';
 import { cifrar } from '../src/cifrado.js';
 
@@ -524,6 +525,40 @@ describe('cuentas: quién puede entrar', () => {
         assert.equal(p.resumen, false);
         assert.equal(p.cargo, 'vendedor');
         assert.equal(p.admin, false);
+    });
+
+    test('opción B (CUENTAS_PERSONALES): cualquier cuenta de Google puede entrar, a la sala de espera', async () => {
+        const abierto = { google: { ...config.google, cuentasPersonales: true } };
+        assert.ok(await cuentaAutorizada(pool, abierto, 'productor@gmail.com', ''));
+        assert.ok(await cuentaAutorizada(pool, abierto, 'finca@hotmail.com', ''));
+        assert.equal(leerConfig({}).google.cuentasPersonales, true, 'por defecto, admitidas');
+        assert.equal(leerConfig({ CUENTAS_PERSONALES: 'no' }).google.cuentasPersonales, false);
+        assert.equal(leerConfig({ CUENTAS_PERSONALES: ' NO ' }).google.cuentasPersonales, false);
+        // Aunque entre, una cuenta nueva no ve nada sin la aprobación de un Master
+        assert.deepEqual(ambitoDe({ email: 'productor@gmail.com', estado: 'pendiente' }, abierto).modulos, []);
+    });
+
+    test('tipo de cuenta: empresa (dominio de Workspace) o personal', () => {
+        assert.equal(tipoCuenta(config, 'Ana@SemillasData.com'), 'empresa');
+        assert.equal(tipoCuenta(config, 'ana@gmail.com'), 'personal');
+        assert.equal(tipoCuenta(config, 'ana@semillasdata.com.evil.org'), 'personal');
+        assert.equal(tipoCuenta({ google: { dominio: '' } }, 'ana@semillasdata.com'), 'personal');
+    });
+
+    test('autorización de Google: empresa con todo, personal solo identidad, conectar para dar permisos', () => {
+        const empresa = opcionesAutorizacion('empresa', 'semillasdata.com');
+        assert.deepEqual(empresa.scope, PERMISOS);
+        assert.equal(empresa.hd, 'semillasdata.com', 'el selector de cuentas muestra las de la empresa');
+        assert.equal(empresa.access_type, 'offline');
+        assert.match(empresa.prompt, /consent/);
+        const personal = opcionesAutorizacion('personal', 'semillasdata.com');
+        assert.deepEqual(personal.scope, PERMISOS_BASICOS, 'sin permisos que exijan verificar la app');
+        assert.equal(personal.hd, undefined);
+        assert.equal(personal.access_type, 'online', 'sin token de refresco hasta que conecte Gmail, Calendar y Drive');
+        const conectar = opcionesAutorizacion('conectar', 'semillasdata.com');
+        assert.deepEqual(conectar.scope, PERMISOS);
+        assert.equal(conectar.hd, undefined, 'una cuenta personal también puede conectar sus servicios');
+        assert.equal(opcionesAutorizacion('empresa', '').hd, undefined);
     });
 
     test('reto PKCE: SHA-256 en base64url de 43 caracteres', () => {

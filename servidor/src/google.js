@@ -24,6 +24,22 @@ export const PERMISOS = [
     'https://www.googleapis.com/auth/documents'            // Rellenar la copia de la plantilla
 ];
 
+// Entrar con una cuenta personal: solo nombre, correo y foto. No necesitan verificación de Google, así que
+// cualquier cuenta puede entrar; Gmail, Calendar y Drive se conectan después, con "Conectar Google"
+export const PERMISOS_BASICOS = ['openid', 'email', 'profile'];
+
+/**
+ * Cómo se pide la autorización a Google según el botón que se pulsó:
+ * - empresa: la cuenta del Workspace (hd limita el selector a ese dominio) con todos los permisos de una vez.
+ * - personal: cualquier cuenta de Google, solo identidad (sin token de refresco: no hace falta todavía).
+ * - conectar: dar (o renovar) los permisos de Gmail, Calendar y Drive a la cuenta con la que se entró.
+ */
+export function opcionesAutorizacion(cuenta, dominio) {
+    if (cuenta === 'personal') return { scope: PERMISOS_BASICOS, access_type: 'online', prompt: 'select_account' };
+    if (cuenta === 'conectar') return { scope: PERMISOS, access_type: 'offline', prompt: 'consent' };
+    return { scope: PERMISOS, access_type: 'offline', prompt: 'consent select_account', hd: dominio || undefined };
+}
+
 // Carpeta del cliente dentro de la carpeta de reportes: la busca por su propiedad semencesCliente o la crea
 export async function carpetaDelCliente(unidad, raizId, { id, nombre }) {
     // id ya viene validado ([\w-]): se puede poner tal cual en la consulta de Drive
@@ -69,11 +85,10 @@ export function crearGoogle(config) {
     }
 
     return {
-        // Web y app Android: Google vuelve a esta dirección del backend. prompt=consent hace que Google dé
-        // siempre el token de refresco (sin él no se podrían usar Gmail, Calendar ni Drive después)
-        urlAutorizacion: (estado) => cliente(urlVuelta).generateAuthUrl({
-            access_type: 'offline', prompt: 'consent', include_granted_scopes: true,
-            scope: PERMISOS, state: estado, hd: config.google.dominio || undefined
+        // Web, apps móviles y de escritorio: Google vuelve a esta dirección del backend. Con prompt=consent
+        // Google da siempre el token de refresco (sin él no se podrían usar Gmail, Calendar ni Drive después)
+        urlAutorizacion: (estado, { cuenta = 'empresa' } = {}) => cliente(urlVuelta).generateAuthUrl({
+            ...opcionesAutorizacion(cuenta, config.google.dominio), include_granted_scopes: true, state: estado
         }),
         canjearCodigo: (codigo) => canjear(codigo, urlVuelta),
 

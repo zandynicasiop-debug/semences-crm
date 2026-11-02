@@ -425,7 +425,9 @@ class TableroEquipo {
             nombre.textContent = persona.nombre || persona.email;
             const detalle = document.createElement('span');
             const estado = persona.master ? 'Master' : { pendiente: persona.solicitado ? 'En la sala de espera' : 'Entró, sin pedir acceso todavía', aprobado: 'Aprobado', rechazado: 'Rechazado' }[persona.estado];
-            detalle.textContent = [persona.email, persona.telefono && `WhatsApp ${persona.telefono}`, estado].filter(Boolean).join(' · ');
+            // Cuenta personal de Google (opción B): se marca para que el Master lo tenga en cuenta al aprobar
+            const tipo = persona.tipoCuenta === 'personal' && !persona.master ? 'cuenta personal' : '';
+            detalle.textContent = [persona.email, tipo, persona.telefono && `WhatsApp ${persona.telefono}`, estado].filter(Boolean).join(' · ');
             textos.append(nombre, detalle);
             cab.append(this.avatar(persona), textos);
             li.appendChild(cab);

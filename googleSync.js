@@ -17,6 +17,12 @@
  * mismo que la propiedad TOKEN del Apps Script. Va en el código de la página, así que quien abra la app
  * puede verlo: frena envíos al azar; la protección de verdad es el inicio de sesión con Google.
  */
+// Contenedor nativo de la app, si lo hay: la app Android propia (window.AndroidApp, desde Java) o las apps de
+// Capacitor (Android, iPhone, iPad) y Electron (Windows, Mac), que lo crean en nativo.js. En el navegador: null.
+// Lo que puede hacer: tomarVueltaGoogle(), guardarArchivo(nombre, base64, tipo), actualizarWidget(json) y, en
+// Capacitor y Electron, abrirExterno(url) (Google no deja entrar desde dentro de una app: se abre el navegador)
+window.AppNativa = window.AppNativa || window.AndroidApp || null;
+
 const CONFIG_GOOGLE = {
     // Dirección del backend Node, sin barra final (p. ej. https://api.semillasdata.com). Al publicar, GitHub la
     // pone desde el secreto SEMENCES_API. Con ella se ignoran url y token y se entra con Google siempre.

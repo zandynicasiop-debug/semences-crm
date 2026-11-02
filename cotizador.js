@@ -196,8 +196,9 @@ class Cotizador {
     descargar() {
         const pdf = this.crearPdf();
         if (!pdf) return;
-        // En la app Android no hay descargas del navegador: el PDF se entrega a Android, que lo guarda en Descargas
-        if (window.AndroidApp) window.AndroidApp.guardarArchivo(pdf.archivo, pdf.doc.output('datauristring').split(',')[1], 'application/pdf');
+        // En las apps (Android, iPhone, escritorio) no hay descargas del navegador: el PDF se entrega a la app,
+        // que lo guarda en Descargas (Android), lo ofrece para compartir o guardar (iPhone) o pregunta dónde (escritorio)
+        if (window.AppNativa) window.AppNativa.guardarArchivo(pdf.archivo, pdf.doc.output('datauristring').split(',')[1], 'application/pdf');
         else pdf.doc.save(pdf.archivo);
     }
 

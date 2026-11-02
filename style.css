@@ -1265,7 +1265,17 @@ summary {
 
 .boton-google {
     display: flex;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sdc-espacio-2);
+    min-height: 44px;
+}
+
+/* Opción B: entrar con una cuenta personal de Google, debajo del botón principal (cuenta de la empresa) */
+.btn-entrar-personal {
+    max-width: 30ch;
+    text-align: center;
+    line-height: 1.35;
     min-height: 44px;
 }
 

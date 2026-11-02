@@ -19,14 +19,21 @@ const ahoraMas = (ms) => new Date(Date.now() + ms);
  */
 export async function cuentaAutorizada(pool, config, email, dominioCuenta) {
     const correo = String(email).toLowerCase();
-    const { dominio, admins } = config.google;
+    const { dominio, admins, cuentasPersonales } = config.google;
     if (dominio && String(dominioCuenta || '').toLowerCase() === dominio) return true;
+    // Opción B (CUENTAS_PERSONALES): cualquier cuenta de Google con el correo verificado puede entrar, pero
+    // solo a la sala de espera: sin la aprobación de un Master no ve ni toca nada (permisos.js)
+    if (cuentasPersonales) return true;
     if (admins.includes(correo)) return true;
     const [filas] = await pool.query('SELECT 1 FROM equipo WHERE email = ?', [correo]);
     return filas.length > 0;
 }
 
 export const esAdmin = (config, email) => config.google.admins.includes(String(email).toLowerCase());
+
+// "empresa" si el correo es del dominio de Workspace; "personal" si es otra cuenta de Google (Gmail…)
+export const tipoCuenta = (config, email) =>
+    (config.google.dominio && String(email).toLowerCase().endsWith(`@${config.google.dominio}`) ? 'empresa' : 'personal');
 
 // Crea o actualiza la persona. El token de Google solo se cambia si llega uno nuevo
 export async function guardarUsuario(pool, config, { email, nombre, foto, tokenRefresco, permisos }) {
@@ -140,6 +147,7 @@ export const publico = (usuario, config) => ({
     foto: usuario.foto,
     telefono: usuario.telefono,
     admin: esAdmin(config, usuario.email),
+    tipoCuenta: tipoCuenta(config, usuario.email),
     ...ambitoDe(usuario, config),
     solicitado: Boolean(usuario.solicitado),
     resumen: usuario.resumen_activo === undefined ? true : Boolean(Number(usuario.resumen_activo)),

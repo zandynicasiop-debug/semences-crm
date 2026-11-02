@@ -41,6 +41,9 @@ export function leerConfig(entorno = process.env) {
             clientSecret: entorno.GOOGLE_CLIENT_SECRET || '',
             // Cuentas que pueden entrar: todo el dominio de Workspace y, además, la tabla "equipo"
             dominio: String(entorno.DOMINIO || '').toLowerCase(),
+            // Opción B: cualquier cuenta personal de Google (Gmail…) también puede entrar. Como toda cuenta
+            // nueva, espera en la sala de espera hasta que un Master la aprueba. CUENTAS_PERSONALES=no la apaga
+            cuentasPersonales: !/^no$/i.test(String(entorno.CUENTAS_PERSONALES || '').trim()),
             // Quienes pueden gestionar el equipo desde la app
             admins: lista(entorno.ADMINS).map(c => c.toLowerCase())
         },
