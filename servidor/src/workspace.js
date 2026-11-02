@@ -5,8 +5,8 @@
  *   germinación, facturas o fotos de campo, en una carpeta por cliente dentro de DOCUMENTOS_CARPETA_ID.
  * - Drive · respaldo diario: todo el CRM en un JSON en RESPALDO_CARPETA_ID, con la cuenta del sistema; se
  *   conservan RESPALDO_CONSERVAR días.
- * - Calendar · agenda del CRM: los seguimientos de clientes, las tareas y los trasplantes del germinador de cada
- *   persona pasan a su Google Calendar como eventos de día completo. Es idempotente: cada evento lleva su clave
+ * - Calendar · agenda del CRM: los seguimientos de clientes, las tareas, los trasplantes del germinador y la llegada
+ *   estimada de los envíos (DHL y FedEx) de cada persona pasan a su Google Calendar como eventos de día completo. Es idempotente: cada evento lleva su clave
  *   (p. ej. "seguimiento:<id del cliente>") y sincronizar otra vez actualiza o borra, nunca duplica.
  * - Gmail · correos de aviso desde la cuenta del sistema (solicitudes de acceso, accesos aprobados, germinación
  *   baja), además de push y WhatsApp. Se envían en segundo plano: un fallo de Gmail no frena la acción.
@@ -74,6 +74,18 @@ export function eventosDeAgenda({ persona, ambito, datos, hoy, dias = DIAS_AGEND
             if (!l.id || !LOTE_ACTIVO(l) || !enRango(l.trasplante, hoy, hasta)) continue;
             eventos.push(deDia(`trasplante:${l.id}`, l.trasplante, `🌱 Trasplante · Lote ${l.lote || l.id}${l.variedad ? ` · ${l.variedad}` : ''}`,
                 [l.cliente && `Cliente: ${l.cliente}`, l.bandejas && `Bandejas: ${l.bandejas}`].filter(Boolean).join('\n') || 'Trasplante previsto', '2'));
+        }
+    }
+    // Envíos (DHL y FedEx) sin entregar, el día de su llegada estimada. Mismo criterio que el resumen de Borja:
+    // al vendedor, solo los de los clientes asignados a él
+    if (ambito.modulos.includes('envios') || (ambito.lectura || []).includes('envios')) {
+        const mios = new Set((datos.clientes || []).filter(c => c.asignado && esMio(c.asignado)).map(c => c.id));
+        for (const e of datos.envios || []) {
+            if (!e.id || e.estado === 'Entregado' || !enRango(e.eta, hoy, hasta)) continue;
+            if (ambito.cargo === 'vendedor' && !mios.has(e.clienteId)) continue;
+            const detalle = [e.estado && `Estado: ${e.estado}`, e.contenido && `Contenido: ${e.contenido}`,
+                e.semillasMiles && `${e.semillasMiles} mil semillas`, e.ubicacion && `Ubicación: ${e.ubicacion}`].filter(Boolean).join('\n');
+            eventos.push(deDia(`envio:${e.id}`, e.eta, `📦 Llega ${[e.transportista, e.guia].filter(Boolean).join(' ') || 'un envío'} · ${e.cliente || 'sin cliente'}`, detalle || 'Llegada estimada del envío', '9'));
         }
     }
     return eventos;

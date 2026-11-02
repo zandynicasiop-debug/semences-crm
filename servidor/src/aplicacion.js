@@ -243,7 +243,6 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
     app.use((req, res) => res.status(404).json({ ok: false, codigo: 'ruta', error: 'Ruta no encontrada' }));
 
     // Errores: los previstos se explican; los demás se registran y se responde sin detalles internos
-    // eslint-disable-next-line no-unused-vars
     app.use((error, req, res, next) => {
         if (error.type === 'entity.too.large') return res.status(413).json({ ok: false, codigo: 'datos', error: 'La petición pesa demasiado' });
         if (error.type === 'entity.parse.failed') return res.status(400).json({ ok: false, codigo: 'datos', error: 'El cuerpo no es JSON válido' });

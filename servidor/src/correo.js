@@ -6,7 +6,7 @@
  */
 import crypto from 'node:crypto';
 
-const CORREO = /^[^\s@<>(),;:"\[\]\\]+@[^\s@<>(),;:"\[\]\\]+\.[^\s@<>(),;:"\[\]\\]+$/;
+const CORREO = /^[^\s@<>(),;:"[\]\\]+@[^\s@<>(),;:"[\]\\]+\.[^\s@<>(),;:"[\]\\]+$/;
 const MAX_DESTINATARIOS = 20;
 const MAX_ADJUNTO = 7 * 1024 * 1024; // 7 MB de adjunto: Gmail acepta 25 MB, pero así la petición no pesa tanto
 

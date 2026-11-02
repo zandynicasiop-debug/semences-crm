@@ -589,7 +589,7 @@ class Responsable {
                 </div>
                 <label class="casilla cuenta-resumen"><input type="checkbox" id="cuenta-resumen"> <span>Recibir cada mañana el resumen de Borja: tu agenda, tus seguimientos y tus tareas del día</span></label>
                 <div class="cuenta-workspace" hidden>
-                    <p class="dialogo-nota">Tus seguimientos de clientes, tus tareas y los trasplantes pasan solos a tu Google Calendar cada mañana.</p>
+                    <p class="dialogo-nota">Tus seguimientos de clientes, tus tareas, los trasplantes y la llegada de los envíos pasan solos a tu Google Calendar cada mañana.</p>
                     <button type="button" class="btn-secondary cuenta-agenda">Pasar mi agenda a Google Calendar ahora</button>
                     <button type="button" class="btn-secondary cuenta-respaldo" hidden>Respaldar el CRM en Drive ahora</button>
                 </div>

@@ -811,6 +811,28 @@ describe('Google Workspace: agenda, documentos y avisos (workspace.js)', async (
         assert.ok(!eventosDeAgenda({ persona: ana, ambito: plantulador, datos, hoy }).some(e => e.clave.startsWith('seguimiento')));
     });
 
+    test('agenda: la llegada estimada de los envíos sin entregar (al vendedor, solo los de sus clientes)', () => {
+        const datos = {
+            clientes: [{ id: 'c1', nombre: 'Finca A', asignado: 'ana@semillasdata.com' }, { id: 'c2', nombre: 'Finca B', asignado: 'otra@semillasdata.com' }],
+            envios: [
+                { id: 'e1', clienteId: 'c1', cliente: 'Finca A', transportista: 'DHL', guia: 'JD0146', estado: 'En tránsito', eta: '2026-11-04', contenido: 'Tomate F1', semillasMiles: 50 },
+                { id: 'e2', clienteId: 'c2', cliente: 'Finca B', transportista: 'FedEx', guia: '7712', estado: 'En tránsito', eta: '2026-11-04' },
+                { id: 'e3', clienteId: 'c1', cliente: 'Finca A', transportista: 'DHL', guia: 'JD0999', estado: 'Entregado', eta: '2026-11-04' },
+                { id: 'e4', clienteId: 'c1', cliente: 'Finca A', transportista: 'DHL', guia: 'JD0777', estado: 'En tránsito', eta: '' }
+            ]
+        };
+        const todos = eventosDeAgenda({ persona: ana, ambito: todo, datos, hoy }).filter(e => e.clave.startsWith('envio:'));
+        assert.deepEqual(todos.map(e => e.clave).sort(), ['envio:e1', 'envio:e2']);
+        const llegada = todos.find(e => e.clave === 'envio:e1').evento;
+        assert.equal(llegada.summary, '📦 Llega DHL JD0146 · Finca A');
+        assert.deepEqual(llegada.start, { date: '2026-11-04' });
+        assert.match(llegada.description, /Tomate F1/);
+        const vendedora = ambitoDe({ email: 'ana@semillasdata.com', estado: 'aprobado', cargo: 'vendedor', paises: JSON.stringify(PAISES), casas: JSON.stringify(CASAS) }, CONFIG_BASE);
+        assert.deepEqual(eventosDeAgenda({ persona: ana, ambito: vendedora, datos, hoy }).filter(e => e.clave.startsWith('envio:')).map(e => e.clave), ['envio:e1']);
+        const tecnico = ambitoDe({ email: 't@x.com', estado: 'aprobado', cargo: 'tecnico', paises: JSON.stringify(PAISES), casas: JSON.stringify(CASAS) }, CONFIG_BASE);
+        assert.ok(!eventosDeAgenda({ persona: ana, ambito: tecnico, datos, hoy }).some(e => e.clave.startsWith('envio:')), 'el técnico no ve los envíos');
+    });
+
     test('plan de la agenda: crea lo nuevo, actualiza lo cambiado, borra lo que sobra y los duplicados', () => {
         const deseado = (clave, fecha, titulo = clave) => ({ clave, evento: { summary: titulo, description: 'd', start: { date: fecha } } });
         const existentes = [

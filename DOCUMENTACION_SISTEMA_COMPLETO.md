@@ -182,7 +182,7 @@ se cambia por uno simulado) y por `conGoogle()` (reintentos y reconexión, `src/
 | **Reportes PDF** (Docs + Drive) | Plantilla con `{{campos}}` → PDF en la carpeta del cliente | la de quien lo pide | botón *Reporte PDF en Drive* (`reporte`) |
 | **Respaldo del CRM** (Drive) | Todo el CRM en un JSON (`semences-crm-respaldo-AAAA-MM-DD-HHMM.json`) en `RESPALDO_CARPETA_ID`; borra los de más de `RESPALDO_CONSERVAR` días | la del sistema | cada día a `RESPALDO_HORA`; un Master, a mano (`respaldar`) |
 | **Exportar a Sheets** | Una pestaña por módulo, la misma hoja cada vez | la de quien exporta | menú › *Exportar el CRM* (`exportar`) |
-| **Agenda del CRM** (Calendar) | Seguimientos de clientes (míos o sin asignar), mis tareas y los trasplantes del germinador, de hoy a 60 días, como eventos de día completo que no marcan "ocupado". Cada evento lleva su clave privada: **sincronizar otra vez actualiza o borra, nunca duplica** | la de cada persona | cada mañana a las 6:00 (`AGENDA_AUTOMATICA`); a mano en *Cuenta* (`sincronizarAgenda`) |
+| **Agenda del CRM** (Calendar) | Seguimientos de clientes (míos o sin asignar), mis tareas, los trasplantes del germinador y la llegada estimada de los envíos de DHL y FedEx sin entregar (al vendedor, solo los de sus clientes, como en el resumen de Borja), de hoy a 60 días, como eventos de día completo que no marcan "ocupado". Cada evento lleva su clave privada: **sincronizar otra vez actualiza o borra, nunca duplica** | la de cada persona | cada mañana a las 6:00 (`AGENDA_AUTOMATICA`); a mano en *Cuenta* (`sincronizarAgenda`) |
 | **Reuniones** (Calendar + Meet) | Evento con Meet e invitación al cliente; aviso de horario ocupado | la de quien agenda | expediente del cliente, tablero |
 | **Correos** (Gmail) | Cotizaciones con el PDF adjunto | la de quien envía | cotizador (`correo`) |
 | **Correos de aviso** (Gmail) | Solicitud de acceso (a los Master), acceso aprobado (a la persona), germinación baja (al equipo técnico del lote). Uno por destinatario, en segundo plano | la del sistema | automático (`CORREOS_AVISOS`) |
@@ -420,7 +420,7 @@ Los cambios que solo tocan documentación (`.md`) no vuelven a compilar las apps
 | Grupo | Archivo | Pruebas |
 |---|---|---|
 | Backend completo contra MySQL/MariaDB | `servidor/pruebas/api.test.js` | 38 por base |
-| Unidades del backend | `servidor/pruebas/unidad.test.js` y `modulos.test.js` | 10 + 74 |
+| Unidades del backend | `servidor/pruebas/unidad.test.js` y `modulos.test.js` | 10 + 75 |
 | App web | `pruebas-web/web.test.js` | 21 |
 
 Comprobado además durante este trabajo:
