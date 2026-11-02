@@ -11,6 +11,7 @@ import { conectar } from '../src/db.js';
 import { crearAvisos } from '../src/avisos.js';
 import { crearApp } from '../src/aplicacion.js';
 import { repasar, INTENTOS } from '../src/cola.js';
+import { enviarResumenes } from '../src/resumen.js';
 
 const BASES = (process.env.PRUEBA_BASES || '127.0.0.1:33061,127.0.0.1:33062').split(',');
 
@@ -35,6 +36,10 @@ function googleFalso() {
             g.llamadas.push({ tipo: 'evento', token, evento, conMeet });
             alRenovar('token-renovado');
             return { id: 'evento-1', enlace: 'https://calendar.google.com/evento-1', meet: conMeet ? 'https://meet.google.com/abc-defg-hij' : '' };
+        },
+        eventos: async (token) => {
+            g.llamadas.push({ tipo: 'eventos', token });
+            return token === 'refresco-jefa' ? [{ inicio: '2026-11-03T14:00:00Z', titulo: 'Comité de la mañana', meet: 'https://meet.google.com/aaa-bbbb-ccc' }] : [];
         },
         ocupado: async (token, alRenovar, inicio, fin) => {
             g.llamadas.push({ tipo: 'ocupado', inicio, fin });
@@ -654,6 +659,51 @@ for (const base of BASES) {
             const cliente = (await accion(sesiones.luis, { accion: 'sincronizar' })).json.datos.clientes.find(c => c.id === 'rd-g');
             assert.deepEqual([cliente.asignado, cliente.asignadoNombre, cliente.telefono], ['luis@semillasdata.com', 'Luis', '809']);
             assert.match((await accion(sesiones.luis, { accion: 'bandeja' })).json.mensajes[0].texto, /Te pasó el cliente Finca RD Gautier: Llama mañana/);
+        });
+
+        test('resumen de la mañana: a su hora, una vez al día, solo con lo suyo y por su canal', async () => {
+            await pool.query('DELETE FROM cola_avisos');
+            await pool.query('UPDATE usuarios SET resumen_fecha = NULL, resumen_activo = 1');
+            // Que la jefa vuelva a tener Google conectado (una prueba anterior se lo quitó)
+            await entrarComo('codigo-jefa');
+            await accion(sesiones.ana, { accion: 'sincronizar', guardar: [
+                { modulo: 'clientes', registro: { id: 'rd-g', nombre: 'Finca RD Gautier', pais: 'RD', casa: 'Gautier Semences', seguimiento: '2026-11-03', asignado: 'luis@semillasdata.com', asignadoNombre: 'Luis' } },
+                { modulo: 'clientes', registro: { id: 've-g', nombre: 'Finca VE Gautier', pais: 'VE', casa: 'Gautier Semences', seguimiento: '2026-11-02' } },
+                { modulo: 'tareas', registro: { id: 't-luis', titulo: 'Llevar muestras', para: 'Luis', vence: '2026-11-03', prioridad: 'Alta' } }
+            ] });
+            // La jefa, sin WhatsApp ni push: el resumen le tiene que llegar por correo
+            await pool.query("UPDATE usuarios SET telefono = '' WHERE email = 'jefa@gmail.com'");
+            await pool.query("DELETE p FROM push_suscripciones p JOIN usuarios u ON u.id = p.usuario_id WHERE u.email = 'jefa@gmail.com'");
+            const ctx = { pool, config: { ...config, resumenHora: 7 }, google, avisos, registrar: { error: () => {} } };
+            // 6:59 en Santo Domingo (10:59 UTC): aún no
+            assert.equal((await enviarResumenes(ctx, new Date('2026-11-03T10:59:00Z'))).enviados, 0);
+            // 7:05
+            const r = await enviarResumenes(ctx, new Date('2026-11-03T11:05:00Z'));
+            const luis = r.personas.find(p => p.email === 'luis@semillasdata.com');
+            assert.equal(luis.canal, 'whatsapp'); // Tiene WhatsApp
+            const [[wa]] = await pool.query("SELECT texto FROM cola_avisos WHERE destino = '18295550202'");
+            assert.match(wa.texto, /Soy Borja.*Finca RD Gautier \(hoy\).*Llevar muestras \(vence hoy, prioridad alta\)/);
+            assert.ok(!wa.texto.includes('Finca VE Gautier')); // Venezuela no es de su ámbito
+            // La jefa: por correo, a sí misma, con su agenda de Google Calendar
+            assert.deepEqual(r.personas.find(p => p.email === 'jefa@gmail.com'), { email: 'jefa@gmail.com', canal: 'correo' });
+            const correo = Buffer.from(google.llamadas.filter(l => l.tipo === 'correo').at(-1).crudo, 'base64url').toString();
+            assert.match(correo, /^To: jefa@gmail.com/);
+            const cuerpo = Buffer.from(correo.split('\r\n\r\n')[1].replace(/\r\n/g, ''), 'base64').toString();
+            assert.match(cuerpo, /📅 Tu agenda de hoy\n• 10:00.*Comité de la mañana \(Meet: https:\/\/meet.google.com\/aaa-bbbb-ccc\)/);
+            assert.match(cuerpo, /Finca VE Gautier \(atrasado desde el 2\/11\)/); // La jefa lo ve todo
+            // Una sola vez al día, aunque se llame otra vez (o desde otro proceso)
+            assert.equal((await enviarResumenes(ctx, new Date('2026-11-03T12:00:00Z'))).enviados, 0);
+            // A las 12:00 local ya no sale lo de hoy (ventana de 5 horas)
+            await pool.query('UPDATE usuarios SET resumen_fecha = NULL');
+            assert.equal((await enviarResumenes(ctx, new Date('2026-11-03T16:30:00Z'))).enviados, 0);
+            // Quien lo desactiva no lo recibe
+            await accion(sesiones.luis, { accion: 'resumen', activo: false });
+            assert.equal((await llamar('/api/yo', { metodo: 'GET', sesion: sesiones.luis })).json.usuario.resumen, false);
+            const dia2 = await enviarResumenes(ctx, new Date('2026-11-04T11:10:00Z'));
+            assert.ok(!dia2.personas.some(p => p.email === 'luis@semillasdata.com'));
+            // Con RESUMEN_HORA=no no sale nada
+            await pool.query('UPDATE usuarios SET resumen_fecha = NULL, resumen_activo = 1');
+            assert.equal((await enviarResumenes({ ...ctx, config: { ...config, resumenHora: null } }, new Date('2026-11-05T11:10:00Z'))).enviados, 0);
         });
 
         test('rechazar a alguien lo saca: sesiones fuera y sin avisos', async () => {

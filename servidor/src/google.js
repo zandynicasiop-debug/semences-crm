@@ -97,6 +97,21 @@ export function crearGoogle(config) {
             return { id: r.data.id, enlace: r.data.htmlLink || '', meet };
         },
 
+        // Eventos del calendario de la persona entre inicio y fin (para el resumen de la mañana)
+        async eventos(tokenRefresco, alRenovar, inicio, fin) {
+            const servicio = calendar({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });
+            const r = await servicio.events.list({
+                calendarId: 'primary', timeMin: inicio.toISOString(), timeMax: fin.toISOString(),
+                singleEvents: true, orderBy: 'startTime', maxResults: 20
+            });
+            return (r.data.items || []).filter(e => e.status !== 'cancelled').map(e => ({
+                inicio: (e.start && (e.start.dateTime || e.start.date)) || '',
+                todoElDia: Boolean(e.start && e.start.date && !e.start.dateTime),
+                titulo: e.summary || '(sin título)',
+                meet: e.hangoutLink || ''
+            }));
+        },
+
         // Tramos ocupados del calendario de la persona entre inicio y fin: [{ inicio, fin }]
         async ocupado(tokenRefresco, alRenovar, inicio, fin) {
             const servicio = calendar({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });

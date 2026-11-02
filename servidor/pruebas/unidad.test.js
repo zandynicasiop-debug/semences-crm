@@ -81,3 +81,54 @@ test('reportes: la carpeta del cliente se busca por su id y se crea solo si falt
     assert.equal(await carpetaDelCliente(unidad([]), 'raiz1', { id: 'cli-18', nombre: 'Otra' }), 'carpeta-nueva');
     assert.deepEqual(pedido.at(-1)[1].requestBody, { name: 'Otra', mimeType: 'application/vnd.google-apps.folder', parents: ['raiz1'], appProperties: { semencesCliente: 'cli-18' } });
 });
+
+test('cifrado atado a la cuenta: el token de una persona no sirve en la fila de otra', () => {
+    const t = cifrar('1//refresco', CLAVE, 'google:ana@x.com');
+    assert.equal(descifrar(t, CLAVE, 'google:ana@x.com'), '1//refresco');
+    assert.throws(() => descifrar(t, CLAVE, 'google:luis@x.com'));
+    assert.throws(() => descifrar(t, CLAVE));
+});
+
+test('resumen: horas locales, secciones según el cargo y textos para cada canal', async () => {
+    const { enZona, inicioDelDia, componerResumen, textosResumen } = await import('../src/resumen.js');
+    assert.deepEqual(enZona(new Date('2026-11-03T11:05:00Z'), 'America/Santo_Domingo'), { fecha: '2026-11-03', hora: 7, minuto: 5 });
+    assert.deepEqual(enZona(new Date('2026-11-03T03:30:00Z'), 'America/Santo_Domingo'), { fecha: '2026-11-02', hora: 23, minuto: 30 });
+    assert.equal(inicioDelDia('2026-11-03', 'America/Santo_Domingo').toISOString(), '2026-11-03T04:00:00.000Z');
+    assert.equal(inicioDelDia('2026-07-01', 'Europe/Madrid').toISOString(), '2026-06-30T22:00:00.000Z'); // Con horario de verano
+
+    const datos = {
+        clientes: [
+            { id: 'a', nombre: 'Finca Hoy', seguimiento: '2026-11-03' },
+            { id: 'b', nombre: 'Finca Atrasada', seguimiento: '2026-10-30' },
+            { id: 'c', nombre: 'Finca Futura', seguimiento: '2026-11-10' },
+            { id: 'd', nombre: 'Finca de Otro', seguimiento: '2026-11-03', asignado: 'otro@x.com' }
+        ],
+        tareas: [
+            { titulo: 'Llevar muestras', para: 'Luis Vendedor', vence: '2026-11-03', prioridad: 'Alta' },
+            { titulo: 'Vieja', para: 'luis@x.com', vence: '2026-11-01' },
+            { titulo: 'Hecha', para: 'Luis Vendedor', vence: '2026-11-03', hecha: '2026-11-02' },
+            { titulo: 'De otro', para: 'Ana', vence: '2026-11-03' }
+        ],
+        agronomia: [{ proceso: 'Trasplante', cliente: 'Finca Hoy', lote: 'L1', fechaInicio: '2026-11-03' }]
+    };
+    const persona = { nombre: 'Luis Vendedor', email: 'luis@x.com' };
+    const vendedor = { modulos: ['clientes', 'visitas', 'tareas', 'mensajes', 'sitios'] };
+    const eventos = [{ inicio: '2026-11-03T13:30:00Z', titulo: 'Visita a Constanza', meet: '' }, { inicio: '2026-11-03', todoElDia: true, titulo: 'Feria' }];
+    const s = componerResumen({ persona, ambito: vendedor, datos, eventos, sinLeer: 2, hoy: '2026-11-03', zona: 'America/Santo_Domingo' });
+    assert.deepEqual(s.map(x => x.titulo), ['📅 Tu agenda de hoy', '🤝 Seguimientos de clientes', '📋 Tus tareas', '💬 Tablero del equipo']);
+    assert.match(s[0].lineas[0], /^9:30.*Visita a Constanza$/);
+    assert.equal(s[0].lineas[1], 'Todo el día · Feria');
+    assert.deepEqual(s[1].lineas, ['Finca Atrasada (atrasado desde el 30/10)', 'Finca Hoy (hoy)']);
+    assert.deepEqual(s[2].lineas, ['Vieja (vencida desde el 1/11)', 'Llevar muestras (vence hoy, prioridad alta)']);
+    // El técnico ve procesos y no seguimientos de clientes
+    const tecnico = componerResumen({ persona, ambito: { modulos: ['agronomia', 'rendimiento', 'visitas', 'tareas'] }, datos, hoy: '2026-11-03', zona: 'America/Santo_Domingo' });
+    assert.deepEqual(tecnico.map(x => x.titulo), ['📋 Tus tareas', '🌱 Procesos agronómicos de hoy']);
+    assert.equal(tecnico[1].lineas[0], 'Trasplante · Finca Hoy · L1 (empieza hoy)');
+    assert.deepEqual(componerResumen({ persona, ambito: vendedor, datos: {}, hoy: '2026-11-03', zona: 'America/Santo_Domingo' }), []);
+
+    const textos = textosResumen(s, persona, '2026-11-03');
+    assert.ok(!textos.whatsapp.includes('\n') && textos.whatsapp.length <= 1000);
+    assert.match(textos.whatsapp, /^☀️ Buenos días, Luis\. Soy Borja/);
+    assert.match(textos.correo.texto, /• Finca Hoy \(hoy\)/);
+    assert.equal(textos.correo.asunto, '☀️ Tu resumen de hoy (3/11) · Semences del Caribe');
+});

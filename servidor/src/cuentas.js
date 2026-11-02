@@ -25,7 +25,7 @@ export const esAdmin = (config, email) => config.google.admins.includes(String(e
 // Crea o actualiza la persona. El token de Google solo se cambia si llega uno nuevo
 export async function guardarUsuario(pool, config, { email, nombre, foto, tokenRefresco, permisos }) {
     const correo = String(email).toLowerCase();
-    const cifrado = tokenRefresco ? cifrar(tokenRefresco, config.claveCifrado) : null;
+    const cifrado = tokenRefresco ? cifrar(tokenRefresco, config.claveCifrado, contextoToken(correo)) : null;
     await pool.query(
         `INSERT INTO usuarios (email, nombre, foto, token_google, permisos_google, ultimo_acceso)
          VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP())
@@ -40,13 +40,16 @@ export async function guardarUsuario(pool, config, { email, nombre, foto, tokenR
     return filas[0];
 }
 
+// El token de Google de cada persona va cifrado y atado a su correo
+const contextoToken = (email) => `google:${String(email).toLowerCase()}`;
+
 export function tokenDe(usuario, config) {
-    return usuario.token_google ? descifrar(usuario.token_google, config.claveCifrado) : '';
+    return usuario.token_google ? descifrar(usuario.token_google, config.claveCifrado, contextoToken(usuario.email)) : '';
 }
 
 // Google cambió el token de refresco: se guarda el nuevo cifrado
-export async function actualizarToken(pool, config, usuarioId, tokenRefresco) {
-    await pool.query('UPDATE usuarios SET token_google = ? WHERE id = ?', [cifrar(tokenRefresco, config.claveCifrado), usuarioId]);
+export async function actualizarToken(pool, config, usuario, tokenRefresco) {
+    await pool.query('UPDATE usuarios SET token_google = ? WHERE id = ?', [cifrar(tokenRefresco, config.claveCifrado, contextoToken(usuario.email)), usuario.id]);
 }
 
 // Google ya no acepta el token (la persona quitó el permiso): se borra para pedirlo de nuevo
@@ -133,6 +136,7 @@ export const publico = (usuario, config) => ({
     admin: esAdmin(config, usuario.email),
     ...ambitoDe(usuario, config),
     solicitado: Boolean(usuario.solicitado),
+    resumen: usuario.resumen_activo === undefined ? true : Boolean(Number(usuario.resumen_activo)),
     googleConectado: Boolean(usuario.token_google),
     hojaExportacion: usuario.hoja_exportacion ? `https://docs.google.com/spreadsheets/d/${usuario.hoja_exportacion}/edit` : '',
     permisos: String(usuario.permisos_google || '').split(' ').filter(Boolean)

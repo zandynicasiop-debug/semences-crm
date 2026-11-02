@@ -28,6 +28,8 @@ const ESQUEMA = [
         aprobado_en DATETIME NULL,
         visto DATETIME NULL,
         presencia VARCHAR(20) NOT NULL DEFAULT 'disponible',
+        resumen_activo TINYINT(1) NOT NULL DEFAULT 1,
+        resumen_fecha DATE NULL,
         creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         ultimo_acceso DATETIME NULL
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,

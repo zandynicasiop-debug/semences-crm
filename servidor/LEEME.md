@@ -7,7 +7,7 @@ Reemplaza al Apps Script como base de datos y conecta la app con Google Workspac
 | Base de datos del CRM | MySQL/MariaDB del hosting. Una fila por registro (`registros`: módulo + id + JSON), como la hoja de antes |
 | Inicio de sesión | Google OAuth 2.0 con código; solo cuentas del `DOMINIO`, los `ADMINS` y la tabla `equipo` |
 | Sesiones | Valor aleatorio en `Authorization: Bearer`; en la base solo su huella SHA-256; 30 días |
-| Tokens de Google | Token de refresco cifrado con AES-256-GCM (`CLAVE_CIFRADO`) |
+| Tokens de Google | Token de refresco cifrado con AES-256-GCM (`CLAVE_CIFRADO`) y atado a la cuenta de su dueño (AAD): copiado a la fila de otra persona, no se descifra |
 | Gmail | Correos desde la cuenta de cada quien (cotización con el PDF adjunto). Solo se envían: el backend no puede leer el correo de nadie |
 | Calendar y Meet | Eventos en el calendario de cada quien; reuniones con enlace real de Meet. Desde la ficha del cliente, **Reunión con Meet** invita al cliente por correo (invitación de Google) |
 | Horario ocupado | Antes de agendar una reunión o un seguimiento, avisa si ya hay algo a esa hora (solo mira ocupado/libre, no qué hay); no impide agendar |
@@ -140,6 +140,18 @@ Menú › **Tablero del equipo**: las fotos de Google del equipo aprobado con su
 - **Pasarle un cliente:** queda asignado a esa persona (columna "Asignado a"). Solo si su cargo, país y casa le dejan verlo.
 - **Asignarle una tarea:** se crea en Tareas, a su nombre, y se le avisa.
 
+## Resumen de la mañana ("Borja")
+
+Cada mañana a las 7:00 (hora de Santo Domingo, que es también la de Caracas; se cambia con `RESUMEN_HORA`, o `no` para apagarlo), cada persona aprobada recibe **su** resumen:
+
+- su agenda de hoy en Google Calendar (con los enlaces de Meet);
+- los seguimientos de clientes de hoy o atrasados (no los asignados a otra persona);
+- sus tareas que vencen hoy o ya vencieron;
+- los procesos agronómicos que empiezan o terminan hoy (técnicos y administrativos);
+- sus mensajes sin leer del tablero.
+
+Es privado: se arma con el mismo filtro de cargo, país y casa comercial que la app, y le llega solo a esa persona por WhatsApp y push (si no tiene ninguno, por correo a sí misma desde su Gmail). Si no hay nada que contar, no se envía. Sale una vez al día por persona aunque haya varios procesos del servidor. Si a las 7:00 el servidor estaba dormido (Passenger), sale en cuanto despierta, hasta las 12:00; el Cron de cPanel que llama a `/api/salud` cada 5 minutos lo mantiene despierto. Cada quien puede dejar de recibirlo en menú › **Cuenta**.
+
 ## Equipo y acceso
 
 - Pueden entrar todas las cuentas de `DOMINIO`, los correos de `ADMINS` y los de la tabla `equipo`.
@@ -155,4 +167,4 @@ Menú › **Tablero del equipo**: las fotos de Google del equipo aprobado con su
 | `GET /api/auth/google/vuelta` | Google vuelve aquí; redirige a la app con un código de un solo uso (2 min) |
 | `POST /api/auth/canjear` | `{ codigo, verificador }` → `{ sesion, usuario }` |
 | `GET /api/yo` · `POST /api/salir` | La persona de la sesión · cerrar sesión |
-| `POST /api/accion` | `{ accion, … }`: `sincronizar`, `crm`, `sheets`, `chat`, `avisar`, `calendar` (con `invitados`, `conMeet`, `whatsapp`), `disponibilidad`, `meet`, `correo` (con `whatsapp`), `reporte`, `exportar`, `push`, `telefono`, `equipo`, `sala`, `accesos`, `presencia`, `directo`, `bandeja`, `pasarCliente`. Sin aprobar solo se admiten `sala`, `telefono` y `push` |
+| `POST /api/accion` | `{ accion, … }`: `sincronizar`, `crm`, `sheets`, `chat`, `avisar`, `calendar` (con `invitados`, `conMeet`, `whatsapp`), `disponibilidad`, `meet`, `correo` (con `whatsapp`), `reporte`, `exportar`, `push`, `telefono`, `equipo`, `sala`, `accesos`, `presencia`, `directo`, `bandeja`, `pasarCliente`, `resumen`. Sin aprobar solo se admiten `sala`, `telefono` y `push` |

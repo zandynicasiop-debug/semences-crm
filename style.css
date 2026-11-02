@@ -2599,3 +2599,7 @@ body.ventana-flotante {
     border: 1px solid var(--ui-borde);
     border-radius: var(--sdc-radio-sm);
 }
+
+.casilla[hidden] {
+    display: none;
+}

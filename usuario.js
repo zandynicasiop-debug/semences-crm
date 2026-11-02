@@ -561,6 +561,7 @@ class Responsable {
                     <p class="dialogo-nota cuenta-push-estado" aria-live="polite"></p>
                     <button type="button" class="btn-secondary cuenta-push-boton"></button>
                 </div>
+                <label class="casilla cuenta-resumen"><input type="checkbox" id="cuenta-resumen"> <span>Recibir cada mañana el resumen de Borja: tu agenda, tus seguimientos y tus tareas del día</span></label>
                 <div class="form-group">
                     <label for="cuenta-telefono">Tu WhatsApp para los avisos del equipo (opcional)</label>
                     <input id="cuenta-telefono" type="tel" autocomplete="tel" inputmode="tel" placeholder="809 555 1234" aria-describedby="cuenta-error">
@@ -579,6 +580,19 @@ class Responsable {
         dialogo.querySelector('.cuenta-cancelar').addEventListener('click', () => dialogo.close());
         dialogo.querySelector('.cuenta-reconectar').addEventListener('click', () => this.irAGoogle());
         dialogo.querySelector('.cuenta-push-boton').addEventListener('click', () => this.cambiarPush());
+        const resumen = dialogo.querySelector('#cuenta-resumen');
+        resumen.addEventListener('change', async () => {
+            resumen.disabled = true;
+            const respuesta = await this.conector.backend('/api/accion', { accion: 'resumen', activo: resumen.checked });
+            resumen.disabled = false;
+            if (!respuesta || !respuesta.ok) {
+                resumen.checked = !resumen.checked;
+                if (window.equipo) window.equipo.mostrarAviso((respuesta && respuesta.error) || 'No se pudo guardar. Revisa la conexión.', 'error');
+                return;
+            }
+            this.guardarSesion({ ...this.sesion, ...respuesta.usuario });
+            if (window.equipo) window.equipo.mostrarAviso(resumen.checked ? 'Recibirás el resumen cada mañana.' : 'Ya no recibirás el resumen de la mañana.');
+        });
         dialogo.querySelector('.cuenta-salir').addEventListener('click', async () => {
             dialogo.close();
             await this.quitarPush(); // Los avisos de este dispositivo eran de esta cuenta
@@ -611,6 +625,8 @@ class Responsable {
                 : 'Google no está conectado: para enviar correos, crear reuniones o reportes, vuelve a conectarlo.';
             d.querySelector('.cuenta-reconectar').hidden = Boolean(sesion.googleConectado);
             d.querySelector('#cuenta-telefono').value = sesion.telefono || '';
+            d.querySelector('#cuenta-resumen').checked = sesion.resumen !== false;
+            d.querySelector('.cuenta-resumen').hidden = sesion.estado !== 'aprobado';
             d.querySelector('#cuenta-error').hidden = true;
         };
         pintarCuenta(this.sesion || {});

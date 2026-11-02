@@ -32,10 +32,10 @@ function fecha(texto, nombre) {
 }
 
 // Llamada a Google con la cuenta de la persona: reintenta lo pasajero y avisa si hay que volver a autorizar
-async function conGoogle({ pool, config, usuario }, tarea) {
+export async function conGoogle({ pool, config, usuario }, tarea) {
     const token = tokenDe(usuario, config);
     if (!token) throw errorApp('Conecta tu cuenta de Google para usar esta función', 403, 'google');
-    const alRenovar = (nuevo) => actualizarToken(pool, config, usuario.id, nuevo).catch(() => {});
+    const alRenovar = (nuevo) => actualizarToken(pool, config, usuario, nuevo).catch(() => {});
     try {
         return await conReintentos(() => tarea(token, alRenovar));
     } catch (error) {
@@ -254,6 +254,13 @@ export const ACCIONES = {
         }
         if (datos.operacion === 'consultar') return { ok: true, activo: await tieneSuscripcion(pool, usuario.id, endpoint) };
         throw errorApp('Operación desconocida (alta, baja o consultar)');
+    },
+
+    // Recibir o no el resumen de la mañana ({ activo: true | false })
+    async resumen(datos, { pool, usuario, config }) {
+        const activo = datos.activo !== false;
+        await pool.query('UPDATE usuarios SET resumen_activo = ? WHERE id = ?', [activo ? 1 : 0, usuario.id]);
+        return { ok: true, usuario: publico({ ...usuario, resumen_activo: activo ? 1 : 0 }, config) };
     },
 
     // Mi número de WhatsApp para recibir los avisos ('' para dejar de recibirlos)
