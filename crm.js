@@ -850,13 +850,19 @@ class CRM {
                 error.hidden = false;
                 return;
             }
+            // La próxima reunión queda en la ficha del cliente (si la persona puede editar clientes)
+            const ambito = ambitoCRM();
+            if (!ambito || ambito.modulos.includes('clientes')) {
+                this.db.guardar('clientes', { ...this.cliente(clienteId), proximaReunion: tramo.inicio.toISOString(), reunionMeet: respuesta.meetUrl || '' });
+            }
             this.abrirExpediente(clienteId);
             if (window.equipo) {
                 window.equipo.mostrarAviso(conInvitacion
                     ? `Reunión agendada. Google envió la invitación a ${cliente.correo}${respuesta.avisoWhatsapp ? ' y se le avisa por WhatsApp' : ''}.`
                     : 'Reunión agendada en tu calendario.');
             }
-            if (respuesta.meetUrl && /^https:\/\/meet\.google\.com\//.test(respuesta.meetUrl)) {
+            // Sin permiso para editar clientes el enlace no queda en la ficha: se muestra junto a los atajos
+            if (ambito && !ambito.modulos.includes('clientes') && /^https:\/\/meet\.google\.com\//.test(respuesta.meetUrl || '')) {
                 const atajos = this.dialogo.querySelector('.expediente-atajos');
                 const enlace = document.createElement('a');
                 enlace.className = 'btn-secondary enlace-reporte';
@@ -928,8 +934,23 @@ class CRM {
         const datos = document.createElement('p');
         datos.className = 'expediente-datos';
         datos.textContent = [cliente.ubicacion, cliente.telefono && `Tel. ${cliente.telefono}`, cliente.whatsapp && `WhatsApp ${cliente.whatsapp}`,
-            cliente.marca, cliente.seguimiento && `Próximo seguimiento: ${formatearFecha(cliente.seguimiento)}`]
+            cliente.correo, cliente.marca, cliente.seguimiento && `Próximo seguimiento: ${formatearFecha(cliente.seguimiento)}`]
             .filter(Boolean).join(' · ') || 'Sin datos de contacto';
+        // Próxima reunión agendada desde aquí (solo si aún no pasó), con su enlace de Meet
+        const reunion = cliente.proximaReunion && new Date(cliente.proximaReunion);
+        const proxima = reunion && !Number.isNaN(reunion.getTime()) && reunion.getTime() > Date.now() - 3600000 ? document.createElement('p') : null;
+        if (proxima) {
+            proxima.className = 'expediente-datos';
+            proxima.textContent = `Próxima reunión: ${reunion.toLocaleString('es-DO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' })}`;
+            if (/^https:\/\/meet\.google\.com\//.test(cliente.reunionMeet || '')) {
+                const a = document.createElement('a');
+                a.href = cliente.reunionMeet;
+                a.target = '_blank';
+                a.rel = 'noopener';
+                a.textContent = ' · Unirse a Meet';
+                proxima.appendChild(a);
+            }
+        }
         const cerrar = document.createElement('button');
         cerrar.type = 'button';
         cerrar.className = 'btn-texto';
@@ -937,6 +958,7 @@ class CRM {
         cerrar.addEventListener('click', () => this.dialogo.close());
         const textos = document.createElement('div');
         textos.append(titulo, datos);
+        if (proxima) textos.appendChild(proxima);
         cab.append(textos, cerrar);
         caja.appendChild(cab);
 

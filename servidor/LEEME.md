@@ -85,6 +85,8 @@ gh workflow run publicar.yml
 ### Google Chat
 En el espacio del equipo: nombre del espacio › Apps e integraciones › Webhooks › Añadir. La URL va en `CHAT_WEBHOOK`.
 
+Los avisos llegan como **tarjetas**: la primera línea es el título, el resto el texto, y llevan botones para **unirse al Meet** (si el aviso trae un enlace de Meet) y **abrir la app** (`URL_APP`, por defecto el primer origen de `ORIGENES`). El texto de cada persona va escapado: no puede colar formato ni enlaces en la tarjeta. Con `CHAT_TARJETAS=no` vuelven a ser texto simple.
+
 ### Reportes PDF
 1. Crea en Google Docs la plantilla del reporte de cliente con estos textos donde quieras cada dato: `{{cliente}}`, `{{ubicacion}}`, `{{telefono}}`, `{{whatsapp}}`, `{{marca}}`, `{{seguimiento}}`, `{{fecha}}`, `{{responsable}}`, `{{procesos}}`, `{{visitas}}`, `{{rendimientos}}`.
 2. Compártela con el equipo (lector basta) y crea una carpeta de Drive compartida para los PDF (editor).

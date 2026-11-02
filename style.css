@@ -2603,3 +2603,7 @@ body.ventana-flotante {
 .casilla[hidden] {
     display: none;
 }
+
+.expediente-datos a {
+    color: var(--ui-enlace);
+}

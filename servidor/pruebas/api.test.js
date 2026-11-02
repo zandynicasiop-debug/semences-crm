@@ -368,7 +368,11 @@ for (const base of BASES) {
             assert.deepEqual(r.json.whatsapp, { encolados: 2 });
             assert.deepEqual(r.json.push, { encolados: 0 });
             const chat = peticionesMeta.find(p => p.destino.startsWith('https://chat.googleapis.com'));
-            assert.equal(chat.cuerpo.text, '🚨 Plaga en\nparcela 3');
+            assert.equal(chat.cuerpo.fallbackText, '🚨 Plaga en\nparcela 3');
+            const tarjeta = chat.cuerpo.cardsV2[0].card;
+            assert.equal(tarjeta.header.title, '🚨 Plaga en');
+            assert.equal(tarjeta.sections[0].widgets[0].textParagraph.text, 'parcela 3');
+            assert.deepEqual(tarjeta.sections[0].widgets[1].buttonList.buttons.map(b => [b.text, b.onClick.openLink.url]), [['Abrir la app', 'https://semillasdata.com']]);
             // WhatsApp no sale en la petición: sale de la cola
             assert.equal(peticionesMeta.filter(p => p.destino.startsWith('https://graph.facebook.com')).length, 0);
 

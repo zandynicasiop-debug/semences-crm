@@ -50,7 +50,8 @@ export function crearAvisos(config, hacerFetch = fetch, enviarPush = webpush.sen
             if (!config.chatWebhook) throw new Error('Google Chat no está configurado (CHAT_WEBHOOK)');
             const texto = String(mensaje || '').trim();
             if (!texto) throw new Error('Mensaje vacío');
-            await conReintentos(() => enviarJson(config.chatWebhook, { text: texto.slice(0, 4000) }, {}, hacerFetch));
+            const cuerpo = config.chatTarjetas ? tarjetaChat(texto, config.urlApp) : { text: texto.slice(0, 4000) };
+            await conReintentos(() => enviarJson(config.chatWebhook, cuerpo, {}, hacerFetch));
         },
 
         whatsappClientesActivo: whatsappActivo && Boolean(whatsapp.plantillaClientes),
@@ -74,6 +75,38 @@ export function crearAvisos(config, hacerFetch = fetch, enviarPush = webpush.sen
                 }
             }, { Authorization: `Bearer ${whatsapp.token}` }, hacerFetch);
         }
+    };
+}
+
+// Texto para una tarjeta de Google Chat: solo se permite un poco de HTML, así que lo de la persona se escapa
+const escaparHtml = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/**
+ * Mensaje de Google Chat como tarjeta (Cards v2): la primera línea es el título, el resto el texto, y
+ * con botones para unirse al Meet (si el aviso trae un enlace de Meet) y para abrir la app.
+ * fallbackText es lo que se ve en la notificación del teléfono.
+ */
+export function tarjetaChat(texto, urlApp) {
+    const [titulo, ...resto] = texto.split('\n');
+    const meet = (texto.match(/https:\/\/meet\.google\.com\/[a-z0-9-]+/i) || [])[0];
+    const cuerpo = resto.join('\n').replace(meet || '\u0000', '').trim();
+    const botones = [
+        meet && { text: '🎥 Unirse a Meet', onClick: { openLink: { url: meet } } },
+        urlApp && { text: 'Abrir la app', onClick: { openLink: { url: urlApp } } }
+    ].filter(Boolean);
+    const widgets = [
+        cuerpo && { textParagraph: { text: escaparHtml(cuerpo.slice(0, 3000)).replace(/\n/g, '<br>') } },
+        botones.length && { buttonList: { buttons: botones } }
+    ].filter(Boolean);
+    return {
+        fallbackText: texto.slice(0, 300),
+        cardsV2: [{
+            cardId: `semences-${Date.now().toString(36)}`,
+            card: {
+                header: { title: titulo.slice(0, 200), subtitle: 'Semences del Caribe' },
+                sections: widgets.length ? [{ widgets }] : []
+            }
+        }]
     };
 }
 

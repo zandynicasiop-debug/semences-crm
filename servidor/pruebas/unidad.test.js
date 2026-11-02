@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { cifrar, descifrar } from '../src/cifrado.js';
 import { construirCorreo } from '../src/correo.js';
-import { normalizarTelefono } from '../src/avisos.js';
+import { normalizarTelefono, tarjetaChat } from '../src/avisos.js';
 import { esPasajero, conReintentos, conVariacion } from '../src/reintentos.js';
 
 const CLAVE = crypto.randomBytes(32).toString('hex');
@@ -145,4 +145,17 @@ test('resumen: horas locales, secciones según el cargo y textos para cada canal
     assert.deepEqual(admin.at(-1), { clave: 'equipo', titulo: '📊 Consolidado del equipo', lineas: ['1 seguimiento de clientes atrasado', '1 tarea vencida en el equipo', '1 proceso agronómico hoy', '3 clientes sin asignar'] });
     const { textoAlcance } = await import('../src/resumen.js');
     assert.equal(textoAlcance({ cargo: 'master', paises: ['RD', 'VE'], casas: ['Gautier Semences', 'Hexagon Seeds', 'Genome Seeds', 'Fitó'] }), 'Master · RD y Venezuela · todas las casas');
+});
+
+test('Google Chat: tarjeta con botón de Meet y el texto de la persona escapado', () => {
+    const t = tarjetaChat('📹 Ana abrió una videollamada\n<b>Hola</b> & bienvenidos\nhttps://meet.google.com/abc-defg-hij', 'https://semillasdata.com');
+    const card = t.cardsV2[0].card;
+    assert.equal(card.header.title, '📹 Ana abrió una videollamada');
+    assert.equal(card.sections[0].widgets[0].textParagraph.text, '&lt;b&gt;Hola&lt;/b&gt; &amp; bienvenidos');
+    assert.deepEqual(card.sections[0].widgets[1].buttonList.buttons.map(b => [b.text, b.onClick.openLink.url]),
+        [['🎥 Unirse a Meet', 'https://meet.google.com/abc-defg-hij'], ['Abrir la app', 'https://semillasdata.com']]);
+    // Un título suelto, sin app configurada: tarjeta sin secciones
+    assert.deepEqual(tarjetaChat('Solo título', '').cardsV2[0].card.sections, []);
+    // Un enlace que no es de Meet no se convierte en botón
+    assert.equal(tarjetaChat('Aviso\nhttps://meet.google.com.malvado.com/x', '').cardsV2[0].card.sections[0].widgets.length, 1);
 });

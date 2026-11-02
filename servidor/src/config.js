@@ -15,6 +15,8 @@ export function leerConfig(entorno = process.env) {
         urlPublica: String(entorno.URL_PUBLICA || '').replace(/\/+$/, ''),
         // Páginas que pueden llamar al backend: la web, GitHub Pages y la app Android
         origenes: lista(entorno.ORIGENES || 'https://semillasdata.com,https://zandynicasiop-debug.github.io,https://appassets.androidplatform.net'),
+        // Dirección de la app para el botón "Abrir la app" de los avisos (por defecto, el primer origen)
+        urlApp: entorno.URL_APP || lista(entorno.ORIGENES || 'https://semillasdata.com')[0] || '',
 
         mysql: {
             host: entorno.MYSQL_HOST || 'localhost',
@@ -45,6 +47,8 @@ export function leerConfig(entorno = process.env) {
         resumenHora: /^no$/i.test(entorno.RESUMEN_HORA || '') ? null : Math.min(23, Math.max(0, Number(entorno.RESUMEN_HORA ?? 7) || 0)),
 
         chatWebhook: entorno.CHAT_WEBHOOK || '',
+        // Avisos de Google Chat como tarjetas con botones (CHAT_TARJETAS=no para texto simple)
+        chatTarjetas: !/^no$/i.test(entorno.CHAT_TARJETAS || ''),
 
         reportes: {
             plantillaId: entorno.REPORTE_PLANTILLA_ID || '',
