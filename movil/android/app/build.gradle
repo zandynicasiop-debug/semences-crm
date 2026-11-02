@@ -1,5 +1,10 @@
 apply plugin: 'com.android.application'
 
+// 200 = 2.0.0. Mayor que la app Android anterior (versionCode 6): se instala encima, como actualización.
+// GitHub Actions lo sube en cada compilación con VERSION_CODE (200 + número de la ejecución)
+def codigoVersion = (System.getenv("VERSION_CODE") ?: "200").toInteger()
+def nombreVersion = System.getenv("VERSION_NAME") ?: "2.0.0"
+
 android {
     namespace = "com.semencesdelcaribe.crm"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,10 +12,8 @@ android {
         applicationId "com.semencesdelcaribe.crm"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 200 = 2.0.0. Mayor que la app Android anterior (versionCode 6): se instala encima, como actualización.
-        // GitHub Actions lo sube en cada compilación con VERSION_CODE (el número de la ejecución)
-        versionCode (System.getenv("VERSION_CODE") ?: "200") as Integer
-        versionName System.getenv("VERSION_NAME") ?: "2.0.0"
+        versionCode codigoVersion
+        versionName nombreVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -25,9 +28,10 @@ android {
         release {
             def almacen = System.getenv("SEMENCES_ALMACEN")
             if (almacen) {
+                def alias = System.getenv("SEMENCES_ALIAS") ?: "semences"
                 storeFile file(almacen)
                 storePassword System.getenv("SEMENCES_CLAVE")
-                keyAlias System.getenv("SEMENCES_ALIAS") ?: "semences"
+                keyAlias alias
                 keyPassword System.getenv("SEMENCES_CLAVE")
             }
         }

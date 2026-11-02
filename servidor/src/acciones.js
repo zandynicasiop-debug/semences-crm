@@ -6,21 +6,16 @@
  * Cada acción recibe (datos, contexto) y devuelve el objeto que se manda a la app ({ ok: true, ... }).
  */
 import * as db from './db.js';
-import { tokenDe, actualizarToken, olvidarToken, telefonosDelEquipo, guardarTelefono, esAdmin, publico,
+import { telefonosDelEquipo, guardarTelefono, esAdmin, publico,
     guardarSuscripcion, borrarSuscripcion, suscripcionesDelEquipo, tieneSuscripcion, destinosDe } from './cuentas.js';
 import { ambitoDe, puedeEscribir, puedeLeer, dentroDelAmbito, filtrarDatos, asignacionValida, PAISES, CASAS, CARGOS, NOMBRE_PAIS } from './permisos.js';
 import { construirCorreo, destinatarios } from './correo.js';
 import { pestanasDe } from './exportar.js';
 import { normalizarTelefono, suscripcionValida } from './avisos.js';
-import { conReintentos } from './reintentos.js';
+import { errorApp, conGoogle } from './llamadasGoogle.js';
 import { encolar, estadoCola } from './cola.js';
 
-export function errorApp(mensaje, estado = 400, codigo = 'datos') {
-    const error = new Error(mensaje);
-    error.estado = estado;
-    error.codigo = codigo;
-    return error;
-}
+export { errorApp, conGoogle }; // (en llamadasGoogle.js; se reexportan aquí como antes)
 
 const MAX_CAMBIOS = 500;
 const MAX_REGISTRO = 100 * 1024;
@@ -31,25 +26,6 @@ function fecha(texto, nombre) {
     return valor;
 }
 
-// Llamada a Google con la cuenta de la persona: reintenta lo pasajero y avisa si hay que volver a autorizar
-export async function conGoogle({ pool, config, usuario }, tarea) {
-    const token = tokenDe(usuario, config);
-    if (!token) throw errorApp('Conecta tu cuenta de Google para usar esta función', 403, 'google');
-    const alRenovar = (nuevo) => actualizarToken(pool, config, usuario, nuevo).catch(() => {});
-    try {
-        return await conReintentos(() => tarea(token, alRenovar));
-    } catch (error) {
-        const motivo = String((error.response && error.response.data && error.response.data.error) || error.message || '');
-        if (/invalid_grant/.test(motivo)) {
-            await olvidarToken(pool, usuario.id);
-            throw errorApp('Google ya no acepta el permiso de tu cuenta. Vuelve a conectarla.', 403, 'google');
-        }
-        if (Number(error.code || error.status) === 403 && /insufficient|scope|permission/i.test(motivo)) {
-            throw errorApp('Falta un permiso de Google para esto. Vuelve a conectar tu cuenta y acepta todos los permisos.', 403, 'google');
-        }
-        throw error;
-    }
-}
 
 // Aviso por WhatsApp a un cliente de que le llegó un correo o una invitación (si hay plantilla de clientes).
 // Devuelve true si quedó en la cola

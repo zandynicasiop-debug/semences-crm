@@ -15,28 +15,14 @@ import { ambitoDe, filtrarDatos, PAISES, CASAS } from './permisos.js';
 import { listarTodo } from './db.js';
 import { tokenDe, actualizarToken, destinosDe } from './cuentas.js';
 import { encolar } from './cola.js';
+import { enZona, inicioDelDia } from './fechas.js';
 import { construirCorreo } from './correo.js';
 import { germinacionDe } from './acciones.js';
 
 const MAX_LINEAS = 6;
 const VENTANA_HORAS = 5;
 
-// Fecha (AAAA-MM-DD) y hora locales de un instante en una zona horaria
-export function enZona(instante, zona) {
-    const partes = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
-        timeZone: zona, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
-    }).formatToParts(instante).map(p => [p.type, p.value]));
-    return { fecha: `${partes.year}-${partes.month}-${partes.day}`, hora: Number(partes.hour), minuto: Number(partes.minute) };
-}
-
-// Inicio del día local (00:00 en la zona) como instante UTC
-export function inicioDelDia(fecha, zona) {
-    const [a, m, d] = fecha.split('-').map(Number);
-    const aproximado = Date.UTC(a, m - 1, d, 12);
-    const local = enZona(new Date(aproximado), zona);
-    const desfase = (Date.UTC(a, m - 1, d, local.hora, local.minuto) - aproximado) / 60000;
-    return new Date(Date.UTC(a, m - 1, d) - desfase * 60000);
-}
+export { enZona, inicioDelDia } from './fechas.js'; // (en fechas.js; se reexportan aquí como antes)
 
 const fechaCorta = (iso) => { const [, m, d] = String(iso).split('-'); return `${Number(d)}/${Number(m)}`; };
 const normal = (t) => String(t || '').trim().toLocaleLowerCase('es');

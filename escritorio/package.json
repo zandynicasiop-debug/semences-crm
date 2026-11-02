@@ -6,6 +6,11 @@
   "description": "App de escritorio (Windows y Mac) del CRM de Semences del Caribe",
   "author": "Semences del Caribe",
   "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zandynicasiop-debug/semences-crm.git",
+    "directory": "escritorio"
+  },
   "main": "main.cjs",
   "engines": {
     "node": ">=22.12"

@@ -41,7 +41,8 @@ export function opcionesAutorizacion(cuenta, dominio) {
 }
 
 // Carpeta del cliente dentro de la carpeta de reportes: la busca por su propiedad semencesCliente o la crea
-export async function carpetaDelCliente(unidad, raizId, { id, nombre }) {
+// (con crear = false, si no existe devuelve null)
+export async function carpetaDelCliente(unidad, raizId, { id, nombre }, crear = true) {
     // id ya viene validado ([\w-]): se puede poner tal cual en la consulta de Drive
     const encontradas = await unidad.files.list({
         q: `mimeType = 'application/vnd.google-apps.folder' and trashed = false and '${raizId}' in parents and appProperties has { key = 'semencesCliente' and value = '${id}' }`,
@@ -49,6 +50,7 @@ export async function carpetaDelCliente(unidad, raizId, { id, nombre }) {
     });
     const existente = encontradas.data.files && encontradas.data.files[0];
     if (existente) return existente.id;
+    if (!crear) return null;
     const creada = await unidad.files.create({
         supportsAllDrives: true,
         requestBody: { name: nombre, mimeType: 'application/vnd.google-apps.folder', parents: [raizId], appProperties: { semencesCliente: id } },
@@ -56,6 +58,18 @@ export async function carpetaDelCliente(unidad, raizId, { id, nombre }) {
     });
     return creada.data.id;
 }
+
+// Evento de día completo del CRM en Google Calendar: se reconoce por sus propiedades privadas (semencesOrigen y
+// semencesClave), así que sincronizar dos veces no lo duplica
+const eventoCrm = (e) => ({
+    id: e.id,
+    clave: (e.extendedProperties && e.extendedProperties.private && e.extendedProperties.private.semencesClave) || '',
+    inicio: (e.start && (e.start.date || e.start.dateTime)) || '',
+    titulo: e.summary || '',
+    descripcion: e.description || ''
+});
+
+const archivoDeDrive = (f) => ({ id: f.id, nombre: f.name, tipo: f.mimeType || '', enlace: f.webViewLink || '', fecha: f.createdTime || '', tamano: Number(f.size || 0) });
 
 export function crearGoogle(config) {
     const { clientId, clientSecret } = config.google;
@@ -164,6 +178,81 @@ export function crearGoogle(config) {
                 requestBody: { valueInputOption: 'RAW', data: pestanas.map(p => ({ range: `'${p.nombre}'!A1`, values: p.filas })) }
             });
             return { id: hoja.spreadsheetId, enlace: hoja.spreadsheetUrl };
+        },
+
+        // ----- Drive: documentos de los clientes y respaldos del CRM -----
+
+        /**
+         * Sube un archivo a Drive (datos: Buffer). Con carpetaCliente ({ id, nombre }) va a la carpeta de ese cliente
+         * dentro de carpetaId (se crea la primera vez). propiedades: appProperties para reconocerlo después
+         */
+        async subirArchivo(tokenRefresco, alRenovar, { carpetaId, carpetaCliente, nombre, tipo, datos, descripcion = '', propiedades }) {
+            const unidad = drive({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });
+            const destino = carpetaId && carpetaCliente ? await carpetaDelCliente(unidad, carpetaId, carpetaCliente) : carpetaId;
+            const r = await unidad.files.create({
+                supportsAllDrives: true,
+                requestBody: { name: nombre, mimeType: tipo, description: descripcion, parents: destino ? [destino] : undefined, appProperties: propiedades },
+                media: { mimeType: tipo, body: Readable.from([datos]) },
+                fields: 'id, name, mimeType, webViewLink, createdTime, size'
+            });
+            return archivoDeDrive(r.data);
+        },
+
+        // Archivos de la carpeta de un cliente (los más nuevos primero); [] si todavía no tiene carpeta
+        async archivosDelCliente(tokenRefresco, alRenovar, { carpetaId, carpetaCliente }) {
+            const unidad = drive({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });
+            const carpeta = await carpetaDelCliente(unidad, carpetaId, carpetaCliente, false);
+            if (!carpeta) return [];
+            const r = await unidad.files.list({
+                q: `'${carpeta}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
+                fields: 'files(id, name, mimeType, webViewLink, createdTime, size)', orderBy: 'createdTime desc', pageSize: 100,
+                supportsAllDrives: true, includeItemsFromAllDrives: true
+            });
+            return (r.data.files || []).map(archivoDeDrive);
+        },
+
+        // Respaldos del CRM en la carpeta (appProperties semencesRespaldo=1) creados desde/antes de una fecha
+        async respaldos(tokenRefresco, alRenovar, { carpetaId, desde, antesDe }) {
+            const unidad = drive({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });
+            const fechas = [desde && `createdTime >= '${desde.toISOString()}'`, antesDe && `createdTime < '${antesDe.toISOString()}'`].filter(Boolean);
+            const r = await unidad.files.list({
+                q: [`'${carpetaId}' in parents`, 'trashed = false', "appProperties has { key = 'semencesRespaldo' and value = '1' }", ...fechas].join(' and '),
+                fields: 'files(id, name, mimeType, webViewLink, createdTime, size)', orderBy: 'createdTime desc', pageSize: 1000,
+                supportsAllDrives: true, includeItemsFromAllDrives: true
+            });
+            return (r.data.files || []).map(archivoDeDrive);
+        },
+
+        async borrarArchivo(tokenRefresco, alRenovar, id) {
+            const unidad = drive({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });
+            await unidad.files.delete({ fileId: id, supportsAllDrives: true });
+        },
+
+        // ----- Calendar: la agenda del CRM (seguimientos, tareas, trasplantes) en el calendario de cada persona -----
+
+        // Eventos que puso el CRM entre desde y hasta
+        async eventosCrm(tokenRefresco, alRenovar, { desde, hasta }) {
+            const servicio = calendar({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });
+            const r = await servicio.events.list({
+                calendarId: 'primary', privateExtendedProperty: ['semencesOrigen=crm'],
+                timeMin: desde.toISOString(), timeMax: hasta.toISOString(), singleEvents: true, maxResults: 250
+            });
+            return (r.data.items || []).filter(e => e.status !== 'cancelled').map(eventoCrm);
+        },
+
+        // Crea el evento (sin id) o lo actualiza (con id). Sin invitados: no se manda ningún correo
+        async guardarEventoCrm(tokenRefresco, alRenovar, { id, evento }) {
+            const servicio = calendar({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });
+            const r = id
+                ? await servicio.events.patch({ calendarId: 'primary', eventId: id, sendUpdates: 'none', requestBody: evento })
+                : await servicio.events.insert({ calendarId: 'primary', sendUpdates: 'none', requestBody: evento });
+            return r.data.id;
+        },
+
+        async borrarEventoCrm(tokenRefresco, alRenovar, id) {
+            const servicio = calendar({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });
+            await servicio.events.delete({ calendarId: 'primary', eventId: id, sendUpdates: 'none' })
+                .catch(e => { if (![404, 410].includes(Number(e.code || e.status))) throw e; }); // Ya no estaba
         },
 
         /**
