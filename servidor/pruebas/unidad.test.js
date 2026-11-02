@@ -143,6 +143,14 @@ test('resumen: horas locales, secciones según el cargo y textos para cada canal
     // Administrativo: además, las cifras del equipo en su ámbito
     const admin = componerResumen({ persona: { nombre: 'Ana', email: 'ana@x.com' }, ambito: { cargo: 'administrativo', modulos: ['clientes', 'agronomia', 'tareas'] }, datos, hoy: '2026-11-03', zona: 'America/Santo_Domingo' });
     assert.deepEqual(admin.at(-1), { clave: 'equipo', titulo: '📊 Consolidado del equipo', lineas: ['1 seguimiento de clientes atrasado', '1 tarea vencida en el equipo', '1 proceso agronómico hoy', '3 clientes sin asignar'] });
+    // Germinador (plantulador): trasplante de hoy o atrasado y germinación baja, sin lo despachado
+    const germ = componerResumen({ persona, ambito: { cargo: 'plantulador', modulos: ['germinador', 'tareas'] }, hoy: '2026-11-03', zona: 'America/Santo_Domingo', umbral: 85, datos: { germinador: [
+        { lote: 'L-1', variedad: 'Tomate', cliente: 'Finca Hoy', trasplante: '2026-11-03', germinacion: 95, estado: 'Listo para trasplante' },
+        { lote: 'L-2', variedad: 'Pimiento', trasplante: '2026-11-01', germinacion: 70, estado: 'En cámara' },
+        { lote: 'L-3', variedad: 'Melón', trasplante: '2026-11-01', germinacion: 50, estado: 'Despachado' }
+    ] } });
+    assert.deepEqual(germ, [{ clave: 'germinador', titulo: '🧫 Germinador', lineas: [
+        'Lote L-2 · Pimiento: trasplante atrasado desde el 1/11', 'Lote L-1 · Tomate · Finca Hoy: trasplante hoy', 'Lote L-2 · Pimiento: germinación baja (70 %)'] }]);
     const { textoAlcance } = await import('../src/resumen.js');
     assert.equal(textoAlcance({ cargo: 'master', paises: ['RD', 'VE'], casas: ['Gautier Semences', 'Hexagon Seeds', 'Genome Seeds', 'Fitó'] }), 'Master · RD y Venezuela · todas las casas');
 });

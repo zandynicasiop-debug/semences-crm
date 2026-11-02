@@ -8,6 +8,7 @@ export const PESTANAS = [
     ['visitas', 'Visitas', { fecha: 'Fecha', cliente: 'Cliente', ubicacion: 'Ubicación', estado: 'Estado del cultivo', comentarios: 'Comentarios' }],
     ['agronomia', 'Procesos agronómicos', { cliente: 'Cliente', lote: 'Lote', variedad: 'Variedad', proceso: 'Fase', fechaInicio: 'Inicio', fechaFin: 'Fin', germinacion: 'Germinación (%)', comentarios: 'Comentarios' }],
     ['rendimiento', 'Rendimiento', { cliente: 'Cliente', lote: 'Lote', fecha: 'Fecha', rendimientoPlanta: 'Rendimiento por planta', canastos: 'Canastos', unidades: 'Unidades', detalles: 'Detalles' }],
+    ['germinador', 'Germinador', { lote: 'Lote', cliente: 'Cliente', variedad: 'Variedad', estado: 'Estado', siembra: 'Siembra', trasplante: 'Trasplante previsto', bandejas: 'Bandejas', semillasMiles: 'Semillas (miles)', germinacion: 'Germinación (%)', temperatura: 'Temperatura (°C)', humedad: 'Humedad (%)', comentarios: 'Comentarios', pais: 'País', casa: 'Casa comercial' }],
     ['tareas', 'Tareas', { titulo: 'Tarea', prioridad: 'Prioridad', vence: 'Vence', para: 'Para', creadaPor: 'Creada por', creada: 'Creada', hecha: 'Hecha', hechaPor: 'Hecha por' }]
 ];
 

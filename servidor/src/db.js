@@ -7,7 +7,7 @@
  */
 import mysql from 'mysql2/promise';
 
-export const MODULOS_CRM = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'sitios', 'mensajes', 'tareas'];
+export const MODULOS_CRM = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'sitios', 'mensajes', 'tareas'];
 
 const ESQUEMA = [
     `CREATE TABLE IF NOT EXISTS usuarios (
@@ -177,10 +177,12 @@ export async function leerRegistro(conexion, modulo, id, bloquear = false) {
  * Aplica los cambios de la app y devuelve la foto completa, todo en una transacción.
  * permitido(modulo, registro) decide si la persona puede escribir ese registro: se mira el registro
  * nuevo y también el que ya había (nadie puede pisar ni borrar lo que no le toca).
+ * Devuelve { datos, guardados: [{ modulo, registro, anterior }] } (los guardados, para los avisos).
  */
 export async function sincronizar(pool, { guardar = [], eliminar = [] }, usuario, permitido = () => true) {
     const conexion = await pool.getConnection();
     const rechazo = () => Object.assign(new Error('No tienes permiso para cambiar uno de esos registros (módulo, país o casa comercial)'), { estado: 403, codigo: 'permiso' });
+    const guardados = [];
     try {
         await conexion.beginTransaction();
         for (const op of guardar) {
@@ -188,7 +190,9 @@ export async function sincronizar(pool, { guardar = [], eliminar = [] }, usuario
             const anterior = op.registro && op.registro.id ? await leerRegistro(conexion, op.modulo, op.registro.id, true) : null;
             if (!permitido(op.modulo, op.registro || {}) || (anterior && !permitido(op.modulo, anterior))) throw rechazo();
             // Cada registro guarda la cuenta verificada que lo subió, no lo que diga la app
-            await guardarRegistro(conexion, op.modulo, { ...op.registro, cuenta: usuario.email }, usuario.id);
+            const registro = { ...op.registro, cuenta: usuario.email };
+            await guardarRegistro(conexion, op.modulo, registro, usuario.id);
+            guardados.push({ modulo: op.modulo, registro, anterior });
         }
         for (const op of eliminar) {
             comprobarModulo(op.modulo);
@@ -198,7 +202,7 @@ export async function sincronizar(pool, { guardar = [], eliminar = [] }, usuario
         }
         const datos = await listarTodo(conexion);
         await conexion.commit();
-        return datos;
+        return { datos, guardados };
     } catch (error) {
         await conexion.rollback();
         throw error;

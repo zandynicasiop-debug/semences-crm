@@ -49,7 +49,7 @@ function recortar(lineas, resto) {
  * Secciones del resumen ([{ titulo, lineas }]) a partir de datos YA filtrados por el ámbito.
  * persona: { nombre, email }, eventos: agenda de hoy, sinLeer: mensajes del tablero, hoy: AAAA-MM-DD.
  */
-export function componerResumen({ persona, ambito, datos, eventos = [], sinLeer = 0, hoy, zona }) {
+export function componerResumen({ persona, ambito, datos, eventos = [], sinLeer = 0, hoy, zona, umbral = 85 }) {
     const secciones = [];
     const seccion = (clave, titulo, lineas) => secciones.push({ clave, titulo, lineas });
     const yo = [normal(persona.nombre), normal(persona.email)].filter(Boolean);
@@ -90,6 +90,19 @@ export function componerResumen({ persona, ambito, datos, eventos = [], sinLeer 
         }
     }
 
+    if (ambito.modulos.includes('germinador')) {
+        // Lotes en cámara: trasplante de hoy o atrasado, y germinación por debajo del umbral
+        const activos = (datos.germinador || []).filter(l => !['Despachado', 'Descartado'].includes(l.estado));
+        const lineas = [
+            ...activos.filter(l => l.trasplante && l.trasplante <= hoy)
+                .sort((a, b) => String(a.trasplante).localeCompare(String(b.trasplante)))
+                .map(l => `Lote ${l.lote} · ${l.variedad}${l.cliente ? ` · ${l.cliente}` : ''}: trasplante ${l.trasplante === hoy ? 'hoy' : `atrasado desde el ${fechaCorta(l.trasplante)}`}`),
+            ...activos.filter(l => l.germinacion !== undefined && l.germinacion !== '' && Number(l.germinacion) < umbral)
+                .map(l => `Lote ${l.lote} · ${l.variedad}: germinación baja (${l.germinacion} %)`)
+        ];
+        if (lineas.length) seccion('germinador', '🧫 Germinador', recortar(lineas, 'lotes'));
+    }
+
     if (sinLeer) seccion('mensajes', '💬 Tablero del equipo', [`${sinLeer} mensaje${sinLeer === 1 ? '' : 's'} sin leer`]);
 
     // Administrativos y Master: además, el consolidado del equipo dentro de su ámbito (solo cifras)
@@ -98,11 +111,13 @@ export function componerResumen({ persona, ambito, datos, eventos = [], sinLeer 
         const vencidas = (datos.tareas || []).filter(t => !t.hecha && t.vence && t.vence < hoy).length;
         const procesosHoy = (datos.agronomia || []).filter(p => p.fechaInicio === hoy || p.fechaFin === hoy).length;
         const sinAsignar = (datos.clientes || []).filter(c => !c.asignado).length;
+        const lotesBajos = (datos.germinador || []).filter(l => !['Despachado', 'Descartado'].includes(l.estado) && l.germinacion !== undefined && l.germinacion !== '' && Number(l.germinacion) < umbral).length;
         const cifras = [
             atrasados && `${atrasados} seguimiento${atrasados === 1 ? '' : 's'} de clientes atrasado${atrasados === 1 ? '' : 's'}`,
             vencidas && `${vencidas} tarea${vencidas === 1 ? '' : 's'} vencida${vencidas === 1 ? '' : 's'} en el equipo`,
             procesosHoy && `${procesosHoy} proceso${procesosHoy === 1 ? '' : 's'} agronómico${procesosHoy === 1 ? '' : 's'} hoy`,
-            sinAsignar && `${sinAsignar} cliente${sinAsignar === 1 ? '' : 's'} sin asignar`
+            sinAsignar && `${sinAsignar} cliente${sinAsignar === 1 ? '' : 's'} sin asignar`,
+            lotesBajos && `${lotesBajos} lote${lotesBajos === 1 ? '' : 's'} del germinador con germinación baja`
         ].filter(Boolean);
         if (cifras.length) seccion('equipo', '📊 Consolidado del equipo', cifras);
     }
@@ -110,7 +125,7 @@ export function componerResumen({ persona, ambito, datos, eventos = [], sinLeer 
 }
 
 const BANDERA = { RD: '🇩🇴 RD', VE: '🇻🇪 Venezuela' };
-const NOMBRE_CARGO = { vendedor: 'Vendedor', tecnico: 'Técnico', administrativo: 'Administrativo', master: 'Master' };
+const NOMBRE_CARGO = { vendedor: 'Vendedor', tecnico: 'Técnico', plantulador: 'Plantulador', administrativo: 'Administrativo', master: 'Master' };
 
 // "Vendedor · 🇩🇴 RD · Gautier Semences, Fitó" (o "todas las casas" si tiene las cuatro)
 export function textoAlcance(ambito) {
@@ -133,7 +148,7 @@ export function textosResumen(secciones, persona, hoy, ambito) {
     const de = (...claves) => secciones.filter(s => claves.includes(s.clave)).flatMap(s => s.lineas).join('; ').slice(0, 900) || 'Sin pendientes';
     return {
         whatsapp: `${saludo}${alcance ? ` (${alcance})` : ''}: ${secciones.map(s => `${s.titulo}: ${s.lineas.join('; ')}`).join(' · ')}`.slice(0, 1000),
-        parametros: [nombre, alcance || '—', de('agenda'), de('seguimientos'), de('tareas'), de('procesos'), de('equipo', 'mensajes')],
+        parametros: [nombre, alcance || '—', de('agenda'), de('seguimientos'), de('tareas'), de('procesos', 'germinador'), de('equipo', 'mensajes')],
         push: `${saludo}\n${secciones.map(s => `${s.titulo}: ${s.lineas.length} · ${s.lineas[0]}`).join('\n')}`,
         correo: {
             asunto: `☀️ Tu resumen de hoy (${fechaCorta(hoy)}) · Semences del Caribe`,
@@ -155,7 +170,7 @@ async function resumirPersona(contexto, persona, datosTodos, hoy) {
             .catch(() => []); // Sin agenda (permiso retirado, Google caído…) el resumen sale igual
     }
     const [[sinLeer]] = await pool.query('SELECT COUNT(*) n FROM directos WHERE para_id = ? AND leido = 0', [persona.id]);
-    const secciones = componerResumen({ persona, ambito, datos: filtrarDatos(datosTodos, ambito), eventos, sinLeer: Number(sinLeer.n), hoy, zona: config.zonaHoraria });
+    const secciones = componerResumen({ persona, ambito, datos: filtrarDatos(datosTodos, ambito), eventos, sinLeer: Number(sinLeer.n), hoy, zona: config.zonaHoraria, umbral: config.umbralGerminacion });
     if (!secciones.length) return null;
 
     const textos = textosResumen(secciones, persona, hoy, ambito);

@@ -208,7 +208,7 @@ for (const base of BASES) {
             assert.equal(r.json.datos.clientes[0].nombre, 'Finca Ñame');
             assert.equal(r.json.datos.clientes[0].cuenta, 'ana@semillasdata.com');
             assert.equal(r.json.datos.clientes[0].semillas, 25);
-            assert.deepEqual(Object.keys(r.json.datos).sort(), ['agronomia', 'clientes', 'mensajes', 'rendimiento', 'sitios', 'tareas', 'visitas']);
+            assert.deepEqual(Object.keys(r.json.datos).sort(), ['agronomia', 'clientes', 'germinador', 'mensajes', 'rendimiento', 'sitios', 'tareas', 'visitas']);
 
             const otra = await accion(sesiones.jefa, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: { id: 'c1', nombre: 'Finca Ñame (editada)' } }], eliminar: [{ modulo: 'tareas', id: 't1' }] });
             assert.equal(otra.json.datos.clientes.length, 1);
@@ -290,7 +290,7 @@ for (const base of BASES) {
             assert.equal(r.json.enlace, 'https://docs.google.com/spreadsheets/d/hoja-1/edit');
             const { pestanas, hojaId } = google.llamadas.at(-1).datos;
             assert.equal(hojaId, '');
-            assert.deepEqual(pestanas.map(p => p.nombre), ['Clientes', 'Visitas', 'Procesos agronómicos', 'Rendimiento', 'Tareas']);
+            assert.deepEqual(pestanas.map(p => p.nombre), ['Clientes', 'Visitas', 'Procesos agronómicos', 'Rendimiento', 'Germinador', 'Tareas']);
             const [cabecera, ...filas] = pestanas[0].filas;
             assert.deepEqual(cabecera.slice(0, 3), ['Nombre', 'Correo', 'Teléfono']);
             assert.ok(cabecera.includes('nuevoCampo') && cabecera.includes('Registró') && !cabecera.includes('_pendiente') && !cabecera.includes('clienteId'));
@@ -565,7 +565,7 @@ for (const base of BASES) {
             assert.equal((await accion(sesiones.ana, { accion: 'accesos', operacion: 'listar' })).estado, 403);
             const lista = await accion(sesiones.jefa, { accion: 'accesos', operacion: 'listar' });
             assert.equal(lista.json.personas[0].email, 'luis@semillasdata.com'); // Los pendientes primero
-            assert.deepEqual(lista.json.opciones.cargos, ['vendedor', 'tecnico', 'administrativo']);
+            assert.deepEqual(lista.json.opciones.cargos, ['vendedor', 'tecnico', 'plantulador', 'administrativo']);
             // Aprobación incompleta o con valores inventados: no
             for (const malo of [{ cargo: 'master', paises: ['RD'], casas: ['Fitó'] }, { cargo: 'vendedor', paises: [], casas: ['Fitó'] }, { cargo: 'vendedor', paises: ['XX'], casas: ['Fitó'] }, { cargo: 'jefe', paises: ['RD'], casas: ['Fitó'] }]) {
                 assert.equal((await accion(sesiones.jefa, { accion: 'accesos', operacion: 'aprobar', email: 'luis@semillasdata.com', ...malo })).estado, 400, JSON.stringify(malo));
@@ -717,6 +717,54 @@ for (const base of BASES) {
             // Con RESUMEN_HORA=no no sale nada
             await pool.query('UPDATE usuarios SET resumen_fecha = NULL, resumen_activo = 1');
             assert.equal((await enviarResumenes({ ...ctx, config: { ...config, resumenHora: null } }, new Date('2026-11-05T11:10:00Z'))).enviados, 0);
+        });
+
+        test('germinador: el plantulador ve sus lotes y la germinación baja avisa solo a quien ve el lote', async () => {
+            const crear = async (codigo, email, nombre, cargo, paises, casas, telefono) => {
+                google.identidades[codigo] = { email, verificado: true, dominio: 'semillasdata.com', nombre, foto: '', tokenRefresco: `r-${codigo}`, permisos: '' };
+                const r = await entrarComo(codigo);
+                await accion(sesiones.jefa, { accion: 'accesos', operacion: 'aprobar', email, cargo, paises, casas });
+                await pool.query('UPDATE usuarios SET telefono = ? WHERE email = ?', [telefono, email]);
+                return r.json.sesion;
+            };
+            const plantu = await crear('codigo-plantu', 'plantu@semillasdata.com', 'Pedro Plantulador', 'plantulador', ['RD'], ['Gautier Semences'], '18095551001');
+            await crear('codigo-tecrd', 'tecrd@semillasdata.com', 'Tere Técnica', 'tecnico', ['RD'], ['Gautier Semences'], '18095551002');
+            await crear('codigo-tecve', 'tecve@semillasdata.com', 'Víctor Técnico', 'tecnico', ['VE'], ['Gautier Semences'], '18095551003');
+            await pool.query('DELETE FROM cola_avisos');
+
+            // El plantulador: germinador, tareas y chat; de los clientes, solo el nombre
+            const yo = (await llamar('/api/yo', { metodo: 'GET', sesion: plantu })).json.usuario;
+            assert.deepEqual(yo.modulos, ['germinador', 'tareas', 'mensajes', 'sitios']);
+            const lote = { id: 'lote-1', lote: 'L-031', clienteId: 'rd-g', cliente: 'Finca RD Gautier', variedad: 'Tomate Hexagon', estado: 'En cámara', pais: 'RD', casa: 'Gautier Semences', germinacion: 92, temperatura: 26.5, humedad: 88 };
+            const r1 = await accion(plantu, { accion: 'sincronizar', guardar: [{ modulo: 'germinador', registro: lote }] });
+            assert.equal(r1.estado, 200);
+            assert.ok(!('agronomia' in r1.json.datos));
+            assert.deepEqual(Object.keys(r1.json.datos.clientes.find(c => c.id === 'rd-g')).sort(), ['casa', 'id', 'nombre', 'pais']);
+            assert.equal((await accion(plantu, { accion: 'sincronizar', guardar: [{ modulo: 'agronomia', registro: { id: 'x', pais: 'RD', casa: 'Gautier Semences' } }] })).estado, 403);
+            assert.equal((await accion(plantu, { accion: 'sincronizar', guardar: [{ modulo: 'germinador', registro: { ...lote, id: 'lote-ve', pais: 'VE' } }] })).estado, 403);
+            // 92 %: sin aviso
+            assert.equal((await pool.query('SELECT COUNT(*) n FROM cola_avisos'))[0][0].n, 0);
+
+            // Baja a 72 %: aviso a la técnica de RD + Gautier y a los Master; no al vendedor, ni a Venezuela, ni a quien lo registró
+            await accion(plantu, { accion: 'sincronizar', guardar: [{ modulo: 'germinador', registro: { ...lote, germinacion: 72 } }] });
+            const [wa] = await pool.query("SELECT destino, texto FROM cola_avisos WHERE canal = 'whatsapp' ORDER BY destino");
+            const destinos = wa.map(w => w.destino);
+            assert.ok(destinos.includes('18095551002'), JSON.stringify(destinos));
+            assert.ok(!destinos.includes('18095551003') && !destinos.includes('18095551001') && !destinos.includes('18295550202'), JSON.stringify(destinos));
+            assert.match(wa[0].texto, /🚨 Germinación baja · Lote L-031\n72 % \(por debajo del 85 %\) · Tomate Hexagon · Finca RD Gautier · cámara 26.5 °C \/ 88 % HR — registró Pedro Plantulador/);
+            // Sigue bajo: no se repite; sube y vuelve a bajar: sí
+            await pool.query('DELETE FROM cola_avisos');
+            await accion(plantu, { accion: 'sincronizar', guardar: [{ modulo: 'germinador', registro: { ...lote, germinacion: 70 } }] });
+            assert.equal((await pool.query('SELECT COUNT(*) n FROM cola_avisos'))[0][0].n, 0);
+            await accion(plantu, { accion: 'sincronizar', guardar: [{ modulo: 'germinador', registro: { ...lote, germinacion: 90 } }] });
+            await accion(plantu, { accion: 'crm', modulo: 'germinador', registro: { ...lote, germinacion: 60 } });
+            assert.ok((await pool.query('SELECT COUNT(*) n FROM cola_avisos'))[0][0].n > 0);
+            // Un lote despachado o descartado no avisa
+            await pool.query('DELETE FROM cola_avisos');
+            await accion(plantu, { accion: 'sincronizar', guardar: [{ modulo: 'germinador', registro: { ...lote, id: 'lote-2', germinacion: 40, estado: 'Descartado' } }] });
+            assert.equal((await pool.query('SELECT COUNT(*) n FROM cola_avisos'))[0][0].n, 0);
+            // El vendedor no ve el germinador
+            assert.ok(!('germinador' in (await accion(sesiones.luis, { accion: 'sincronizar' })).json.datos));
         });
 
         test('rechazar a alguien lo saca: sesiones fuera y sin avisos', async () => {

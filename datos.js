@@ -11,12 +11,13 @@
  * Marcas internas de cada registro (no se suben a la hoja):
  *   _remoto: el registro ya está en la hoja · _pendiente: tiene cambios que aún no se subieron
  */
-const MODULOS_DATOS = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'sitios', 'mensajes', 'tareas']; // mensajes: chat y alertas del equipo · tareas: lista de tareas del equipo
+const MODULOS_DATOS = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'sitios', 'mensajes', 'tareas']; // mensajes: chat y alertas del equipo · tareas: lista de tareas del equipo
 
 // En la hoja todo es texto: estos campos vuelven a ser números al leer
 const CAMPOS_NUMERICOS = {
     agronomia: ['germinacion'],
-    rendimiento: ['rendimientoPlanta', 'canastos', 'unidades']
+    rendimiento: ['rendimientoPlanta', 'canastos', 'unidades'],
+    germinador: ['bandejas', 'semillasMiles', 'germinacion', 'temperatura', 'humedad']
 };
 
 class BaseDatos {

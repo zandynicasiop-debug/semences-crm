@@ -11,7 +11,7 @@
  * en más de 2 minutos y medio aparece como desconectado.
  */
 const ESTADOS_PRESENCIA = { disponible: 'Disponible', en_parcela: 'En parcela', en_reunion: 'En reunión', desconectado: 'Desconectado' };
-const NOMBRE_CARGO = { vendedor: 'Vendedor', tecnico: 'Técnico', administrativo: 'Administrativo', master: 'Master' };
+const NOMBRE_CARGO = { vendedor: 'Vendedor', tecnico: 'Técnico', plantulador: 'Plantulador', administrativo: 'Administrativo', master: 'Master' };
 
 class TableroEquipo {
     constructor() {

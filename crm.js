@@ -26,6 +26,10 @@ const FASE_CONTEO_GERMINACION = 'Fin de germinación';
 // Marcas que representa Semences del Caribe (las de los carteles de la finca)
 const MARCAS = ['Gautier Semences', 'Hexagon Seeds', 'Genome Seeds', 'Fitó', 'Varias marcas'];
 
+// Germinador: estados de un lote de plantulación
+const ESTADOS_LOTE = ['En cámara', 'Listo para trasplante', 'Despachado', 'Descartado'];
+const UMBRAL_GERMINACION = 85; // Por debajo, el lote se marca (y el backend avisa al equipo técnico del lote)
+
 const ESTADOS_CULTIVO = [
     'Bueno',
     'Regular',
@@ -173,11 +177,47 @@ const MODULOS_CRM = {
             ...COLUMNAS_AMBITO,
             { titulo: 'Registró', valor: r => r.responsable }
         ]
+    },
+    germinador: {
+        pestana: 'Germinador',
+        titulo: 'Germinador: lotes de plantulación',
+        subtitulo: `Lotes en cámara y bandejas: variedad, germinación, clima de la cámara y trasplante previsto. Con germinación por debajo del ${UMBRAL_GERMINACION} % se avisa al equipo técnico del lote.`,
+        nuevo: 'Registrar lote',
+        vacio: 'Todavía no hay lotes en el germinador.',
+        campos: [
+            { id: 'clienteId', etiqueta: 'Cliente', tipo: 'cliente', requerido: true },
+            ...CAMPOS_AMBITO,
+            { id: 'lote', etiqueta: 'Lote', tipo: 'text', requerido: true, ejemplo: 'L-031' },
+            { id: 'variedad', etiqueta: 'Variedad', tipo: 'text', requerido: true, lista: 'lista-variedades', falta: 'Escribe la variedad sembrada.' },
+            { id: 'estado', etiqueta: 'Estado', tipo: 'select', opciones: ESTADOS_LOTE, requerido: true },
+            { id: 'siembra', etiqueta: 'Fecha de siembra', tipo: 'date', requerido: true, hoy: true },
+            { id: 'trasplante', etiqueta: 'Trasplante previsto', tipo: 'date' },
+            { id: 'bandejas', etiqueta: 'Bandejas', tipo: 'number', min: 0, paso: 1 },
+            { id: 'semillasMiles', etiqueta: 'Semillas (miles)', tipo: 'number', min: 0, paso: 'any' },
+            { id: 'germinacion', etiqueta: 'Germinación (%)', tipo: 'number', min: 0, max: 100, paso: 'any', ejemplo: 'Ej.: 92' },
+            { id: 'temperatura', etiqueta: 'Temperatura de la cámara (°C)', tipo: 'number', min: 0, max: 60, paso: 'any' },
+            { id: 'humedad', etiqueta: 'Humedad relativa (%)', tipo: 'number', min: 0, max: 100, paso: 'any' },
+            { id: 'comentarios', etiqueta: 'Comentarios', tipo: 'textarea' }
+        ],
+        columnas: [
+            { titulo: 'Lote', valor: r => r.lote },
+            { titulo: 'Cliente', valor: r => nombreCliente(r), expediente: true, sinCliente: true },
+            { titulo: 'Variedad', valor: r => r.variedad },
+            { titulo: 'Estado', valor: r => r.estado, etiqueta: true },
+            { titulo: 'Siembra', valor: r => formatearFecha(r.siembra), orden: r => r.siembra },
+            { titulo: 'Trasplante', valor: r => formatearFecha(r.trasplante) },
+            { titulo: 'Bandejas', valor: r => numero(r.bandejas), dato: true },
+            { titulo: 'Germinación', valor: r => r.germinacion === undefined || r.germinacion === '' ? '' : `${r.germinacion} %${Number(r.germinacion) < UMBRAL_GERMINACION ? ' ⚠️' : ''}`, dato: true },
+            { titulo: 'Cámara', valor: r => [r.temperatura !== undefined && r.temperatura !== '' && `${r.temperatura} °C`, r.humedad !== undefined && r.humedad !== '' && `${r.humedad} % HR`].filter(Boolean).join(' · ') },
+            { titulo: 'Comentarios', valor: r => r.comentarios, largo: true },
+            ...COLUMNAS_AMBITO,
+            { titulo: 'Registró', valor: r => r.responsable }
+        ]
     }
 };
 
 // Módulos cuyos registros pertenecen a un cliente
-const MODULOS_DEL_CLIENTE = ['agronomia', 'visitas', 'rendimiento'];
+const MODULOS_DEL_CLIENTE = ['agronomia', 'visitas', 'rendimiento', 'germinador'];
 
 // ----- Utilidades -----
 const soloDigitos = (texto) => String(texto || '').replace(/\D/g, '');
@@ -1058,6 +1098,16 @@ class CRM {
         sRen.appendChild(rend.length
             ? this.envolverTabla(this.construirTabla('rendimiento', rend, { titulo: `Rendimientos de ${cliente.nombre}`, dentroDeCliente: true, conAcciones: false }))
             : this.textoVacio('Aún no tiene rendimientos registrados.'));
+
+        // Lotes del germinador (solo si el cargo lo ve)
+        const ambito = ambitoCRM();
+        if (!ambito || ambito.modulos.includes('germinador')) {
+            const lotes = this.delCliente('germinador', clienteId).sort((a, b) => String(b.siembra).localeCompare(String(a.siembra)));
+            const sGer = seccion('Lotes en el germinador', lotes.length);
+            sGer.appendChild(lotes.length
+                ? this.envolverTabla(this.construirTabla('germinador', lotes, { titulo: `Lotes de ${cliente.nombre}`, dentroDeCliente: true, conAcciones: false }))
+                : this.textoVacio('Aún no tiene lotes en el germinador.'));
+        }
 
         this.dialogo.classList.add('dialogo-ancho');
         this.dialogo.innerHTML = '';

@@ -13,21 +13,23 @@ const esAdmin = (config, email) => config.google.admins.includes(String(email).t
 export const PAISES = ['RD', 'VE'];
 export const NOMBRE_PAIS = { RD: 'República Dominicana', VE: 'Venezuela' };
 export const CASAS = ['Gautier Semences', 'Hexagon Seeds', 'Genome Seeds', 'Fitó'];
-export const CARGOS = ['vendedor', 'tecnico', 'administrativo', 'master'];
+export const CARGOS = ['vendedor', 'tecnico', 'plantulador', 'administrativo', 'master'];
 
 // Módulos con país y casa comercial (los demás son de todo el equipo: tareas, chat, fichas del mapa)
-export const MODULOS_CON_AMBITO = ['clientes', 'visitas', 'agronomia', 'rendimiento'];
+export const MODULOS_CON_AMBITO = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador'];
 
 const COMUNES = ['tareas', 'mensajes', 'sitios'];
 export const MODULOS_POR_CARGO = {
     vendedor: ['clientes', 'visitas', ...COMUNES],
-    tecnico: ['agronomia', 'rendimiento', 'visitas', ...COMUNES],
-    administrativo: ['clientes', 'visitas', 'agronomia', 'rendimiento', ...COMUNES],
-    master: ['clientes', 'visitas', 'agronomia', 'rendimiento', ...COMUNES]
+    tecnico: ['agronomia', 'rendimiento', 'visitas', 'germinador', ...COMUNES],
+    // Plantulador: el germinador (lotes en cámara y bandejas) de sus países y casas
+    plantulador: ['germinador', ...COMUNES],
+    administrativo: ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', ...COMUNES],
+    master: ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', ...COMUNES]
 };
 
-// El técnico no gestiona clientes, pero necesita sus nombres para registrar procesos y rendimientos
-const CLIENTES_SOLO_NOMBRE = ['tecnico'];
+// El técnico y el plantulador no gestionan clientes, pero necesitan sus nombres para sus registros
+const CLIENTES_SOLO_NOMBRE = ['tecnico', 'plantulador'];
 const CAMPOS_NOMBRE_CLIENTE = ['id', 'nombre', 'pais', 'casa', 'ubicacion'];
 
 const lista = (texto) => { try { const v = JSON.parse(texto || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } };

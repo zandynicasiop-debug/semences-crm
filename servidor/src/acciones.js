@@ -82,6 +82,37 @@ async function enviarDirecto({ pool, usuario, avisos }, destino, tipo, texto, en
     if (avisos.whatsappActivo) await encolar(pool, 'whatsapp', telefonos, aviso);
 }
 
+/**
+ * Germinador: si un lote en cámara queda por debajo del umbral de germinación (y antes no lo estaba),
+ * se avisa por push y WhatsApp a técnicos, plantuladores, administrativos y Master que ven ese lote
+ * (su país y su casa comercial), menos a quien lo registró. Nadie fuera de su ámbito se entera.
+ */
+const LOTE_ACTIVO = (r) => !['Despachado', 'Descartado'].includes(r.estado);
+const germinacionDe = (r) => (r && r.germinacion !== '' && r.germinacion !== undefined && r.germinacion !== null ? Number(r.germinacion) : NaN);
+
+export async function avisarGerminacionBaja({ pool, config, avisos, usuario }, guardados) {
+    const umbral = config.umbralGerminacion;
+    const bajos = guardados.filter(({ modulo, registro, anterior }) => modulo === 'germinador' && LOTE_ACTIVO(registro)
+        && germinacionDe(registro) < umbral && !(germinacionDe(anterior) < umbral));
+    if (!bajos.length || !(avisos.pushActivo || avisos.whatsappActivo)) return 0;
+    const [personas] = await pool.query(`SELECT * FROM usuarios WHERE id <> ? AND (estado = 'aprobado' OR email IN (?))`,
+        [usuario.id, config.google.admins.length ? config.google.admins : ['']]);
+    let enviados = 0;
+    for (const { registro } of bajos) {
+        const destino = personas.filter(p => {
+            const a = ambitoDe(p, config);
+            return ['tecnico', 'plantulador', 'administrativo', 'master'].includes(a.cargo) && puedeLeer(a, 'germinador') && dentroDelAmbito(a, 'germinador', registro);
+        });
+        if (!destino.length) continue;
+        const camara = [registro.temperatura !== undefined && registro.temperatura !== '' && `${registro.temperatura} °C`, registro.humedad !== undefined && registro.humedad !== '' && `${registro.humedad} % HR`].filter(Boolean).join(' / ');
+        const texto = `🚨 Germinación baja · Lote ${registro.lote || registro.id}\n${germinacionDe(registro)} % (por debajo del ${umbral} %) · ${registro.variedad || 'sin variedad'}${registro.cliente ? ` · ${registro.cliente}` : ''}${camara ? ` · cámara ${camara}` : ''} — registró ${usuario.nombre || usuario.email}`;
+        const { huellas, telefonos } = await destinosDe(pool, destino.map(p => p.id));
+        if (avisos.pushActivo) enviados += await encolar(pool, 'push', huellas, texto);
+        if (avisos.whatsappActivo) enviados += await encolar(pool, 'whatsapp', telefonos, texto);
+    }
+    return enviados;
+}
+
 function comprobarCambios(lista, nombre) {
     if (lista === undefined) return [];
     if (!Array.isArray(lista)) throw errorApp(`"${nombre}" debe ser una lista`);
@@ -92,19 +123,23 @@ function comprobarCambios(lista, nombre) {
 export const ACCIONES = {
     // Base de datos compartida: aplica los cambios de la app y devuelve los datos que la persona puede ver
     // (según su cargo, países y casas comerciales). Lo que no puede escribir se rechaza entero
-    async sincronizar(datos, { pool, usuario, ambito }) {
+    async sincronizar(datos, contexto) {
+        const { pool, usuario, ambito } = contexto;
         const guardar = comprobarCambios(datos.guardar, 'guardar');
         const eliminar = comprobarCambios(datos.eliminar, 'eliminar');
         for (const op of guardar) {
             if (JSON.stringify(op && op.registro || {}).length > MAX_REGISTRO) throw errorApp('Un registro es demasiado grande');
         }
-        const todo = await db.sincronizar(pool, { guardar, eliminar }, usuario, (modulo, registro) => puedeEscribir(ambito, modulo, registro));
+        const { datos: todo, guardados } = await db.sincronizar(pool, { guardar, eliminar }, usuario, (modulo, registro) => puedeEscribir(ambito, modulo, registro));
+        await avisarGerminacionBaja(contexto, guardados);
         return { ok: true, datos: filtrarDatos(todo, ambito), hora: new Date().toISOString() };
     },
 
-    async crm(datos, { pool, usuario, ambito }) {
+    async crm(datos, contexto) {
+        const { pool, usuario, ambito } = contexto;
         if (JSON.stringify(datos.registro || {}).length > MAX_REGISTRO) throw errorApp('El registro es demasiado grande');
-        await db.sincronizar(pool, { guardar: [{ modulo: datos.modulo, registro: datos.registro }] }, usuario, (m, r) => puedeEscribir(ambito, m, r));
+        const { guardados } = await db.sincronizar(pool, { guardar: [{ modulo: datos.modulo, registro: datos.registro }] }, usuario, (m, r) => puedeEscribir(ambito, m, r));
+        await avisarGerminacionBaja(contexto, guardados);
         return { ok: true };
     },
 
