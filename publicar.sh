@@ -15,6 +15,27 @@ cp index.html style.css manifest.webmanifest sw.js \
    googleSync.js app.js datos.js usuario.js mapa.js cotizador.js crm.js equipo.js tareas.js pwa.js ventana.js tema.js publicar/
 cp -R iconos marcas publicar/
 
+# Para hosting con Apache o LiteSpeed (cPanel, p. ej. FastComet): siempre https (sin él no se instala
+# la app ni funciona sin conexión), tipos de archivo del manifiesto y del APK, y sin caché vieja para
+# index.html y sw.js (así el equipo recibe cada versión nueva). GitHub Pages lo ignora.
+cat > publicar/.htaccess <<'HTACCESS'
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTPS} !=on
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</IfModule>
+AddType application/manifest+json .webmanifest
+AddType application/vnd.android.package-archive .apk
+<IfModule mod_headers.c>
+    <FilesMatch "^(index\.html|sw\.js|manifest\.webmanifest)$">
+        Header set Cache-Control "no-cache"
+    </FilesMatch>
+    <FilesMatch "\.apk$">
+        Header set Content-Disposition "attachment"
+    </FilesMatch>
+</IfModule>
+HTACCESS
+
 if [ -n "$URL" ]; then
     # WhatsApp y Facebook necesitan la dirección completa de la imagen
     python3 - "$URL" <<'PY'
