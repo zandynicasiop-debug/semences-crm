@@ -2678,6 +2678,7 @@ body.ventana-flotante {
     display: flex;
     flex-direction: column;
     gap: var(--sdc-espacio-2);
+}
 
 /* ----- Bandeja de Instagram (bandejaInstagram.js) ----- */
 .ig-vista[hidden] {
@@ -2774,4 +2775,196 @@ body.ventana-flotante {
 .ig-responder .dialogo-nota,
 .ig-responder .form-error {
     grid-column: 1 / -1;
+}
+
+/* ----- Panel de indicadores (panel.js) ----- */
+:root {
+    --panel-barra: #0B95D6;   /* Barras: azul (se distingue del ámbar también con daltonismo) */
+    --panel-aviso: #B97D04;   /* Bajo el mínimo / con problema; siempre con ⚠️ y texto */
+}
+
+@media (prefers-color-scheme: light) {
+    :root:not([data-tema="oscuro"]) {
+        --panel-barra: #0369A1;
+        --panel-aviso: #A16207;
+    }
+}
+
+:root[data-tema="claro"] {
+    --panel-barra: #0369A1;
+    --panel-aviso: #A16207;
+}
+
+.dialogo-panel {
+    width: min(720px, calc(100vw - 2 * var(--sdc-espacio-5)));
+    position: relative;
+}
+
+.panel-alcance,
+.panel-subtitulo {
+    color: var(--ui-texto-suave);
+    font-size: var(--sdc-texto-sm);
+}
+
+.panel-fichas {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: var(--sdc-espacio-3);
+}
+
+.panel-ficha {
+    display: grid;
+    gap: var(--sdc-espacio-1);
+    padding: var(--sdc-espacio-3) var(--sdc-espacio-4);
+    background: var(--ui-apagado);
+    border: 1px solid var(--ui-borde);
+    border-radius: var(--sdc-radio-sm);
+}
+
+.panel-ficha-aviso {
+    border-color: var(--panel-aviso);
+}
+
+.panel-ficha-titulo,
+.panel-ficha-detalle {
+    color: var(--ui-texto-suave);
+    font-size: var(--sdc-texto-sm);
+}
+
+.panel-ficha strong {
+    color: var(--ui-titulo);
+    font-size: 1.6rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+}
+
+.panel-seccion {
+    display: grid;
+    gap: var(--sdc-espacio-2);
+    margin-top: var(--sdc-espacio-4);
+}
+
+.panel-seccion h4 {
+    color: var(--ui-titulo);
+    font-size: var(--sdc-texto-md);
+}
+
+.panel-barras {
+    list-style: none;
+    display: grid;
+    gap: var(--sdc-espacio-2);
+}
+
+.panel-barra {
+    display: grid;
+    grid-template-columns: minmax(90px, 32%) 1fr auto;
+    align-items: center;
+    gap: var(--sdc-espacio-3);
+    min-height: 28px;
+    padding: 2px var(--sdc-espacio-2);
+    border-radius: 6px;
+    font-size: var(--sdc-texto-sm);
+    color: var(--ui-texto);
+}
+
+.panel-barra:hover,
+.panel-barra:focus-visible {
+    background: var(--ui-apagado);
+}
+
+.panel-barra-etiqueta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.panel-barra-pista {
+    position: relative;
+    height: 12px;
+}
+
+.panel-barra-relleno {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    background: var(--panel-barra);
+    border-radius: 0 4px 4px 0;
+}
+
+.panel-barra-aviso .panel-barra-relleno {
+    background: var(--panel-aviso);
+}
+
+.panel-barra-linea {
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    width: 0;
+    border-left: 2px dashed var(--ui-texto-suave);
+}
+
+.panel-barra-valor {
+    min-width: 4.5em;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--ui-texto);
+}
+
+.panel-barra-aviso .panel-barra-valor,
+.panel-aviso {
+    color: var(--ui-titulo);
+    font-weight: 600;
+}
+
+.panel-tabla {
+    overflow-x: auto;
+}
+
+.panel-tabla table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--sdc-texto-sm);
+}
+
+.panel-tabla th,
+.panel-tabla td {
+    padding: var(--sdc-espacio-2) var(--sdc-espacio-3);
+    text-align: left;
+    border-bottom: 1px solid var(--ui-borde);
+    color: var(--ui-texto);
+}
+
+.panel-tabla th {
+    color: var(--ui-texto-suave);
+    font-weight: 600;
+}
+
+.panel-tooltip {
+    position: absolute;
+    z-index: 2;
+    max-width: 260px;
+    padding: var(--sdc-espacio-2) var(--sdc-espacio-3);
+    background: var(--ui-tarjeta);
+    border: 1px solid var(--ui-borde);
+    border-radius: 8px;
+    box-shadow: var(--sdc-sombra);
+    color: var(--ui-texto);
+    font-size: var(--sdc-texto-sm);
+    pointer-events: none;
+}
+
+.panel-tooltip[hidden] {
+    display: none;
+}
+
+@media (max-width: 520px) {
+    .panel-barra {
+        grid-template-columns: 1fr auto;
+    }
+
+    .panel-barra-pista {
+        grid-column: 1 / -1;
+        grid-row: 2;
+    }
 }

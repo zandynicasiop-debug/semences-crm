@@ -291,3 +291,94 @@ describe('conector con el backend y con Apps Script', () => {
         assert.equal(llamadas.length, 0);
     });
 });
+
+// ---------------------------------------------------------------------------------------------------
+describe('panel de indicadores: los números de cada persona, con datos reales', () => {
+    const app = cargar(['crm.js', 'panel.js']);
+    const panel = app.panelIndicadores;
+    const hoy = new Date(2026, 10, 2, 10, 0); // 2 de noviembre de 2026
+    const datos = {
+        clientes: [
+            { id: 'c1', nombre: 'Finca López', casa: 'Gautier Semences', asignado: 'Luis@semillasdata.com', seguimiento: '2026-10-30' },
+            { id: 'c2', nombre: 'Agro Constanza', casa: 'Hexagon Seeds', asignado: 'luis@semillasdata.com', seguimiento: '2026-11-02' },
+            { id: 'c3', nombre: 'Hortalizas del Cibao', casa: 'Fitó', seguimiento: '2026-11-07' },
+            { id: 'c4', nombre: 'Invernaderos Mérida', casa: 'Genome Seeds', seguimiento: '2026-11-22' }
+        ],
+        envios: [
+            { id: 'e1', clienteId: 'c1', casa: 'Gautier Semences', estado: 'Entregado', semillasMiles: 120 },
+            { id: 'e2', clienteId: 'c2', estado: 'Retenido en aduana', semillasMiles: '80', eta: '2026-11-04' },
+            { id: 'e3', clienteId: 'c3', casa: 'Fitó', estado: 'En tránsito', semillasMiles: 45.5, eta: '2026-11-03' },
+            { id: 'e4', clienteId: 'c4', casa: 'Genome Seeds', estado: 'En reparto' }
+        ],
+        germinador: [
+            { id: 'g1', lote: 'L-031', estado: 'En cámara', germinacion: 93 },
+            { id: 'g2', lote: 'L-032', estado: 'En cámara', germinacion: 78 },
+            { id: 'g3', lote: 'L-033', estado: 'Listo para trasplante', germinacion: '96' },
+            { id: 'g4', lote: 'L-034', estado: 'Despachado', germinacion: 40 },
+            { id: 'g5', lote: 'L-035', estado: 'En cámara', germinacion: '' }
+        ]
+    };
+    const como = (ambito, correo) => {
+        app.responsable = { ambito, sesion: correo ? { email: correo } : null };
+    };
+
+    test('administración (o sin backend): todo lo visible, sumas reales y lo que está bajo el mínimo', () => {
+        como(null);
+        const r = panel.calcular(datos, hoy);
+        assert.deepEqual(plano([r.clientes.mios, r.clientes.vencidos, r.clientes.proximos]), [4, 1, 2]); // c4 queda a más de 7 días
+        assert.equal(r.envios.miles, 245.5);
+        // La casa de un envío sin casa sale de su cliente; los envíos sin cantidad no cuentan en el gráfico
+        assert.deepEqual(plano(r.envios.porCasa.map(x => [x.casa, x.miles])), [['Gautier Semences', 120], ['Hexagon Seeds', 80], ['Fitó', 45.5]]);
+        assert.deepEqual(plano(r.envios.enCamino.map(e => e.id)), ['e3', 'e2', 'e4']); // por llegada; sin fecha, al final
+        assert.equal(r.envios.problemas, 1);
+        // Germinación: solo lotes en cámara o listos y con el dato; de menor a mayor
+        assert.deepEqual(plano(r.germinador.medidos.map(m => m.valor)), [78, 93, 96]);
+        assert.equal(Math.round(r.germinador.promedio * 10) / 10, 89);
+        assert.equal(r.germinador.bajos, 1);
+    });
+
+    test('vendedor: sus clientes, sus seguimientos y los envíos de sus clientes; sin módulos de otros cargos', () => {
+        como({ estado: 'aprobado', cargo: 'vendedor', paises: ['RD'], casas: ['Gautier Semences'], modulos: ['clientes', 'visitas'], lectura: ['envios'] }, 'luis@semillasdata.com');
+        const r = panel.calcular(datos, hoy);
+        assert.equal(r.vendedor, true);
+        assert.deepEqual(plano([r.clientes.mios, r.clientes.visibles]), [2, 4]);
+        assert.deepEqual(plano(r.clientes.seguimientos.map(s => [s.cliente.id, s.dias])), [['c1', -3], ['c2', 0]]);
+        assert.deepEqual(plano(r.envios.porCasa.map(x => x.casa)), ['Gautier Semences', 'Hexagon Seeds']);
+        assert.equal(r.envios.total, 2);
+        assert.equal(panel.puedeVer('envios'), true);
+        assert.equal(panel.puedeVer('germinador'), false);
+    });
+
+    test('sin datos no inventa nada: ceros y sin promedio', () => {
+        como(null);
+        const r = panel.calcular({}, hoy);
+        assert.deepEqual(plano([r.clientes.mios, r.envios.miles, r.envios.enCamino.length, r.germinador.promedio]), [0, 0, 0, null]);
+    });
+});
+
+// ---------------------------------------------------------------------------------------------------
+describe('archivos de la app', () => {
+    test('style.css tiene las llaves equilibradas (una sin cerrar deja sin estilos todo lo que va después)', () => {
+        const css = fs.readFileSync(path.join(RAIZ, 'style.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+        let nivel = 0;
+        for (const c of css) {
+            if (c === '{') nivel++;
+            if (c === '}') nivel--;
+            assert.ok(nivel >= 0, 'hay una llave de cierre de más');
+        }
+        assert.equal(nivel, 0, 'hay una regla sin cerrar');
+    });
+
+    test('cada script de index.html se publica en la web, se guarda sin conexión y va en las apps', () => {
+        const html = fs.readFileSync(path.join(RAIZ, 'index.html'), 'utf8');
+        const scripts = [...html.matchAll(/<script src="([a-zA-Z]+\.js)"/g)].map(m => m[1]);
+        const publicar = fs.readFileSync(path.join(RAIZ, 'publicar.sh'), 'utf8');
+        const sw = fs.readFileSync(path.join(RAIZ, 'sw.js'), 'utf8');
+        const apps = fs.readFileSync(path.join(RAIZ, 'herramientas', 'preparar-web.mjs'), 'utf8');
+        for (const s of scripts) {
+            assert.ok(publicar.includes(` ${s}`), `${s} falta en publicar.sh`);
+            assert.ok(sw.includes(`'./${s}'`), `${s} falta en sw.js`);
+            assert.ok(apps.includes(`'${s}'`), `${s} falta en herramientas/preparar-web.mjs`);
+        }
+    });
+});

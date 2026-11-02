@@ -166,6 +166,18 @@ No crea PDF, reuniones ni correos por su cuenta y no lee Gmail: eso lo decide el
 
 El servidor comprueba la firma `X-Hub-Signature-256` de cada aviso de Meta sobre el cuerpo original; sin firma válida no guarda nada.
 
+## Panel de indicadores
+
+Menú › **Panel de indicadores**, para todos: los números de cada persona, **solo para mirar** (no envía nada a nadie). Sale de los datos reales del CRM, que el servidor ya filtra por cargo, país y casa; un **vendedor** ve solo sus clientes asignados, sus seguimientos y los envíos de esos clientes. Cada sección aparece solo si el cargo ve ese módulo.
+
+- **Fichas:** clientes (y seguimientos vencidos), miles de semillas enviadas, envíos en camino (y los retenidos o con incidencia), germinación media de los lotes en cámara (y cuántos están bajo el mínimo).
+- **Seguimientos** vencidos y de los próximos 7 días.
+- **Semillas enviadas por casa comercial** (barras).
+- **Germinación de cada lote en cámara**, de menor a mayor, con la línea del mínimo (`UMBRAL_GERMINACION` en la app: 85 %).
+- **Envíos en camino**, por fecha de llegada.
+
+Si falta un dato (germinación sin medir, envío sin cantidad), no se inventa: no cuenta.
+
 ## Tablero del equipo
 
 Menú › **Tablero del equipo**: las fotos de Google del equipo aprobado con su estado (disponible, en parcela, en reunión o desconectado; la app avisa al servidor cada minuto). Cada quien elige su estado. Al tocar a alguien:

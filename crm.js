@@ -615,6 +615,7 @@ class CRM {
     // ----- Tablas -----
     renderTodo() {
         Object.keys(MODULOS_CRM).forEach(m => this.renderTabla(m));
+        if (window.panelIndicadores) window.panelIndicadores.refrescar();
     }
 
     /**
