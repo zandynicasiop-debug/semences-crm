@@ -681,6 +681,16 @@ class CRM {
             if (conAcciones) {
                 const acciones = document.createElement('td');
                 acciones.className = 'col-acciones';
+                // Envíos: consultar ya la guía en DHL o FedEx (si el servidor tiene sus claves)
+                if (modulo === 'envios' && this.google && this.google.conBackend && registro.estado !== 'Entregado') {
+                    const rastrear = document.createElement('button');
+                    rastrear.type = 'button';
+                    rastrear.className = 'btn-texto';
+                    rastrear.textContent = 'Rastrear';
+                    rastrear.setAttribute('aria-label', `Consultar ahora la guía ${registro.guia || ''}`);
+                    rastrear.addEventListener('click', () => this.rastrearEnvio(registro, rastrear));
+                    acciones.appendChild(rastrear);
+                }
                 const eliminar = document.createElement('button');
                 eliminar.type = 'button';
                 eliminar.className = 'btn-texto btn-peligro';
@@ -694,6 +704,22 @@ class CRM {
         });
         tabla.append(caption, thead, tbody);
         return tabla;
+    }
+
+    async rastrearEnvio(registro, boton) {
+        const aviso = (texto, tipo) => { if (window.equipo) window.equipo.mostrarAviso(texto, tipo); };
+        boton.disabled = true;
+        boton.textContent = 'Consultando…';
+        const respuesta = await this.google.enviar('rastrear', { id: registro.id }, true);
+        boton.disabled = false;
+        boton.textContent = 'Rastrear';
+        if (!respuesta || !respuesta.ok) {
+            aviso((respuesta && respuesta.error) || 'No se pudo consultar la guía. Revisa la conexión.', 'alerta');
+            return;
+        }
+        const e = respuesta.envio;
+        aviso(`Guía ${e.guia}: ${e.estado}${e.ubicacion ? ` · ${e.ubicacion}` : ''}${e.eta ? ` · llegada estimada ${formatearFecha(e.eta)}` : ''}.`);
+        if (window.baseDatos) window.baseDatos.sincronizar();
     }
 
     renderTabla(modulo) {
