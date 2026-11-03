@@ -19,6 +19,13 @@ async function enviarJson(url, cuerpo, cabeceras = {}, hacerFetch = fetch) {
         const error = new Error(`${new URL(url).hostname} respondió ${respuesta.status}`);
         error.status = respuesta.status;
         try { error.detalle = await respuesta.text(); } catch (e) { /* sin cuerpo */ }
+        // Límites de Meta: llegan como HTTP 400 con su código (130429 ritmo de la API, 131056 demasiados mensajes
+        // seguidos al mismo número, 80007 límite de la cuenta, 4 y 613 límite de llamadas). Son pasajeros:
+        // la cola los reintenta con espera creciente en vez de darlos por fallidos
+        if (/"code"\s*:\s*(130429|131056|80007|613|4)\b/.test(error.detalle || '')) {
+            error.status = 429;
+            error.limite = true;
+        }
         throw error;
     }
     return respuesta;

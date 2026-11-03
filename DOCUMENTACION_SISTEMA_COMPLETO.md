@@ -26,6 +26,7 @@
 12. [Pasar de la app Android anterior a la nueva](#12-pasar-de-la-app-android-anterior-a-la-nueva)
 13. [Pruebas y verificación](#13-pruebas-y-verificación)
 14. [Decisiones, límites y próximos pasos](#14-decisiones-límites-y-próximos-pasos)
+15. [Motor de eventos y flujos automáticos (ARM)](#15-motor-de-eventos-y-flujos-automáticos-arm)
 
 ---
 
@@ -450,3 +451,57 @@ Comprobado además durante este trabajo:
 | DDoS | Límites por IP y sesión en la app | Cloudflare (u otra protección de red) delante del backend |
 | Avisos de npm en herramientas de compilación | `@capacitor/cli` y `electron-builder` arrastran avisos moderados de `glob`/`minimatch`/`uuid`; **no van dentro de las apps** (`npm audit --omit=dev`: 0) | actualizar cuando Capacitor y electron-builder publiquen versiones con las dependencias nuevas |
 | Three.js r128 | Sin vulnerabilidades conocidas | migración a módulos ES como proyecto aparte |
+
+---
+
+## 15. Motor de eventos y flujos automáticos (ARM)
+
+Arquitectura orientada a eventos sobre la misma base MySQL/MariaDB, sin servicios nuevos que mantener en el
+hosting compartido (`servidor/src/eventos.js`, `flujos.js`, `cuotas.js`).
+
+```mermaid
+sequenceDiagram
+    participant App as App (sincronizar / crm)
+    participant DB as MySQL · una transacción
+    participant W as Trabajador (cada 3 s)
+    participant G as Google (persona responsable)
+    participant R as Responsable
+    App->>DB: cliente.etapa = "Reunión"
+    DB->>DB: regla (Observer) → INSERT eventos (clave única) · COMMIT junto con el cambio
+    W->>DB: reclama lote (UPDATE atómico, marca)
+    W->>G: paso "carpeta" → punto de control
+    W->>G: paso "expediente" (PDF) → punto de control
+    W->>G: paso "hueco" (FreeBusy) → punto de control
+    W->>DB: paso "aviso": bandeja + push + WhatsApp (en una transacción)
+    W->>DB: estado = hecho
+    DB-->>R: aviso unicast con expediente y primer hueco libre
+```
+
+| Pieza | Qué garantiza |
+|---|---|
+| **Outbox transaccional** (`db.sincronizar › alConfirmar`) | El evento existe si, y solo si, el cambio se confirmó: una sincronización rechazada (permiso) no deja eventos |
+| **Clave de idempotencia** (`UNIQUE clave`) | El mismo hecho no se encola dos veces (guardar otra vez, reintentos de la app sin conexión) |
+| **Pasos con punto de control** (`paso(nombre, tarea)`) | Un reintento no repite lo que ya hizo: ni dos carpetas, ni dos PDF, ni dos avisos |
+| **Reintentos** | 429, 5xx, red y tiempo agotado: espera exponencial con variación al azar (30 s, 1, 2, 4… min), hasta 6 intentos. Dentro de cada llamada a Google, además, los reintentos inmediatos de `conGoogle` |
+| **Cola de mensajes muertos** | Lo definitivo (cliente borrado, sin manejador, nadie responsable) queda `fallido` con su motivo; `/api/salud › eventos` lo cuenta por tipo |
+| **Tiempo de visibilidad** | Un evento que quedó `procesando` más de 10 minutos (proceso caído) se vuelve a reclamar; cada escritura lleva la marca del trabajador |
+| **Aislamiento (unicast)** | El flujo comprueba al ejecutarse que el responsable sigue aprobado y ve ese cliente (país **y** casa); el aviso solo le llega a él |
+
+**Flujo `CLIENTE_EN_REUNION`** (embudo: Prospecto → Contactado → **Reunión** → Propuesta → Cliente / Perdido):
+carpeta del cliente en Drive → expediente PDF desde la plantilla → primer hueco libre de 30 min en 5 días
+laborables (9:00–17:00, FreeBusy) → aviso al responsable. **Al cliente no se le invita automáticamente**: el
+responsable confirma la hora con *Reunión con Meet* en la ficha. Cada paso de Google es opcional: sin cuenta
+conectada o sin plantilla, queda "omitido" y el aviso sale igual.
+
+**Añadir un disparador nuevo:** una regla en `REGLAS` (`flujos.js`: módulo, condición sobre registro y anterior,
+y el evento con su clave) y su manejador en `MANEJADORES`, escrito con `paso()`. Se prueba como
+`pruebas/api.test.js › ARM`.
+
+**Cuotas:** `CuboDeFichas` (10 llamadas seguidas, luego 5 por segundo y persona) delante de Google en los flujos y
+en la agenda de Calendar; WhatsApp: los límites de Meta (códigos `130429`, `131056`, `80007`, `4`, `613`, que llegan
+como HTTP 400) se tratan como pasajeros y la cola los reintenta con espera.
+
+**Rotar `CLAVE_CIFRADO`** sin que nadie vuelva a entrar: `npm run clave` → en el panel, `CLAVE_CIFRADO_ANTERIOR` = la
+de antes y `CLAVE_CIFRADO` = la nueva → reiniciar (cada token se vuelve a cifrar al usarse) → `npm run rotar-clave`
+(todos de una vez) → quitar `CLAVE_CIFRADO_ANTERIOR`.
+

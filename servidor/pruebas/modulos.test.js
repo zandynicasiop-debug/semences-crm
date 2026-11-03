@@ -406,6 +406,14 @@ describe('reintentos: qué fallos son pasajeros', () => {
         assert.ok(!esPasajero(null));
     });
 
+    test('fallos pasajeros de la base (conexión perdida, deadlock, tope de conexiones del hosting) sí; los de datos no', () => {
+        for (const code of ['PROTOCOL_CONNECTION_LOST', 'ER_LOCK_DEADLOCK', 'ER_LOCK_WAIT_TIMEOUT', 'ER_CON_COUNT_ERROR', 'ER_TOO_MANY_USER_CONNECTIONS']) {
+            assert.ok(esPasajero(Object.assign(new Error(code), { code })), code);
+        }
+        assert.ok(!esPasajero({ code: 'ER_DUP_ENTRY' }), 'un duplicado no se arregla reintentando');
+        assert.ok(!esPasajero({ code: 'ER_BAD_FIELD_ERROR' }), 'una columna que no existe tampoco');
+    });
+
     test('tiempo agotado de fetch (AbortSignal.timeout): antes se daba por fallo definitivo', () => {
         assert.ok(esPasajero(new DOMException('The operation was aborted due to timeout', 'TimeoutError')));
         assert.ok(esPasajero({ code: 'TimeoutError' }), 'así lo deja gaxios (librerías de Google)');
@@ -889,5 +897,94 @@ describe('Google Workspace: agenda, documentos y avisos (workspace.js)', async (
         assert.equal(await respaldoPendiente({ pool, config: { ...base, workspace: { ...base.workspace, respaldoCarpetaId: '' } } }), false);
         assert.equal(await respaldoPendiente({ pool, config: base }, new Date('2026-11-02T05:30:00Z')), false, 'la 1:30 en RD: todavía no');
         assert.equal(await respaldoPendiente({ pool, config: base }, new Date('2026-11-02T07:00:00Z')), false, 'sin cuenta del sistema conectada');
+    });
+});
+
+// ---------------------------------------------------------------------------------------------------
+describe('ARM: motor de eventos, flujos, cuotas y rotación de la clave', async () => {
+    const { eventosDeCambios, emitirEvento } = await import('../src/eventos.js');
+    const { REGLAS, primerHuecoLibre, camposExpediente } = await import('../src/flujos.js');
+    const { CuboDeFichas } = await import('../src/cuotas.js');
+    const { descifrarToken } = await import('../src/cuentas.js');
+    const usuario = { id: 7 };
+
+    test('disparador: solo al pasar a Reunión, una vez por cliente y día', () => {
+        const cambio = (registro, anterior, modulo = 'clientes') => eventosDeCambios(REGLAS, [{ modulo, registro, anterior }], { usuario, hoy: '2026-11-03' });
+        const [evento] = cambio({ id: 'c1', etapa: 'Reunión' }, { id: 'c1', etapa: 'Contactado' });
+        assert.deepEqual(evento, { tipo: 'CLIENTE_EN_REUNION', clave: 'reunion:c1:2026-11-03', usuarioId: 7, carga: { clienteId: 'c1', etapaAnterior: 'Contactado' } });
+        assert.equal(cambio({ id: 'c1', etapa: 'Reunión' }, null).length, 1, 'cliente nuevo ya en Reunión');
+        assert.equal(cambio({ id: 'c1', etapa: 'Reunión' }, { id: 'c1', etapa: 'Reunión' }).length, 0, 'ya estaba: no se repite');
+        assert.equal(cambio({ id: 'c1', etapa: 'Propuesta' }, { id: 'c1', etapa: 'Reunión' }).length, 0);
+        assert.equal(cambio({ id: 'v1', etapa: 'Reunión' }, null, 'visitas').length, 0, 'otro módulo');
+    });
+
+    test('outbox: tipo y clave válidos; la misma clave dos veces no encola dos veces', async () => {
+        const vistas = new Set();
+        const pool = { query: async (sql, [, clave]) => { if (vistas.has(clave)) throw Object.assign(new Error('Duplicate'), { errno: 1062 }); vistas.add(clave); return [{ affectedRows: 1 }]; } };
+        assert.equal(await emitirEvento(pool, { tipo: 'CLIENTE_EN_REUNION', clave: 'k1' }), true);
+        assert.equal(await emitirEvento(pool, { tipo: 'CLIENTE_EN_REUNION', clave: 'k1' }), false);
+        await assert.rejects(emitirEvento(pool, { tipo: 'malo; DROP', clave: 'k2' }), /Tipo de evento no válido/);
+        await assert.rejects(emitirEvento(pool, { tipo: 'CLIENTE_EN_REUNION', clave: 'x'.repeat(191) }), /190/);
+        const roto = { query: async () => { throw Object.assign(new Error('sin conexión'), { errno: 2013 }); } };
+        await assert.rejects(emitirEvento(roto, { tipo: 'CLIENTE_EN_REUNION', clave: 'k3' }), /sin conexión/, 'otros errores no se tragan');
+    });
+
+    test('primer hueco libre: días laborables, 9:00-17:00 locales, con antelación y sin solapes', () => {
+        const zona = 'America/Santo_Domingo'; // UTC-4: las 9:00 son las 13:00 UTC
+        const lunes = new Date('2026-11-02T12:00:00Z'); // lunes 8:00 en RD
+        assert.deepEqual(primerHuecoLibre({ ocupado: [], ahora: lunes, zona }), { inicio: '2026-11-02T13:00:00.000Z', fin: '2026-11-02T13:30:00.000Z' });
+        const ocupado = [{ inicio: '2026-11-02T13:00:00Z', fin: '2026-11-02T14:15:00Z' }];
+        assert.equal(primerHuecoLibre({ ocupado, ahora: lunes, zona }).inicio, '2026-11-02T14:30:00.000Z', 'salta lo ocupado');
+        const viernesTarde = new Date('2026-11-06T20:30:00Z'); // viernes 16:30 en RD: ya no cabe hoy
+        assert.equal(primerHuecoLibre({ ocupado: [], ahora: viernesTarde, zona }).inicio, '2026-11-09T13:00:00.000Z', 'pasa al lunes, sin fin de semana');
+        const todo = [{ inicio: '2026-11-01T00:00:00Z', fin: '2026-11-20T00:00:00Z' }];
+        assert.equal(primerHuecoLibre({ ocupado: todo, ahora: lunes, zona }), null);
+        assert.equal(primerHuecoLibre({ ocupado: [], ahora: lunes, zona, minutos: 60 }).fin, '2026-11-02T14:00:00.000Z');
+    });
+
+    test('expediente: solo los registros de ese cliente y sin datos inventados', () => {
+        const datos = {
+            agronomia: [{ clienteId: 'c1', lote: 'L1', variedad: 'Tomate', proceso: 'Siembra', fechaInicio: '2026-10-01' }, { clienteId: 'c2', lote: 'X' }],
+            visitas: [], rendimiento: []
+        };
+        const campos = camposExpediente({ id: 'c1', nombre: 'Finca A' }, datos, { nombre: 'Ana', email: 'a@x.com' }, '3 de noviembre de 2026');
+        assert.equal(campos.procesos, 'L1 · Tomate · Siembra: 2026-10-01 – pendiente');
+        assert.equal(campos.visitas, 'Sin registros');
+        assert.equal(campos.telefono, '', 'lo que falta queda vacío');
+        assert.equal(campos.responsable, 'Ana');
+    });
+
+    test('cubo de fichas: ráfaga hasta la capacidad, luego al ritmo; en fila, sin gastar dos veces la misma ficha', async () => {
+        let reloj = 0;
+        const esperas = [];
+        const cubo = new CuboDeFichas({ capacidad: 2, porSegundo: 1, ahora: () => reloj, dormir: async (ms) => { esperas.push(ms); reloj += ms; } });
+        const tiempos = await Promise.all([cubo.esperar('ana'), cubo.esperar('ana'), cubo.esperar('ana'), cubo.esperar('ana')]);
+        assert.deepEqual(tiempos, [0, 0, 1000, 1000], 'las dos primeras al momento; las demás, una por segundo');
+        assert.equal(await cubo.esperar('luis'), 0, 'cada persona tiene su cubo');
+        reloj += 10000;
+        assert.equal(await cubo.esperar('ana'), 0, 'se rellena con el tiempo');
+        assert.throws(() => new CuboDeFichas({ capacidad: 0 }), /capacidad/);
+    });
+
+    test('rotación de CLAVE_CIFRADO: lo cifrado con la anterior se lee y se marca para volver a cifrar', () => {
+        const anterior = 'b'.repeat(64);
+        const usuario = { email: 'ana@semillasdata.com', token_google: cifrar('refresco-ana', anterior, 'google:ana@semillasdata.com') };
+        assert.throws(() => descifrarToken(usuario, { claveCifrado: CLAVE }), 'sin la anterior no se puede leer');
+        assert.deepEqual(descifrarToken(usuario, { claveCifrado: CLAVE, claveCifradoAnterior: anterior }), { token: 'refresco-ana', conClaveAnterior: true });
+        const nuevo = { ...usuario, token_google: cifrar('refresco-ana', CLAVE, 'google:ana@semillasdata.com') };
+        assert.deepEqual(descifrarToken(nuevo, { claveCifrado: CLAVE, claveCifradoAnterior: anterior }), { token: 'refresco-ana', conClaveAnterior: false });
+        // El token de una persona copiado a la fila de otra no se lee con ninguna de las dos claves (AAD)
+        assert.throws(() => descifrarToken({ ...usuario, email: 'luis@semillasdata.com' }, { claveCifrado: CLAVE, claveCifradoAnterior: anterior }));
+        assert.equal(validarEntorno({ CLAVE_CIFRADO: CLAVE, CLAVE_CIFRADO_ANTERIOR: 'corta' }).errores.length, 1);
+    });
+
+    test('WhatsApp: los límites de Meta (HTTP 400 con código 130429/131056/80007) se reintentan; el resto no', async () => {
+        const config = { chatWebhook: '', chatTarjetas: false, urlApp: '', push: {}, whatsapp: { token: 't', telefonoId: '123', plantilla: 'p', idioma: 'es', version: 'v21.0' } };
+        const conCodigo = (codigo) => crearAvisos(config, async () => ({ ok: false, status: 400, text: async () => `{"error":{"message":"x","type":"OAuthException","code":${codigo},"error_subcode":2494055}}` }));
+        for (const codigo of [130429, 131056, 80007]) {
+            await assert.rejects(conCodigo(codigo).whatsappUno('584141234567', 'hola'), (e) => e.status === 429 && esPasajero(e), String(codigo));
+        }
+        await assert.rejects(conCodigo(132001).whatsappUno('584141234567', 'hola'), (e) => e.status === 400 && !esPasajero(e), 'plantilla inexistente: definitivo');
+        await assert.rejects(conCodigo(40).whatsappUno('584141234567', 'hola'), (e) => e.status === 400, '"40" no es el código 4');
     });
 });

@@ -8,6 +8,7 @@
 import mysql from 'mysql2/promise';
 import { ESQUEMA_INSTAGRAM } from './instagram.js';
 import { ESQUEMA_REPORTES } from './reportes.js';
+import { ESQUEMA_EVENTOS } from './eventos.js';
 
 export const MODULOS_CRM = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'sitios', 'mensajes', 'tareas'];
 
@@ -125,7 +126,7 @@ export async function conectar(configMysql) {
     // La hora de la base en UTC en cada conexión: en un hosting compartido el servidor puede estar en
     // otra zona, y CURRENT_TIMESTAMP tiene que cuadrar con UTC_TIMESTAMP() (sesiones, cola de avisos)
     pool.pool.on('connection', (conexion) => conexion.query("SET time_zone = '+00:00'"));
-    for (const sql of [...ESQUEMA, ...ESQUEMA_INSTAGRAM, ...ESQUEMA_REPORTES]) await pool.query(sql);
+    for (const sql of [...ESQUEMA, ...ESQUEMA_INSTAGRAM, ...ESQUEMA_REPORTES, ...ESQUEMA_EVENTOS]) await pool.query(sql);
     return pool;
 }
 
@@ -181,8 +182,10 @@ export async function leerRegistro(conexion, modulo, id, bloquear = false) {
  * permitido(modulo, registro) decide si la persona puede escribir ese registro: se mira el registro
  * nuevo y también el que ya había (nadie puede pisar ni borrar lo que no le toca).
  * Devuelve { datos, guardados: [{ modulo, registro, anterior }] } (los guardados, para los avisos).
+ * alConfirmar(conexion, guardados): se ejecuta dentro de la transacción, justo antes de confirmarla
+ * (outbox transaccional: los eventos de eventos.js se guardan o se deshacen junto con los cambios).
  */
-export async function sincronizar(pool, { guardar = [], eliminar = [] }, usuario, permitido = () => true) {
+export async function sincronizar(pool, { guardar = [], eliminar = [] }, usuario, permitido = () => true, { alConfirmar = null } = {}) {
     // Cada cambio tiene que ser un objeto: un null o un texto en la lista es un 400, no un fallo interno
     const malformado = [...guardar, ...eliminar].some(op => !op || typeof op !== 'object' || Array.isArray(op));
     if (malformado) throw Object.assign(new Error('Cada cambio tiene que ser un objeto { modulo, registro } o { modulo, id }'), { estado: 400 });
@@ -206,6 +209,7 @@ export async function sincronizar(pool, { guardar = [], eliminar = [] }, usuario
             if (anterior && !permitido(op.modulo, anterior)) throw rechazo();
             await eliminarRegistro(conexion, op.modulo, op.id);
         }
+        if (alConfirmar) await alConfirmar(conexion, guardados);
         const datos = await listarTodo(conexion);
         await conexion.commit();
         return { datos, guardados };

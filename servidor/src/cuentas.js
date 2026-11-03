@@ -56,8 +56,24 @@ export async function guardarUsuario(pool, config, { email, nombre, foto, tokenR
 // El token de Google de cada persona va cifrado y atado a su correo
 const contextoToken = (email) => `google:${String(email).toLowerCase()}`;
 
+/**
+ * Token de Google descifrado: { token, conClaveAnterior }. Rotación de CLAVE_CIFRADO: lo que no se descifra
+ * con la clave actual se prueba con CLAVE_CIFRADO_ANTERIOR (y conGoogle lo vuelve a cifrar con la nueva).
+ * El contexto (AAD) es el correo de su dueño: copiado a la fila de otra persona, no se descifra con ninguna.
+ */
+export function descifrarToken(usuario, config) {
+    if (!usuario.token_google) return { token: '', conClaveAnterior: false };
+    const contexto = contextoToken(usuario.email);
+    try {
+        return { token: descifrar(usuario.token_google, config.claveCifrado, contexto), conClaveAnterior: false };
+    } catch (error) {
+        if (!config.claveCifradoAnterior) throw error;
+        return { token: descifrar(usuario.token_google, config.claveCifradoAnterior, contexto), conClaveAnterior: true };
+    }
+}
+
 export function tokenDe(usuario, config) {
-    return usuario.token_google ? descifrar(usuario.token_google, config.claveCifrado, contextoToken(usuario.email)) : '';
+    return descifrarToken(usuario, config).token;
 }
 
 // Google cambió el token de refresco: se guarda el nuevo cifrado

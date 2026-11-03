@@ -18,6 +18,7 @@ import crypto from 'node:crypto';
 import * as cuentas from './cuentas.js';
 import { ACCIONES, errorApp } from './acciones.js';
 import { estadoCola } from './cola.js';
+import { estadoEventos } from './eventos.js';
 import { ambitoDe } from './permisos.js';
 import { cabecerasSeguras, limiteGeneral, limiteEntrada as limiteDeEntrada, limiteAcciones, validarEntrada } from './seguridad.js';
 import { firmaValida, recibirWebhook } from './instagram.js';
@@ -132,7 +133,8 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
     api.get('/salud', async (req, res) => {
         let base = 'ok';
         let cola = null;
-        try { cola = await estadoCola(pool); } catch (e) { base = 'sin conexión'; }
+        let eventos = null;
+        try { cola = await estadoCola(pool); eventos = await estadoEventos(pool); } catch (e) { base = 'sin conexión'; }
         res.json({
             ok: base === 'ok', servicio: 'Semences del Caribe · backend', base,
             integraciones: {
@@ -145,6 +147,8 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
                 agenda: config.workspace.agendaAutomatica
             },
             colaAvisos: cola,
+            // Flujos automáticos por tipo y estado (los 'fallido' son la cola de mensajes muertos)
+            eventos,
             // Para la pantalla de entrada: el dominio de la empresa y si se admiten cuentas personales
             acceso: { dominio: config.google.dominio, cuentasPersonales: config.google.cuentasPersonales },
             // Clave pública VAPID: la app la necesita para suscribirse a los avisos push (no es secreta)

@@ -13,6 +13,8 @@ import { crearApp } from '../src/aplicacion.js';
 import { repasar, INTENTOS } from '../src/cola.js';
 import { enviarResumenes } from '../src/resumen.js';
 import { esperarSegundoPlano } from '../src/workspace.js';
+import { procesarEventos, emitirEvento } from '../src/eventos.js';
+import { MANEJADORES } from '../src/flujos.js';
 import { enZona } from '../src/fechas.js';
 import { actualizarEnvio } from '../src/envios.js';
 import { recordarReportes, semanas, diasDeSemana, revisarPendientes, resumenDelLunes } from '../src/reportes.js';
@@ -67,6 +69,10 @@ function googleFalso() {
             const archivo = { id, nombre: datos.nombre, tipo: datos.tipo, enlace: `https://drive.google.com/file/d/${id}/view`, fecha: new Date().toISOString(), tamano: datos.datos.length };
             g.archivos.push({ ...archivo, cliente: datos.carpetaCliente && datos.carpetaCliente.id, respaldo: Boolean(datos.propiedades && datos.propiedades.semencesRespaldo), creado: Date.now(), contenido: datos.datos });
             return archivo;
+        },
+        carpetaCliente: async (token, alRenovar, datos) => {
+            g.llamadas.push({ tipo: 'carpeta', token, datos });
+            return { id: `carpeta-${datos.carpetaCliente.id}`, enlace: `https://drive.google.com/drive/folders/carpeta-${datos.carpetaCliente.id}` };
         },
         archivosDelCliente: async (token, alRenovar, { carpetaCliente }) => g.archivos.filter(a => a.cliente === carpetaCliente.id).map(({ id, nombre, tipo, enlace, fecha, tamano }) => ({ id, nombre, tipo, enlace, fecha, tamano })),
         respaldos: async (token, alRenovar, { desde, antesDe }) => g.archivos.filter(a => a.respaldo && (!desde || a.creado >= desde.getTime()) && (!antesDe || a.creado < antesDe.getTime())),
@@ -135,7 +141,7 @@ for (const base of BASES) {
                 try { pool = await conectar(config.mysql); break; } catch (e) { if (i > 60) throw e; await new Promise(r => setTimeout(r, 1000)); }
             }
             // Base limpia: se borran las tablas y conectar() las vuelve a crear
-            for (const tabla of ['reportes_revisiones', 'reportes_resumenes', 'reportes_avisos_equipo', 'reportes_semanales', 'reportes_recordatorios', 'instagram_mensajes', 'instagram_conversaciones', 'instagram_cuentas', 'sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'directos', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
+            for (const tabla of ['eventos', 'reportes_revisiones', 'reportes_resumenes', 'reportes_avisos_equipo', 'reportes_semanales', 'reportes_recordatorios', 'instagram_mensajes', 'instagram_conversaciones', 'instagram_cuentas', 'sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'directos', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
             await pool.end();
             pool = await conectar(config.mysql);
 
@@ -1238,6 +1244,94 @@ for (const base of BASES) {
             } finally {
                 config.workspace = original;
             }
+        });
+
+        test('ARM: cliente a Reunión → evento en la misma transacción, pasos con punto de control y aviso solo al responsable', async () => {
+            const contar = async (where = '1') => Number((await pool.query(`SELECT COUNT(*) n FROM eventos WHERE ${where}`))[0][0].n);
+            const cliente = { id: 'cli-reu', nombre: 'Agroexport La Vega', pais: 'RD', casa: 'Fitó', etapa: 'Prospecto', telefono: '8095550123' };
+            await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: cliente }] });
+            assert.equal(await contar("tipo = 'CLIENTE_EN_REUNION'"), 0, 'Prospecto no dispara nada');
+            await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: { ...cliente, etapa: 'Reunión' } }] });
+            await accion(sesiones.ana, { accion: 'crm', modulo: 'clientes', registro: { ...cliente, etapa: 'Reunión', notas: 'otra vez' } });
+            assert.equal(await contar("tipo = 'CLIENTE_EN_REUNION'"), 1, 'una sola vez aunque se guarde de nuevo');
+
+            // Outbox: si la sincronización se rechaza (permiso), el evento tampoco queda
+            const luisCliente = { id: 'cli-luis', nombre: 'Finca de Luis', pais: 'RD', casa: 'Gautier Semences', etapa: 'Reunión' };
+            const rechazo = await accion(sesiones.luis, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: luisCliente }, { modulo: 'clientes', registro: { id: 'ajeno', pais: 'VE', casa: 'Fitó' } }] });
+            assert.equal(rechazo.estado, 403);
+            assert.equal(await contar("clave LIKE 'reunion:cli-luis:%'"), 0, 'deshecho junto con los cambios');
+
+            // Ejecución: falla el paso del hueco (Google 503) → se reintenta sin repetir carpeta ni expediente
+            const original = { workspace: config.workspace, reportes: config.reportes, ocupado: google.ocupado };
+            config.workspace = { ...original.workspace, documentosCarpetaId: 'carpetaDocumentos1' };
+            config.reportes = { plantillaId: 'plantilla-expediente-123456', carpetaId: 'carpetaReportes1' };
+            // Google caído más rato que los reintentos inmediatos de conGoogle (3 intentos): lo retoma el motor de eventos
+            let caido = true;
+            google.ocupado = async (...args) => { if (caido) throw Object.assign(new Error('Backend Error'), { status: 503 }); return original.ocupado(...args); };
+            const contexto = { pool, config, google, avisos };
+            const silencio = { error: () => {} };
+            try {
+                const llamadas = (tipo) => google.llamadas.filter(l => l.tipo === tipo && l.datos && JSON.stringify(l.datos).includes('cli-reu')).length;
+                const antesDirectos = Number((await pool.query('SELECT COUNT(*) n FROM directos'))[0][0].n);
+                const primero = await procesarEventos(contexto, MANEJADORES, { registrar: silencio });
+                assert.deepEqual(primero, { hechos: 0, reintentar: 1, fallidos: 0 });
+                const [[pendiente]] = await pool.query("SELECT estado, intentos, pasos, error FROM eventos WHERE clave LIKE 'reunion:cli-reu:%'");
+                assert.equal(pendiente.estado, 'pendiente');
+                assert.match(pendiente.error, /Backend Error/);
+                assert.deepEqual(Object.keys(JSON.parse(pendiente.pasos)).sort(), ['carpeta', 'expediente'], 'lo hecho queda guardado');
+                assert.equal(llamadas('carpeta'), 1);
+                assert.equal(llamadas('reporte'), 1);
+
+                caido = false;
+                await pool.query("UPDATE eventos SET proximo = UTC_TIMESTAMP() - INTERVAL 1 SECOND WHERE clave LIKE 'reunion:cli-reu:%'");
+                const segundo = await procesarEventos(contexto, MANEJADORES, { registrar: silencio });
+                assert.deepEqual(segundo, { hechos: 1, reintentar: 0, fallidos: 0 });
+                assert.equal(llamadas('carpeta'), 1, 'la carpeta no se repite');
+                assert.equal(llamadas('reporte'), 1, 'el PDF no se repite');
+                const [[hecho]] = await pool.query("SELECT estado, intentos, pasos FROM eventos WHERE clave LIKE 'reunion:cli-reu:%'");
+                assert.equal(hecho.estado, 'hecho');
+                assert.equal(hecho.intentos, 2);
+                const pasos = JSON.parse(hecho.pasos);
+                assert.match(pasos.hueco.inicio, /^\d{4}-\d{2}-\d{2}T/, 'hueco libre calculado con FreeBusy');
+                assert.deepEqual(pasos.aviso, { para: 'ana@semillasdata.com' });
+
+                // Aviso solo al responsable (Ana: lo movió y no hay nadie asignado), con el expediente y el hueco
+                const [directos] = await pool.query('SELECT d.texto, u.email FROM directos d JOIN usuarios u ON u.id = d.para_id ORDER BY d.id DESC LIMIT 5');
+                assert.equal(Number((await pool.query('SELECT COUNT(*) n FROM directos'))[0][0].n), antesDirectos + 1);
+                assert.equal(directos[0].email, 'ana@semillasdata.com');
+                assert.match(directos[0].texto, /Agroexport La Vega pasó a Reunión/);
+                assert.match(directos[0].texto, /Expediente: https:\/\/drive\.google\.com/);
+                assert.match(directos[0].texto, /primer hueco libre/);
+                assert.equal(google.llamadas.filter(l => l.tipo === 'evento' && JSON.stringify(l.evento).includes('Agroexport')).length, 0, 'al cliente no se le invita solo');
+            } finally {
+                Object.assign(config, { workspace: original.workspace, reportes: original.reportes });
+                google.ocupado = original.ocupado;
+            }
+
+            // Mensajes muertos: lo definitivo no se reintenta; sin manejador, tampoco
+            await emitirEvento(pool, { tipo: 'CLIENTE_EN_REUNION', clave: 'prueba:no-existe', carga: { clienteId: 'no-existe' } });
+            await emitirEvento(pool, { tipo: 'OTRO_EVENTO', clave: 'prueba:sin-manejador' });
+            const muertos = await procesarEventos({ pool, config, google, avisos }, MANEJADORES, { registrar: { error: () => {} } });
+            assert.deepEqual(muertos, { hechos: 0, reintentar: 0, fallidos: 2 });
+            assert.match((await pool.query("SELECT error FROM eventos WHERE clave = 'prueba:no-existe'"))[0][0].error, /ya no existe/);
+
+            // Un tropiezo pasajero de la base dentro del flujo (deadlock, conexión perdida, tope de conexiones)
+            // se reintenta más tarde: antes dejaba el evento "fallido" para siempre
+            await emitirEvento(pool, { tipo: 'PRUEBA_BASE', clave: 'prueba:deadlock' });
+            const conDeadlock = { PRUEBA_BASE: async () => { throw Object.assign(new Error('Deadlock found when trying to get lock'), { code: 'ER_LOCK_DEADLOCK', errno: 1213 }); } };
+            assert.deepEqual(await procesarEventos({ pool, config, google, avisos }, conDeadlock, { registrar: { error: () => {} } }), { hechos: 0, reintentar: 1, fallidos: 0 });
+            assert.equal((await pool.query("SELECT estado FROM eventos WHERE clave = 'prueba:deadlock'"))[0][0].estado, 'pendiente');
+
+            // Tiempo de visibilidad: lo que quedó 'procesando' (proceso caído) se vuelve a reclamar
+            const [[ana]] = await pool.query("SELECT id FROM usuarios WHERE email = 'ana@semillasdata.com'");
+            await emitirEvento(pool, { tipo: 'CLIENTE_EN_REUNION', clave: 'prueba:atascado', usuarioId: ana.id, carga: { clienteId: 'cli-reu' } });
+            await pool.query("UPDATE eventos SET estado = 'procesando', marca = 'otro-proceso', reclamado = UTC_TIMESTAMP() - INTERVAL 11 MINUTE WHERE clave = 'prueba:atascado'");
+            await procesarEventos({ pool, config, google, avisos }, MANEJADORES, { registrar: { error: () => {} } });
+            assert.equal((await pool.query("SELECT estado FROM eventos WHERE clave = 'prueba:atascado'"))[0][0].estado, 'hecho');
+
+            const salud = (await llamar('/api/salud', { metodo: 'GET' })).json.eventos;
+            assert.equal(salud.CLIENTE_EN_REUNION.hecho, 2);
+            assert.equal(salud.CLIENTE_EN_REUNION.fallido, 1);
         });
 
         test('salir cierra la sesión', async () => {

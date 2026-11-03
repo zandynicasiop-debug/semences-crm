@@ -19,6 +19,7 @@ import { ambitoDe, filtrarDatos } from './permisos.js';
 import { construirCorreo } from './correo.js';
 import { errorApp, conGoogle } from './llamadasGoogle.js';
 import { enZona, inicioDelDia, sumarDias } from './fechas.js';
+import { cuotaGoogle } from './cuotas.js';
 
 export const DIAS_AGENDA = 60;          // La agenda del CRM cubre de hoy a 60 días
 export const HORA_AGENDA = 6;           // Sincronización automática: a las 6:00, antes del resumen de Borja
@@ -131,9 +132,11 @@ export async function sincronizarAgenda(contexto, persona, datosTodos, ahora = n
     return conGoogle({ pool, config, usuario: persona }, async (token, alRenovar) => {
         const existentes = await google.eventosCrm(token, alRenovar, { desde, hasta });
         const plan = planAgenda(existentes, deseados);
-        for (const { evento } of plan.crear) await google.guardarEventoCrm(token, alRenovar, { evento });
-        for (const { id, deseado } of plan.actualizar) await google.guardarEventoCrm(token, alRenovar, { id, evento: deseado.evento });
-        for (const id of plan.borrar) await google.borrarEventoCrm(token, alRenovar, id);
+        // Cubo de fichas por persona (cuotas.js): una agenda con muchos cambios no dispara un 429 de Calendar
+        const cuota = () => cuotaGoogle.esperar(persona.id);
+        for (const { evento } of plan.crear) { await cuota(); await google.guardarEventoCrm(token, alRenovar, { evento }); }
+        for (const { id, deseado } of plan.actualizar) { await cuota(); await google.guardarEventoCrm(token, alRenovar, { id, evento: deseado.evento }); }
+        for (const id of plan.borrar) { await cuota(); await google.borrarEventoCrm(token, alRenovar, id); }
         return { creados: plan.crear.length, actualizados: plan.actualizar.length, borrados: plan.borrar.length };
     });
 }
