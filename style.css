@@ -1833,10 +1833,8 @@ summary {
 #pista-camara {
     position: absolute;
     left: var(--sdc-espacio-4);
-    /* Arriba a la izquierda (abajo van los logos de las marcas), sin llegar a "Vista general" */
-    max-width: calc(100% - 2 * var(--sdc-espacio-4) - 150px);
-    top: var(--sdc-espacio-4);
-    transition: opacity 0.6s ease;
+    max-width: calc(100% - 2 * var(--sdc-espacio-4));
+    bottom: var(--sdc-espacio-3);
     z-index: var(--sdc-capa-escena-control);
     margin: 0;
     padding: var(--sdc-espacio-1) var(--sdc-espacio-3);
@@ -1845,68 +1843,6 @@ summary {
     color: var(--ui-texto-suave);
     font-size: var(--sdc-texto-xs);
     pointer-events: none;
-}
-
-/* Tras el primer gesto (o unos segundos) la pista se va: ya se sabe usar */
-#pista-camara.pista-oculta {
-    opacity: 0;
-}
-
-/* Logos de las marcas sobre la escena (app.js): siempre en blanco, como sus logos */
-#marcas-escena {
-    position: absolute;
-    right: var(--sdc-espacio-4);
-    bottom: var(--sdc-espacio-3);
-    z-index: var(--sdc-capa-escena-control);
-    display: flex;
-    gap: var(--sdc-espacio-2);
-    margin: 0;
-    padding: 0;
-    list-style: none;
-}
-
-.marca-escena {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 96px;
-    height: var(--sdc-objetivo-tactil);
-    padding: var(--sdc-espacio-1) var(--sdc-espacio-3);
-    background: var(--sdc-blanco);
-    border: 1px solid var(--sdc-borde-sobre-blanco);
-    border-bottom: 4px solid var(--marca);
-    border-radius: var(--sdc-radio-xs);
-    box-shadow: var(--sdc-sombra);
-    cursor: pointer;
-    transition: transform var(--sdc-transicion);
-}
-
-.marca-escena:hover {
-    transform: translateY(-2px);
-}
-
-.marca-escena:focus-visible {
-    outline: 2px solid var(--ui-foco);
-    outline-offset: 2px;
-}
-
-.marca-escena img {
-    display: block;
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-}
-
-/* Teléfono: dos por fila, en la esquina (sobre la avenida, lo menos importante de la vista) */
-@media (max-width: 520px) {
-    #marcas-escena {
-        display: grid;
-        grid-template-columns: repeat(2, 76px);
-    }
-
-    .marca-escena {
-        width: 76px;
-    }
 }
 
 /* Ficha "Marcas que representamos" (mapa.js) */

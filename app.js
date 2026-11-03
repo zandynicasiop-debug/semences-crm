@@ -2224,43 +2224,7 @@ class Dashboard {
         const pista = document.createElement('p');
         pista.id = 'pista-camara';
         pista.textContent = 'Arrastra para girar · pulsa un edificio o una parcela para ver su información';
-        // Franja con los logos de las marcas, nítidos a cualquier tamaño: desde la vista general los carteles
-        // de la finca se ven pequeños. Al tocar una, la cámara va a los carteles y se abre su ficha
-        const marcas = document.createElement('ul');
-        marcas.id = 'marcas-escena';
-        marcas.setAttribute('aria-label', 'Marcas que representamos');
-        MARCAS_LOGOS.forEach(marca => {
-            const li = document.createElement('li');
-            const b = document.createElement('button');
-            b.type = 'button';
-            b.className = 'marca-escena';
-            b.style.setProperty('--marca', marca.color);
-            b.title = `${marca.nombre}: ver su cartel en la finca`;
-            const img = document.createElement('img');
-            img.alt = marca.nombre;
-            img.src = marca.url;
-            // La imagen recortada (sin margen blanco) para que el logo llene la ficha
-            recortarLogo(marca.url).then(({ imagen, x0, y0, w, h }) => {
-                const c = document.createElement('canvas');
-                c.height = 96;
-                c.width = Math.max(1, Math.round((w * 96) / h));
-                const cx = c.getContext('2d');
-                cx.imageSmoothingQuality = 'high';
-                cx.drawImage(imagen, x0, y0, w, h, 0, 0, c.width, c.height);
-                img.src = c.toDataURL('image/png');
-            }).catch(() => {});
-            b.appendChild(img);
-            b.addEventListener('click', () => {
-                const sitio = this.mapa && this.mapa.sitios.find(x => x.id === 'marcas');
-                if (sitio) this.mapa.abrir(sitio, { volar: true });
-            });
-            li.appendChild(b);
-            marcas.appendChild(li);
-        });
-        container.append(centrar, pista, marcas);
-        const ocultarPista = () => pista.classList.add('pista-oculta');
-        this.renderer.domElement.addEventListener('pointerdown', ocultarPista, { once: true });
-        setTimeout(ocultarPista, 15000);
+        container.append(centrar, pista);
 
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.45);
         this.scene.add(ambientLight);
@@ -3126,8 +3090,8 @@ class Dashboard {
      * Cartel alto (valla publicitaria) de una marca: poste central con plataforma intermedia, plataforma de
      * servicio bajo el panel, celosía detrás y focos arriba. El panel (7,2 x 3,6) mira a +Z y se inclina
      * hacia atrás para quedar de frente a la cámara, que mira la finca desde arriba (sin inclinar, desde
-     * la vista general se veía aplastado). Solo lleva el logo, grande, con un marco del color de la marca:
-     * de lejos el texto pequeño no se leía y ensuciaba.
+     * la vista general se veía aplastado). Solo lleva el logo, grande y sin sombreado, con un marco del
+     * color de la marca: de lejos el texto pequeño no se leía y ensuciaba.
      */
     crearCartelMarca(x, z, marca) {
         const ANCHO = 7.2, ALTO = 3.6, Y_PANEL = 5.4, INCLINACION = 0.42; // Borde inferior del panel
@@ -3189,15 +3153,23 @@ class Dashboard {
                 const zonaW = W - 2 * MARCO, zonaH = H - 2 * MARCO;
                 const escala = Math.min((zonaW * 0.9) / logo.w, (zonaH * 0.82) / logo.h);
                 const dw = logo.w * escala, dh = logo.h * escala;
+                const lx = (W - dw) / 2, ly = (H - dh) / 2;
                 ctx.imageSmoothingQuality = 'high';
-                ctx.drawImage(logo.imagen, logo.x0, logo.y0, logo.w, logo.h, (W - dw) / 2, (H - dh) / 2, dw, dh);
+                // Trazo algo más grueso: el logo se dibuja varias veces desplazado unos píxeles. De cerca no se
+                // nota; de lejos, las letras finas (Hexagon, el lema de Fitó) dejan de deshacerse en gris
+                const grosor = Math.max(2, Math.round(dh / 140));
+                [[-grosor, 0], [grosor, 0], [0, -grosor], [0, grosor], [0, 0]].forEach(([ox, oy]) => {
+                    ctx.drawImage(logo.imagen, logo.x0, logo.y0, logo.w, logo.h, lx + ox, ly + oy, dw, dh);
+                });
             }
             textura.needsUpdate = true;
         };
         dibujar(null);
         recortarLogo(marca.url).then(dibujar).catch(() => {});
-        // Algo de luz propia: se lee igual a la sombra, con niebla o con lluvia
-        const panelMat = new THREE.MeshStandardMaterial({ map: textura, roughness: 0.55, emissive: 0xffffff, emissiveMap: textura, emissiveIntensity: 0.45 });
+        // Sin sombreado: el panel muestra los colores exactos del logo, con la misma nitidez a la sombra, con
+        // niebla o con lluvia (con luz, el blanco se agrisaba y el logo perdía contraste)
+        textura.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+        const panelMat = new THREE.MeshBasicMaterial({ map: textura, toneMapped: false });
         const bordeMat = new THREE.MeshStandardMaterial({ color: 0xe5e7eb, roughness: 0.5 });
         const panel = new THREE.Mesh(new THREE.BoxGeometry(ANCHO, ALTO, 0.15), [bordeMat, bordeMat, bordeMat, bordeMat, panelMat, bordeMat]);
         panel.position.y = ALTO / 2;
