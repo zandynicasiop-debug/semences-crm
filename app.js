@@ -1475,8 +1475,10 @@ class Vehiculo {
 
 /**
  * Todo lo que hay fuera de la cerca: carreteras con tráfico, el pueblo frente a la entrada,
- * fincas vecinas (plátano y caña), palmas, potrero con vacas, la zona de hortalizas de detrás (campos en
- * hileras, túneles vecinos, campo recién arado, mangos, canal de riego y tinaco), tendido eléctrico y montañas.
+ * fincas vecinas (plátano y caña), invernaderos y campos de hortalizas de los vecinos (maíz, tomate en
+ * espaldera, repollo y yuca), un potrero con vacas y ovejas, palmas, el potrero de detrás con vacas y ovejas,
+ * la zona de hortalizas de detrás (campos en hileras, túneles vecinos, campo recién arado, mangos, canal de
+ * riego y tinaco), tendido eléctrico y montañas.
  * Las coordenadas de la finca: cerca de x = -32 a 34 y de z = -21 a 24.
  */
 class Alrededores {
@@ -1490,10 +1492,13 @@ class Alrededores {
         this.crearCarreteras();
         this.crearTrafico();
         this.crearPueblo();
-        // Fincas vecinas a ambos lados del camino trasero (z = -32)
-        this.crearPlatanal(-112, -50, -26, 18);
+        // Fincas vecinas a ambos lados del camino trasero (z = -32). Delante, al oeste: invernaderos y
+        // campos de hortalizas; al este: un potrero con vacas y ovejas y, más allá, caña
+        this.crearInvernaderosVecinos(-112, -82, -24, 16);
+        this.crearCultivosVecinos(-78, -50, -24, 16);
         this.crearPlatanal(-112, -50, -110, -38);
-        this.crearCanaveral(52, 112, -26, 16);
+        this.crearPastoVecino(52, 84, -26, 16);
+        this.crearCanaveral(88, 112, -26, 16);
         this.crearCanaveral(52, 112, -110, -38);
         this.crearPalmas();
         this.crearPotrero();
@@ -1514,9 +1519,11 @@ class Alrededores {
             m.position.set((x0 + x1) / 2, -0.004, (z0 + z1) / 2);
             this.scene.add(m);
         };
-        parche(-114, -48, -28, 20, 0x3f5f2a);  // Platanales
-        parche(-114, -48, -112, -36, 0x3f5f2a);
-        parche(50, 114, -28, 18, 0x7a8f3a);    // Cañaverales
+        parche(-114, -80, -28, 20, 0x8a8373);  // Invernaderos vecinos: patio de grava
+        parche(-80, -48, -28, 20, 0x6b4a2b);   // Campos de hortalizas vecinos: tierra
+        parche(-114, -48, -112, -36, 0x3f5f2a); // Platanal
+        parche(50, 86, -28, 18, 0x6f9a3e);     // Potrero vecino con vacas y ovejas
+        parche(86, 114, -28, 18, 0x7a8f3a);    // Cañaverales
         parche(50, 114, -112, -36, 0x7a8f3a);
         parche(-36, 38, -110, -38, 0x5f8a3c);  // Potrero trasero
         parche(-150, -116, -110, 20, 0x6b4f2a); // Tierra arada
@@ -1636,6 +1643,241 @@ class Alrededores {
         const tanque = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 1.6, 14), mat(0x1c1917, 0.5));
         tanque.position.set(1, 5.9, -56);
         this.scene.add(tanque);
+    }
+
+    /**
+     * Invernaderos de los vecinos: naves de varias capillas con plástico translúcido, cumbreras de tubo y,
+     * dentro, hileras de cultivo (tomate entutorado o lechuga). Todo fijo e instanciado.
+     */
+    crearInvernaderosVecinos(x0, x1, z0, z1) {
+        const caja = new THREE.BoxGeometry(1, 1, 1);
+        const mat = (color, roughness = 0.9, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness, ...extra });
+        const plastico = mat(0xeef6f1, 0.25, { transparent: true, opacity: 0.42, depthWrite: false, side: THREE.DoubleSide });
+        const techo = mat(0xf8fbf9, 0.3, { transparent: true, opacity: 0.38, depthWrite: false, side: THREE.DoubleSide });
+        const tubo = mat(0xb6bcc2, 0.4, { metalness: 0.7 });
+        const suelo = mat(0x5a3d22, 1);
+        const cultivos = [
+            { hoja: mat(0x3f8f3a, 0.85), alto: 1.6, fruto: mat(0xdc2626, 0.5) },  // Tomate entutorado
+            { hoja: mat(0x7cc35a, 0.8), alto: 0.35 },                              // Lechuga
+            { hoja: mat(0x2f7d32, 0.85), alto: 1.2, fruto: mat(0xf59e0b, 0.5) }   // Pimiento
+        ];
+        const pieza = (clave, m, x, y, z, sx, sy, sz, rz = 0) => this.inst.agregar(clave, caja, m, x, y, z, 0, 0, rz, sx, sy, sz);
+        const capillas = 3, anchoCapilla = 3, largo = 16, alto = 2.6, flecha = 0.9;
+        const ancho = capillas * anchoCapilla;
+        let n = 0;
+        for (let cx = x0 + ancho / 2; cx + ancho / 2 <= x1 + 0.01; cx += ancho + 1.5) {
+            for (let cz = z0 + largo / 2; cz + largo / 2 <= z1 + 0.01; cz += largo + 4) {
+                const cultivo = cultivos[n++ % cultivos.length];
+                pieza('invVecinoSuelo', suelo, cx, 0.02, cz, ancho - 0.4, 0.04, largo - 0.4);
+                // Paredes de plástico y postes de las esquinas y de cada capilla
+                pieza('invVecinoPared', plastico, cx, alto / 2, cz - largo / 2, ancho, alto, 0.04);
+                pieza('invVecinoPared', plastico, cx, alto / 2, cz + largo / 2, ancho, alto, 0.04);
+                pieza('invVecinoPared', plastico, cx - ancho / 2, alto / 2, cz, 0.04, alto, largo);
+                pieza('invVecinoPared', plastico, cx + ancho / 2, alto / 2, cz, 0.04, alto, largo);
+                for (let k = 0; k <= capillas; k++) {
+                    const px = cx - ancho / 2 + k * anchoCapilla;
+                    for (let pz = cz - largo / 2; pz <= cz + largo / 2 + 0.01; pz += 4) pieza('invVecinoPoste', tubo, px, alto / 2, pz, 0.08, alto, 0.08);
+                }
+                // Techo a dos aguas por capilla, con su cumbrera
+                const faldon = Math.hypot(anchoCapilla / 2, flecha);
+                const inclinacion = Math.atan2(flecha, anchoCapilla / 2);
+                for (let k = 0; k < capillas; k++) {
+                    const centro = cx - ancho / 2 + (k + 0.5) * anchoCapilla;
+                    pieza('invVecinoTecho', techo, centro - anchoCapilla / 4, alto + flecha / 2, cz, faldon, 0.04, largo, -inclinacion);
+                    pieza('invVecinoTecho', techo, centro + anchoCapilla / 4, alto + flecha / 2, cz, faldon, 0.04, largo, inclinacion);
+                    pieza('invVecinoCumbrera', tubo, centro, alto + flecha, cz, 0.08, 0.08, largo);
+                }
+                // Hileras de cultivo a lo largo de la nave
+                for (let hx = cx - ancho / 2 + 0.75; hx < cx + ancho / 2 - 0.4; hx += 1.5) {
+                    pieza('invVecinoHilera' + cultivos.indexOf(cultivo), cultivo.hoja, hx, cultivo.alto / 2 + 0.04, cz, 0.55, cultivo.alto, largo - 1.6);
+                    if (cultivo.fruto) {
+                        for (let fz = cz - largo / 2 + 1.4; fz < cz + largo / 2 - 1; fz += 1.1) {
+                            if (this.azar() > 0.5) pieza('invVecinoFruto' + cultivos.indexOf(cultivo), cultivo.fruto, hx + (this.azar() > 0.5 ? 0.3 : -0.3), 0.4 + this.azar() * cultivo.alto * 0.6, fz, 0.16, 0.16, 0.16);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Campos de hortalizas de los vecinos, en franjas a lo largo: maíz con su espiga, tomate en espaldera
+     * (estacas y alambre), repollo y yuca. Instanciado: miles de plantas en pocas llamadas de dibujo.
+     */
+    crearCultivosVecinos(x0, x1, z0, z1) {
+        const caja = new THREE.BoxGeometry(1, 1, 1);
+        const bola = new THREE.IcosahedronGeometry(1, 0);
+        const mat = (color, roughness = 0.85, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness, ...extra });
+        const surco = mat(0x4a3319, 1);
+        const franja = (x1 - x0) / 4;
+        const largo = z1 - z0;
+        const cz = (z0 + z1) / 2;
+        const surcos = (fx0, fx1, paso) => {
+            for (let x = fx0 + paso / 2; x < fx1; x += paso) this.inst.agregar('surcoVecino', caja, surco, x, 0.06, cz, 0, 0, 0, paso * 0.55, 0.12, largo - 1);
+        };
+        const azar = () => this.azar() - 0.5;
+
+        // 1. Maíz: cañas altas con dos hojas y espiga
+        let fx = x0;
+        const cana = mat(0x6f9b2f), hojaMaiz = mat(0x5b8f2a), espiga = mat(0xd9b44a, 0.7);
+        surcos(fx + 0.3, fx + franja - 0.3, 1);
+        for (let x = fx + 0.8; x < fx + franja - 0.3; x += 1) {
+            for (let z = z0 + 1; z < z1 - 1; z += 0.7) {
+                const a = 2 + this.azar() * 0.5, px = x + azar() * 0.15, pz = z + azar() * 0.15, giro = this.azar() * Math.PI;
+                this.inst.agregar('maizCana', caja, cana, px, a / 2, pz, 0, 0, 0, 0.08, a, 0.08);
+                this.inst.agregar('maizHoja', caja, hojaMaiz, px, a * 0.55, pz, 0.6, giro, 0, 0.12, 0.03, 0.9);
+                this.inst.agregar('maizHoja', caja, hojaMaiz, px, a * 0.75, pz, 0.6, giro + Math.PI, 0, 0.12, 0.03, 0.8);
+                this.inst.agregar('maizEspiga', caja, espiga, px, a + 0.15, pz, 0, giro, 0, 0.1, 0.35, 0.1);
+            }
+        }
+
+        // 2. Tomate en espaldera: estacas, alambre y la mata con frutos
+        fx += franja;
+        const estaca = mat(0x8b6a43, 0.9), alambre = mat(0x9ca3af, 0.4, { metalness: 0.6 });
+        const mataTomate = mat(0x3f8f3a), tomate = mat(0xdc2626, 0.5), verde = mat(0x84cc16, 0.6);
+        surcos(fx + 0.3, fx + franja - 0.3, 1.4);
+        for (let x = fx + 1; x < fx + franja - 0.3; x += 1.4) {
+            for (let z = z0 + 1; z <= z1 - 1; z += 2.5) this.inst.agregar('tomateEstaca', caja, estaca, x, 0.75, z, 0, 0, 0, 0.06, 1.5, 0.06);
+            this.inst.agregar('tomateAlambre', caja, alambre, x, 1.35, cz, 0, 0, 0, 0.02, 0.02, largo - 2);
+            this.inst.agregar('tomateMata', caja, mataTomate, x, 0.6, cz, 0, 0, 0, 0.45, 1.1, largo - 2.2);
+            for (let z = z0 + 1.5; z < z1 - 1.5; z += 0.6) {
+                if (this.azar() > 0.55) this.inst.agregar(this.azar() > 0.35 ? 'tomateRojo' : 'tomateVerde', bola, this.azar() > 0.35 ? tomate : verde,
+                    x + (this.azar() > 0.5 ? 0.26 : -0.26), 0.3 + this.azar() * 0.8, z, 0, 0, 0, 0.11, 0.11, 0.11);
+            }
+        }
+
+        // 3. Repollo: cabezas verde claro en hileras
+        fx += franja;
+        const repollo = mat(0x9bd17a, 0.75, { flatShading: true }), hojaRepollo = mat(0x5f9f4a, 0.8, { flatShading: true });
+        surcos(fx + 0.3, fx + franja - 0.3, 0.9);
+        for (let x = fx + 0.75; x < fx + franja - 0.3; x += 0.9) {
+            for (let z = z0 + 1; z < z1 - 1; z += 0.75) {
+                const r = 0.22 + this.azar() * 0.08;
+                this.inst.agregar('repolloHojas', bola, hojaRepollo, x, 0.14, z, 0, this.azar() * 3, 0, r * 1.6, r * 0.5, r * 1.6);
+                this.inst.agregar('repollo', bola, repollo, x, 0.25, z, 0, this.azar() * 3, 0, r, r * 0.9, r);
+            }
+        }
+
+        // 4. Yuca: tallos finos y copa de hojas palmeadas
+        fx += franja;
+        const talloYuca = mat(0x8b6a43, 0.9), copaYuca = mat(0x3b7d3f, 0.8, { flatShading: true });
+        surcos(fx + 0.3, fx + franja - 0.3, 1.2);
+        for (let x = fx + 0.9; x < fx + franja - 0.3; x += 1.2) {
+            for (let z = z0 + 1; z < z1 - 1; z += 1.1) {
+                const a = 1.3 + this.azar() * 0.5, px = x + azar() * 0.2, pz = z + azar() * 0.2;
+                this.inst.agregar('yucaTallo', caja, talloYuca, px, a / 2, pz, azar() * 0.2, 0, azar() * 0.2, 0.05, a, 0.05);
+                this.inst.agregar('yucaCopa', bola, copaYuca, px, a + 0.1, pz, 0, this.azar() * 3, 0, 0.5, 0.25, 0.5);
+            }
+        }
+    }
+
+    /**
+     * Vaca o oveja hecha de piezas instanciadas (el rumbo gira cada pieza alrededor del animal).
+     * pastando: la cabeza baja hacia el pasto.
+     */
+    animal(tipo, x, z, rumbo, color = 0, pastando = this.azar() > 0.4) {
+        if (!this.piezasAnimal) {
+            const m = (c, roughness = 0.9, extra = {}) => new THREE.MeshStandardMaterial({ color: c, roughness, ...extra });
+            this.piezasAnimal = {
+                caja: new THREE.BoxGeometry(1, 1, 1),
+                lana: new THREE.IcosahedronGeometry(1, 1),
+                vaca: [m(0xf5f5f4), m(0x5b3a1e), m(0x1c1917), m(0xb45309)],
+                mancha: m(0x1c1917),
+                hocico: m(0xf2b8a0),
+                cuerno: m(0xe7e5e4, 0.6),
+                ovejaLana: m(0xf1efe6, 1, { flatShading: true }),
+                ovejaLanaOscura: m(0x8a7f72, 1, { flatShading: true }),
+                ovejaCara: m(0x1c1917)
+            };
+        }
+        const p = this.piezasAnimal;
+        const c = Math.cos(rumbo), s = Math.sin(rumbo);
+        // Desplazamiento local (dx a lo ancho, dz hacia la cabeza) llevado al mundo
+        const poner = (clave, geom, material, dx, y, dz, sx, sy, sz, rx = 0) =>
+            this.inst.agregar(clave, geom, material, x + dx * c + dz * s, y, z - dx * s + dz * c, rx, rumbo, 0, sx, sy, sz);
+        if (tipo === 'vaca') {
+            const pelo = p.vaca[color % p.vaca.length];
+            poner(`vaca${color}`, p.caja, pelo, 0, 1.15, 0, 0.9, 0.85, 1.8);
+            if (color === 0) { // Holstein: manchas negras
+                poner('vacaMancha', p.caja, p.mancha, 0.46, 1.25, 0.2, 0.02, 0.45, 0.6);
+                poner('vacaMancha', p.caja, p.mancha, -0.46, 1.1, -0.4, 0.02, 0.4, 0.5);
+                poner('vacaMancha', p.caja, p.mancha, 0, 1.58, -0.3, 0.5, 0.02, 0.6);
+            }
+            const cabezaY = pastando ? 0.75 : 1.4, cabezaZ = pastando ? 1.15 : 1.1;
+            poner(`vaca${color}`, p.caja, pelo, 0, cabezaY, cabezaZ, 0.45, 0.45, 0.6, pastando ? 0.6 : 0);
+            poner('vacaHocico', p.caja, p.hocico, 0, cabezaY - (pastando ? 0.2 : 0.1), cabezaZ + (pastando ? 0.25 : 0.33), 0.36, 0.2, 0.12, pastando ? 0.6 : 0);
+            poner('vacaCuerno', p.caja, p.cuerno, 0.2, cabezaY + 0.27, cabezaZ - 0.1, 0.06, 0.16, 0.06);
+            poner('vacaCuerno', p.caja, p.cuerno, -0.2, cabezaY + 0.27, cabezaZ - 0.1, 0.06, 0.16, 0.06);
+            [[-0.3, 0.7], [0.3, 0.7], [-0.3, -0.7], [0.3, -0.7]].forEach(([dx, dz]) => poner(`vaca${color}`, p.caja, pelo, dx, 0.37, dz, 0.16, 0.74, 0.16));
+            poner(`vaca${color}`, p.caja, pelo, 0, 1.05, -0.95, 0.06, 0.6, 0.06); // Cola
+        } else {
+            const lana = color === 1 ? p.ovejaLanaOscura : p.ovejaLana;
+            poner(color === 1 ? 'ovejaLanaOscura' : 'ovejaLana', p.lana, lana, 0, 0.72, 0, 0.42, 0.36, 0.6);
+            const cabezaY = pastando ? 0.42 : 0.78, cabezaZ = pastando ? 0.62 : 0.6;
+            poner('ovejaCara', p.caja, p.ovejaCara, 0, cabezaY, cabezaZ, 0.22, 0.24, 0.32, pastando ? 0.7 : 0);
+            poner('ovejaCara', p.caja, p.ovejaCara, 0.14, cabezaY + 0.08, cabezaZ - 0.08, 0.14, 0.05, 0.08);
+            poner('ovejaCara', p.caja, p.ovejaCara, -0.14, cabezaY + 0.08, cabezaZ - 0.08, 0.14, 0.05, 0.08);
+            [[-0.17, 0.3], [0.17, 0.3], [-0.17, -0.3], [0.17, -0.3]].forEach(([dx, dz]) => poner('ovejaPata', p.caja, p.ovejaCara, dx, 0.2, dz, 0.08, 0.4, 0.08));
+        }
+    }
+
+    // Rebaño de ovejas: juntas alrededor de un punto, casi todas mirando al mismo lado
+    rebano(cx, cz, cantidad, radio) {
+        const rumbo = this.azar() * Math.PI * 2;
+        for (let i = 0; i < cantidad; i++) {
+            const a = this.azar() * Math.PI * 2, d = Math.sqrt(this.azar()) * radio;
+            this.animal('oveja', cx + Math.cos(a) * d, cz + Math.sin(a) * d, rumbo + (this.azar() - 0.5) * 1.6, this.azar() > 0.85 ? 1 : 0);
+        }
+    }
+
+    /**
+     * Potrero de un vecino con vacas y ovejas: cerca de postes, bebedero, un ranchito de sombra y árboles
+     */
+    crearPastoVecino(x0, x1, z0, z1) {
+        const caja = new THREE.BoxGeometry(1, 1, 1);
+        const mat = (color, roughness = 0.9, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness, ...extra });
+        const madera = mat(0x6b4423);
+        // Cerca: postes y dos hilos
+        const poste = (x, z) => this.inst.agregar('postePasto', caja, madera, x, 0.6, z, 0, 0, 0, 0.12, 1.2, 0.12);
+        for (let x = x0; x <= x1; x += 2.5) { poste(x, z0); poste(x, z1); }
+        for (let z = z0 + 2.5; z < z1; z += 2.5) { poste(x0, z); poste(x1, z); }
+        const hilo = mat(0x52525b, 0.5, { metalness: 0.5 });
+        [0.55, 1].forEach(y => {
+            this.inst.agregar('hiloPasto', caja, hilo, (x0 + x1) / 2, y, z0, 0, 0, 0, x1 - x0, 0.02, 0.02);
+            this.inst.agregar('hiloPasto', caja, hilo, (x0 + x1) / 2, y, z1, 0, 0, 0, x1 - x0, 0.02, 0.02);
+            this.inst.agregar('hiloPasto', caja, hilo, x0, y, (z0 + z1) / 2, 0, 0, 0, 0.02, 0.02, z1 - z0);
+            this.inst.agregar('hiloPasto', caja, hilo, x1, y, (z0 + z1) / 2, 0, 0, 0, 0.02, 0.02, z1 - z0);
+        });
+        // Matas de pasto más oscuro
+        const mataPasto = mat(0x4f7a2c, 1, { flatShading: true });
+        const bola = new THREE.IcosahedronGeometry(1, 0);
+        for (let i = 0; i < 160; i++) {
+            this.inst.agregar('mataPasto', bola, mataPasto, x0 + 1 + this.azar() * (x1 - x0 - 2), 0.05, z0 + 1 + this.azar() * (z1 - z0 - 2), 0, this.azar() * 3, 0, 0.35, 0.15, 0.35);
+        }
+        // Bebedero de concreto con agua y ranchito de sombra para el ganado
+        this.inst.agregar('bebedero', caja, mat(0xb8b2a7, 0.95), x0 + 6, 0.3, z1 - 5, 0, 0, 0, 3, 0.6, 0.9);
+        const agua = new THREE.Mesh(new THREE.PlaneGeometry(2.7, 0.6), mat(0x3f7fb5, 0.15, { metalness: 0.2 }));
+        agua.rotation.x = -Math.PI / 2;
+        agua.position.set(x0 + 6, 0.55, z1 - 5);
+        this.scene.add(agua);
+        const rx = x1 - 6, rz = z0 + 6;
+        [[-2.2, -1.6], [2.2, -1.6], [-2.2, 1.6], [2.2, 1.6]].forEach(([dx, dz]) => this.inst.agregar('posteRancho', caja, madera, rx + dx, 1.3, rz + dz, 0, 0, 0, 0.16, 2.6, 0.16));
+        this.inst.agregar('zincRancho', caja, mat(0x9ca3af, 0.4, { metalness: 0.6 }), rx, 2.65, rz, 0.1, 0, 0, 5.2, 0.08, 4);
+        this.inst.agregar('pacaHeno', caja, mat(0xd9b44a, 1), rx - 1, 0.35, rz, 0, 0.3, 0, 1.2, 0.7, 0.8);
+        this.inst.agregar('pacaHeno', caja, mat(0xd9b44a, 1), rx + 0.6, 0.35, rz + 0.4, 0, -0.2, 0, 1.2, 0.7, 0.8);
+        // Dos árboles de sombra
+        const tronco = new THREE.CylinderGeometry(0.25, 0.35, 1, 6);
+        const copa = new THREE.IcosahedronGeometry(1, 1);
+        [[x0 + 9, z0 + 10], [x1 - 10, z1 - 8]].forEach(([tx, tz]) => {
+            this.inst.agregar('troncoSombra', tronco, madera, tx, 1.3, tz, 0, 0, 0, 1, 2.6, 1);
+            this.inst.agregar('copaSombra', copa, mat(0x2f6b34, 0.85, { flatShading: true }), tx, 3.5, tz, 0, this.azar() * 3, 0, 2.4, 1.8, 2.4);
+        });
+        // Ganado: vacas sueltas y un rebaño de ovejas
+        for (let i = 0; i < 9; i++) {
+            this.animal('vaca', x0 + 3 + this.azar() * (x1 - x0 - 6), z0 + 3 + this.azar() * (z1 - z0 - 6), this.azar() * Math.PI * 2, i % 4);
+        }
+        this.rebano(x0 + (x1 - x0) * 0.35, z0 + (z1 - z0) * 0.3, 16, 4.5);
+        this.rebano(x0 + (x1 - x0) * 0.7, z0 + (z1 - z0) * 0.72, 10, 3.2);
     }
 
     crearCarreteras() {
@@ -1884,7 +2126,7 @@ class Alrededores {
         }
     }
 
-    // Potrero detrás de la finca con vacas pastando y una casa de campo con su ranchito
+    // Potrero detrás de la finca con vacas y ovejas pastando y una casa de campo con su ranchito
     crearPotrero() {
         const vacaMat = [
             new THREE.MeshStandardMaterial({ color: 0xf5f5f4, roughness: 0.9 }),
@@ -1916,6 +2158,9 @@ class Alrededores {
             g.rotation.y = r;
             this.scene.add(g);
         }
+        // Y dos rebaños de ovejas, lejos de la casa y del rancho
+        this.rebano(-24, -86, 14, 4);
+        this.rebano(-14, -48, 8, 3);
         // Casa de campo y ranchito de zinc en el potrero
         this.casa(-8, -62, 7, 5.5, 3, 0xfde68a, 0);
         const rancho = new THREE.Group();
