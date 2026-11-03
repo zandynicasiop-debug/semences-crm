@@ -121,7 +121,9 @@ jobs:
 
       # Lo que se sube a FastComet a mano, siempre al día con main (Actions › esta ejecución › Artifacts):
       #   semences-web-dominio.zip  la web para public_html de semillasdata.com (con .htaccess y el APK)
-      #   semences-servidor.zip     el backend para la app Node de api.semillasdata.com (sin node_modules ni .env)
+      #   semences-servidor.tar.gz  el backend para la app Node de api.semillasdata.com (sin node_modules ni .env).
+      #                             En .tar.gz: el antivirus de FastComet bloquea los .zip con archivos .js
+      #                             (Sanesecurity.Foxhole.JS_Zip, un falso positivo). Va también en .zip
       # Otra dirección para la web: variable del repositorio SEMENCES_WEB (Settings › Variables)
       - name: Paquetes para subir a FastComet
         env:
@@ -134,14 +136,17 @@ jobs:
           cp android/salida/Semences.apk publicar/Semences.apk
           (cd publicar && zip -qr ../semences-web-dominio.zip .)
           (cd servidor && zip -qr ../semences-servidor.zip . -x 'node_modules/*' -x '.env' -x 'pruebas/*')
+          tar -czf semences-servidor.tar.gz -C servidor --exclude=node_modules --exclude=.env --exclude=pruebas .
           unzip -l semences-web-dominio.zip | grep -q '\.htaccess'
           unzip -l semences-servidor.zip | grep -q 'package-lock.json'
+          tar -tzf semences-servidor.tar.gz | grep -q 'package-lock.json'
 
       - uses: actions/upload-artifact@v7
         with:
           name: Semences-para-FastComet
           path: |
             semences-web-dominio.zip
+            semences-servidor.tar.gz
             semences-servidor.zip
 
       - id: pages

@@ -58,7 +58,7 @@ cPanel › **Dominios** › crea `api.semillasdata.com` (con su carpeta, p. ej. 
 
 ### 4. La aplicación Node
 
-1. Sube la carpeta `servidor/` **sin `node_modules` ni `.env`** a tu cuenta, fuera de `public_html` (p. ej. `~/semences-servidor`). Ya preparada: GitHub › Actions › la última ejecución de `main` › Artifacts › `Semences-para-FastComet` › `semences-servidor.zip` (la lista completa del día del despliegue está en `DOCUMENTACION_SISTEMA_COMPLETO.md`, sección 16).
+1. Sube la carpeta `servidor/` **sin `node_modules` ni `.env`** a tu cuenta, fuera de `public_html` (p. ej. `~/semences-servidor`). Ya preparada: GitHub › Actions › la última ejecución de `main` › Artifacts › `Semences-para-FastComet` › `semences-servidor.tar.gz` (sube el `.tar.gz`: el antivirus de FastComet rechaza los `.zip` con archivos `.js` por un falso positivo, `Sanesecurity.Foxhole.JS_Zip`) (la lista completa del día del despliegue está en `DOCUMENTACION_SISTEMA_COMPLETO.md`, sección 16).
 2. cPanel › **Setup Node.js App › Create Application**:
    - Node.js version: **22** o **24** (las pruebas de GitHub pasan en las dos; Node 20 dejó de recibir parches de seguridad en abril de 2026)
    - Application mode: **Production**

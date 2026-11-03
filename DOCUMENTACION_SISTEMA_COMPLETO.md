@@ -524,8 +524,9 @@ salen conectadas cuando el backend ya responde y existe el secreto `SEMENCES_API
 
 **1. Backend (api.semillasdata.com)**
 1. GitHub › Actions › "Compilar APK y publicar la app" › la última ejecución verde de `main` › **Artifacts** ›
-   `Semences-para-FastComet`. Dentro: `semences-servidor.zip` y `semences-web-dominio.zip`.
-2. cPanel › Setup Node.js App › la app › **Stop App**. File Manager: sube `semences-servidor.zip` a
+   `Semences-para-FastComet`. Dentro: `semences-servidor.tar.gz` (el que se sube: el antivirus de FastComet
+   rechaza los `.zip` con archivos `.js`), `semences-servidor.zip` y `semences-web-dominio.zip`.
+2. cPanel › Setup Node.js App › la app › **Stop App**. File Manager: sube `semences-servidor.tar.gz` a
    `~/semences-servidor` (fuera de `public_html`) y **Extract**.
 3. En la app Node: Node **22 o 24**, modo **Production**, archivo de inicio `app.js`. Variables de entorno
    (todas en `servidor/.env.example`):
