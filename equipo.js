@@ -367,7 +367,7 @@ class CanalEquipo {
         dialogo.innerHTML = `
             <form class="dialogo-form" novalidate>
                 <h3 id="alerta-titulo">Notificar al equipo</h3>
-                <p class="module-nota">Se avisa en la app, en el espacio de Google Chat y en los dispositivos con avisos activados.</p>
+                <p class="module-nota">Le llega a todo el equipo como aviso en el móvil (push) y por WhatsApp, con tu nombre. También queda en el tablero de la app y en Google Chat si está conectado.</p>
                 <div class="form-group alerta-nombre">
                     <label for="alerta-nombre">Tu nombre</label>
                     <input id="alerta-nombre" type="text" autocomplete="name" aria-describedby="alerta-nombre-error">
@@ -444,16 +444,39 @@ class CanalEquipo {
         };
         this.db.guardar('mensajes', alerta);
         this.vistos.add(alerta.id);
+        this.dialogoAlerta.close();
+        const texto = `🚨 ALERTA · ${alerta.motivo} · ${alerta.parcela}\n${alerta.texto}\n— ${alerta.autor}`;
+        if (this.google && this.google.conBackend) {
+            // Con el backend: aviso push en los móviles y WhatsApp a todo el equipo (y Google Chat si está).
+            // Se dice por dónde salió de verdad, para que nadie crea avisado a quien no lo está
+            this.google.enviar('avisar', { mensaje: texto }, true).then(r => this.informarAlerta(r));
+            return;
+        }
         if (this.google) {
-            // Con el backend, la alerta llega también por WhatsApp a todo el equipo
-            this.google.avisarEquipo(`🚨 ALERTA · ${alerta.motivo} · ${alerta.parcela}\n${alerta.texto}\n— ${alerta.autor}`);
+            this.google.avisarEquipo(texto);
             this.google.enviarNotificacionMovil(`Alerta · ${alerta.motivo}`, `${alerta.parcela}: ${alerta.texto}`);
         }
-        this.dialogoAlerta.close();
         this.mostrarAviso(this.db.compartida
-            ? `Alerta enviada al equipo${this.google && this.google.conBackend ? ' (Google Chat y WhatsApp).' : ' y a Google Chat.'}`
+            ? 'Alerta enviada al equipo y a Google Chat.'
             : 'Alerta guardada solo en este navegador: falta la URL de Google para avisar al equipo.',
         this.db.compartida ? 'ok' : 'error');
+    }
+
+    // Resultado de la acción "avisar" del backend: { chat, whatsapp: { encolados }, push: { encolados } }
+    informarAlerta(r) {
+        if (!r || !r.ok) {
+            const sinCanales = r && r.codigo === 'configuracion';
+            return this.mostrarAviso(sinCanales
+                ? 'La alerta quedó en el tablero de la app, pero el servidor aún no tiene configurados los avisos push ni WhatsApp: nadie la recibió en el móvil.'
+                : `La alerta quedó en el tablero de la app, pero no salió por push ni WhatsApp${r && r.error ? `: ${r.error}` : '. Revisa la conexión.'}`, 'error');
+        }
+        const canales = [
+            r.push && `aviso push a ${r.push.encolados} ${r.push.encolados === 1 ? 'dispositivo' : 'dispositivos'}`,
+            r.whatsapp && `WhatsApp a ${r.whatsapp.encolados} ${r.whatsapp.encolados === 1 ? 'persona' : 'personas'}`,
+            r.chat === 'enviado' && 'Google Chat'
+        ].filter(Boolean);
+        const falta = [!r.push && 'push', !r.whatsapp && 'WhatsApp'].filter(Boolean);
+        this.mostrarAviso(`Alerta enviada: ${canales.join(', ') || 'solo en la app'}.${falta.length ? ` Falta configurar ${falta.join(' y ')} en el servidor.` : ''}`, falta.length ? 'alerta' : 'ok');
     }
 
     // ----- Aviso breve en pantalla (sustituye a alert()) -----

@@ -521,7 +521,9 @@ window.TEXTOS_EN = {
     'Para crear videollamadas hace falta conectar el Apps Script de Google (ver DESPLIEGUE.md).': 'To create video calls you need to connect the Google Apps Script (see DESPLIEGUE.md).',
     'No se pudo crear la reunión. Revisa que el Apps Script tenga Calendar activado.': 'Couldn’t create the meeting. Check that the Apps Script has Calendar enabled.',
     'Notificar al equipo': 'Alert the team',
-    'Se avisa en la app, en el espacio de Google Chat y en los dispositivos con avisos activados.': 'The alert goes to the app, the Google Chat space and devices with notifications on.',
+    'Le llega a todo el equipo como aviso en el móvil (push) y por WhatsApp, con tu nombre. También queda en el tablero de la app y en Google Chat si está conectado.': 'The whole team gets it as a phone notification (push) and on WhatsApp, with your name. It also stays on the app’s board and in Google Chat if connected.',
+    'La alerta quedó en el tablero de la app, pero el servidor aún no tiene configurados los avisos push ni WhatsApp: nadie la recibió en el móvil.': 'The alert is on the app’s board, but the server doesn’t have push or WhatsApp set up yet: nobody got it on their phone.',
+    'La alerta quedó en el tablero de la app, pero no salió por push ni WhatsApp. Revisa la conexión.': 'The alert is on the app’s board, but it didn’t go out by push or WhatsApp. Check your connection.',
     'Motivo': 'Reason',
     'Dónde': 'Where',
     'Qué pasa y qué hace falta': 'What’s happening and what’s needed',
@@ -1102,6 +1104,8 @@ window.PATRONES_EN = (() => {
         [String.raw`Videollamada de Meet: (.+)`, 'Meet video call: {1}'],
         [String.raw`Alerta enviada al equipo \(Google Chat y WhatsApp\)\.`, 'Alert sent to the team (Google Chat and WhatsApp).'],
         [String.raw`Alerta enviada al equipo y a Google Chat\.`, 'Alert sent to the team and to Google Chat.'],
+        [String.raw`Alerta enviada: (.+?)\.(?: Falta configurar (push y WhatsApp|push|WhatsApp) en el servidor\.)?`, (canales, falta) => `Alert sent: ${canales.replace(/aviso push a (\d+) dispositivos?/, (m, n) => `push notification to ${n} device${n === '1' ? '' : 's'}`).replace(/WhatsApp a (\d+) personas?/, (m, n) => `WhatsApp to ${n} ${n === '1' ? 'person' : 'people'}`).replace('solo en la app', 'only in the app')}.${falta ? ` ${falta.replace(' y ', ' and ')} still needs setting up on the server.` : ''}`],
+        [String.raw`La alerta quedó en el tablero de la app, pero no salió por push ni WhatsApp: (.+)`, 'The alert is on the app’s board, but it didn’t go out by push or WhatsApp: {1}'],
     
         // Panel
         [String.raw`de (.+) en tu país y casa`, 'of {1} in your country and brand'],
