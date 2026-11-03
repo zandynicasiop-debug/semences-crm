@@ -24,6 +24,7 @@ import * as db from './db.js';
 import { ambitoDe, puedeLeer, dentroDelAmbito } from './permisos.js';
 import { destinosDe } from './cuentas.js';
 import { encolar } from './cola.js';
+import { registrarAviso } from './campana.js';
 import { conGoogle } from './llamadasGoogle.js';
 import { esPasajero } from './reintentos.js';
 import { enZona, inicioDelDia, sumarDias } from './fechas.js';
@@ -178,6 +179,7 @@ export async function alPasarAReunion(evento, { paso, contexto }) {
             await conexion.beginTransaction();
             await conexion.query('INSERT INTO directos (de_id, para_id, tipo, texto, enlace) VALUES (?, ?, ?, ?, ?)',
                 [evento.usuarioId || persona.id, persona.id, 'cliente', texto.slice(0, 2000), '']);
+            await registrarAviso(conexion, [persona.id], 'cliente', texto.replace(/^🤝\s*/, '').replace(/\n/g, ' · '));
             const { huellas, telefonos } = await destinosDe(conexion, [persona.id]);
             if (avisos.pushActivo) await encolar(conexion, 'push', huellas, texto);
             if (avisos.whatsappActivo) await encolar(conexion, 'whatsapp', telefonos, texto);
