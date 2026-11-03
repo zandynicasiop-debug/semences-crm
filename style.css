@@ -1869,6 +1869,12 @@ summary {
 }
 
 .panel-resumen {
+    /* Siempre en una línea: si el texto cambiaba de una a dos líneas, la escena 3D saltaba de alto */
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
     font-size: var(--sdc-texto-sm);
     font-weight: var(--sdc-peso-medio);
     color: var(--ui-texto-suave);
@@ -3018,15 +3024,6 @@ body.ventana-flotante {
 }
 
 /* ----- Reporte semanal (reporte.js) ----- */
-.sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-}
-
 .dialogo-reporte {
     width: min(var(--sdc-dialogo-md), calc(100vw - 2 * var(--sdc-espacio-5)));
 }

@@ -1622,6 +1622,72 @@ class Alrededores {
 }
 
 /**
+ * Junta en una sola malla por material las piezas de color liso y opacas de una lista (mismo material,
+ * mismas sombras). Cada pieza pasa al espacio que da matrizDe(pieza) (el mundo, o el de su vehículo).
+ * Devuelve las mallas nuevas; las piezas originales se quitan de su padre.
+ */
+function claveMaterial(o) {
+    const m = o.material;
+    return [m.type, m.color && m.color.getHex(), m.emissive && m.emissive.getHex(), m.emissiveIntensity, m.roughness, m.metalness,
+        m.side, m.flatShading, m.opacity, m.depthWrite, o.castShadow, o.receiveShadow].join('|');
+}
+
+function sePuedeUnir(o) {
+    const m = o.material;
+    return o.isMesh && !o.isInstancedMesh && !Array.isArray(m) && o.visible && o.geometry.attributes.normal
+        && !(m.map || m.alphaMap || m.emissiveMap || m.normalMap || m.transparent || m.vertexColors || m.wireframe);
+}
+
+function unirPiezas(piezas, matrizDe) {
+    const grupos = new Map();
+    piezas.forEach(o => {
+        const clave = claveMaterial(o);
+        if (!grupos.has(clave)) grupos.set(clave, []);
+        grupos.get(clave).push(o);
+    });
+    const mallas = [];
+    grupos.forEach(lista => {
+        if (lista.length < 2) return;
+        let total = 0;
+        const geometrias = lista.map(o => {
+            const g = (o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone()).applyMatrix4(matrizDe(o));
+            total += g.attributes.position.count;
+            return g;
+        });
+        const posiciones = new Float32Array(total * 3);
+        const normales = new Float32Array(total * 3);
+        let desde = 0;
+        geometrias.forEach(g => {
+            posiciones.set(g.attributes.position.array, desde * 3);
+            normales.set(g.attributes.normal.array, desde * 3);
+            desde += g.attributes.position.count;
+            g.dispose();
+        });
+        const unida = new THREE.BufferGeometry();
+        unida.setAttribute('position', new THREE.BufferAttribute(posiciones, 3));
+        unida.setAttribute('normal', new THREE.BufferAttribute(normales, 3));
+        unida.computeBoundingSphere();
+        const malla = new THREE.Mesh(unida, lista[0].material);
+        malla.castShadow = lista[0].castShadow;
+        malla.receiveShadow = lista[0].receiveShadow;
+        lista.forEach(o => o.parent.remove(o));
+        mallas.push(malla);
+    });
+    return mallas;
+}
+
+// Un vehículo que se mueve entero (sin partes sueltas): sus piezas se juntan dentro de él
+function unirVehiculo(grupo, conservar = []) {
+    grupo.updateMatrixWorld(true);
+    const inversa = new THREE.Matrix4().copy(grupo.matrixWorld).invert();
+    const fuera = new Set();
+    conservar.forEach(o => o.traverse(x => fuera.add(x)));
+    const piezas = [];
+    grupo.traverse(o => { if (o !== grupo && !fuera.has(o) && sePuedeUnir(o)) piezas.push(o); });
+    unirPiezas(piezas, o => new THREE.Matrix4().multiplyMatrices(inversa, o.matrixWorld)).forEach(m => grupo.add(m));
+}
+
+/**
  * Dashboard y Controlador Principal: finca cercada con calles, invernaderos, campo abierto,
  * almacén-laboratorio y almacén de agroquímicos
  */
@@ -1642,6 +1708,7 @@ class Dashboard {
 
         this.initThreeJS();
         this.initEntorno();
+        this.optimizarEscena();
         this.crearPanelParcelas();
         this.initListeners();
         // El panel de parcelas se crea después del canvas y le quita alto: reencuadrar ya
@@ -1662,7 +1729,10 @@ class Dashboard {
         this.ajustarCamara();
 
         this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Nitidez en pantallas retina
+        // Nitidez en pantallas retina; si el equipo no llega a un movimiento fluido, se baja un poco (ajustarResolucion)
+        this.resolucionMaxima = Math.min(window.devicePixelRatio || 1, 2);
+        this.resolucion = this.resolucionMaxima;
+        this.renderer.setPixelRatio(this.resolucion);
         this.renderer.setSize(container.clientWidth, container.clientHeight);
         // Sombras del sol: suaves, solo dentro de la finca (ver activarSombras)
         this.renderer.shadowMap.enabled = true;
@@ -2964,17 +3034,104 @@ class Dashboard {
                 : 'Lluvia tropical: el campo abierto madura más lento y los tractores van más despacio.');
         });
 
-        window.addEventListener('resize', () => {
-            // El contenedor del lienzo, esté en la página o en la ventana flotante (ventana.js)
-            const container = this.renderer.domElement.parentElement;
-            // Con otra pestaña del CRM abierta el escenario mide 0 x 0: se reajusta al volver
-            if (!container.clientWidth || !container.clientHeight) return;
-            this.camera.aspect = container.clientWidth / container.clientHeight;
-            // Si la persona movió la cámara, se respeta su vista; si no, se reencuadra
-            if (this.vistaManual) this.camera.updateProjectionMatrix();
-            else this.ajustarCamara();
-            this.renderer.setSize(container.clientWidth, container.clientHeight);
+        window.addEventListener('resize', () => this.ajustarTamano());
+        // El escenario también cambia de alto sin que cambie la ventana (el panel de parcelas se pliega,
+        // un texto ocupa otra línea…): sin esto, el lienzo se quedaba con el tamaño viejo, estirado o cortado
+        if (window.ResizeObserver) {
+            this.observador = new ResizeObserver(() => this.ajustarTamano());
+            this.observador.observe(this.renderer.domElement.parentElement);
+        }
+    }
+
+    ajustarTamano() {
+        // El contenedor del lienzo, esté en la página o en la ventana flotante (ventana.js)
+        const container = this.renderer.domElement.parentElement;
+        if (this.observador && this.observado !== container) {
+            if (this.observado) this.observador.unobserve(this.observado);
+            this.observador.observe(container);
+            this.observado = container;
+        }
+        // Con otra pestaña del CRM abierta el escenario mide 0 x 0: se reajusta al volver
+        if (!container || !container.clientWidth || !container.clientHeight) return;
+        const tamano = this.renderer.getSize(new THREE.Vector2());
+        if (tamano.x === container.clientWidth && tamano.y === container.clientHeight) return;
+        this.camera.aspect = container.clientWidth / container.clientHeight;
+        // Si la persona movió la cámara, se respeta su vista; si no, se reencuadra
+        if (this.vistaManual) this.camera.updateProjectionMatrix();
+        else this.ajustarCamara();
+        this.renderer.setSize(container.clientWidth, container.clientHeight);
+    }
+
+    /**
+     * La finca tiene más de mil piezas (muros, techos, vallas, árboles, casas del pueblo…) y cada una era
+     * un dibujo aparte, dos veces si proyectaba sombra: en teléfonos y portátiles modestos la escena iba a
+     * tirones. Aquí, una vez creada:
+     * - las piezas que nunca se mueven se juntan en una sola malla por material (mismo color y acabado);
+     * - las piezas pequeñas dejan de proyectar sombra (no se notaba y costaba un dibujo más cada una);
+     * - lo fijo deja de recalcular su posición en cada fotograma;
+     * - los letreros con imagen (marcas, carteles) se filtran mejor al verse de lado.
+     * No se tocan las piezas que se mueven o cambian (cultivos, tractores y carretas, trabajadores,
+     * caminantes, coches, lluvia) ni las cajas invisibles que reciben los clics del mapa (mapa.js las crea
+     * después). Todo se ve igual: cada pieza conserva su color, su posición y su sombra.
+     */
+    optimizarEscena() {
+        this.scene.updateMatrixWorld(true);
+        const moviles = new Set();
+        const marcar = (objeto) => { if (objeto) objeto.traverse(o => moviles.add(o)); };
+        this.cultivos.forEach(c => marcar(c.mesh));
+        this.tractores.forEach(t => { marcar(t.mesh); if (t.carreta) marcar(t.carreta.mesh); });
+        this.trabajadores.forEach(t => marcar(t.mesh));
+        this.caminantes.forEach(c => marcar(c.mesh));
+        (this.alrededores ? this.alrededores.vehiculos : []).forEach(v => marcar(v.mesh));
+
+        const anisotropia = this.renderer.capabilities.getMaxAnisotropy();
+        const caja = new THREE.Box3();
+        const medida = new THREE.Vector3();
+        const fijas = [];
+        this.scene.traverse(o => {
+            if (o.material && o.material.map) {
+                o.material.map.anisotropy = anisotropia;
+                o.material.map.needsUpdate = true;
+            }
+            if (moviles.has(o)) return;
+            o.updateMatrix();
+            o.matrixAutoUpdate = false;
+            if (!o.isMesh || o.isInstancedMesh || Array.isArray(o.material) || !o.visible) return;
+            // Piezas pequeñas (menos de medio metro): sin sombra propia
+            if (o.castShadow) {
+                caja.setFromObject(o).getSize(medida);
+                if (Math.max(medida.x, medida.y, medida.z) < 0.5) o.castShadow = false;
+            }
+            // Se juntan solo las de color liso y opacas (con imagen o transparencia se dejan como están)
+            if (sePuedeUnir(o)) fijas.push(o);
         });
+        unirPiezas(fijas, o => o.matrixWorld).forEach(malla => {
+            malla.matrixAutoUpdate = false;
+            this.scene.add(malla);
+        });
+
+        // Coches, tractores y carretas se mueven enteros: sus piezas se juntan dentro de cada uno
+        // (las cajas de la carreta no: se ven o no según la carga y cambian de color con el producto)
+        (this.alrededores ? this.alrededores.vehiculos : []).forEach(v => unirVehiculo(v.mesh));
+        this.tractores.forEach(t => {
+            unirVehiculo(t.mesh);
+            if (t.carreta) unirVehiculo(t.carreta.mesh, t.carreta.cajas || []);
+        });
+    }
+
+    // Si el equipo no llega a un movimiento fluido, baja un poco la resolución (y la recupera cuando puede)
+    ajustarResolucion(delta) {
+        if (document.hidden || !this.renderer.domElement.clientWidth) return;
+        this.mediaCuadro = this.mediaCuadro === undefined ? delta : this.mediaCuadro * 0.95 + delta * 0.05;
+        this.cuadrosDesdeCambio = (this.cuadrosDesdeCambio || 0) + 1;
+        if (this.cuadrosDesdeCambio < 120) return; // Unos 2 segundos entre cambios: sin parpadeos
+        let nueva = this.resolucion;
+        if (this.mediaCuadro > 1 / 40 && this.resolucion > 1) nueva = Math.max(1, this.resolucion - 0.25);
+        else if (this.mediaCuadro < 1 / 55 && this.resolucion < this.resolucionMaxima) nueva = Math.min(this.resolucionMaxima, this.resolucion + 0.25);
+        if (nueva === this.resolucion) return;
+        this.resolucion = nueva;
+        this.cuadrosDesdeCambio = 0;
+        this.renderer.setPixelRatio(nueva);
     }
 
     // La parcela lista que más tiempo lleva esperando y que ningún tractor tiene asignada
@@ -3118,7 +3275,10 @@ class Dashboard {
         if (listas) partes.push(`${listas} ${listas === 1 ? 'lista' : 'listas'} para cosechar`);
         if (enRuta) partes.push(`${enRuta} ${enRuta === 1 ? 'tractor' : 'tractores'} en camino`);
         const textoResumen = partes.length ? partes.join(' · ') : 'Todas las parcelas madurando';
-        if (this.resumen.textContent !== textoResumen) this.resumen.textContent = textoResumen;
+        if (this.resumen.textContent !== textoResumen) {
+            this.resumen.textContent = textoResumen;
+            this.resumen.title = textoResumen; // Completo al pasar el ratón, si no cabe en la línea
+        }
 
         // Eficiencia operativa: alertas y notificaciones al día
         const alertas = this.estadoAlertas();
@@ -3190,7 +3350,10 @@ class Dashboard {
         // La finca sigue funcionando con otra pestaña abierta, pero solo se dibuja si se ve
         this.actualizarMetricasDOM();
         if (this.mapa) this.mapa.actualizar();
-        if (this.simuladorVisible !== false || this.enVentanaFlotante) this.renderer.render(this.scene, this.camera);
+        if (this.simuladorVisible !== false || this.enVentanaFlotante) {
+            this.ajustarResolucion(delta);
+            this.renderer.render(this.scene, this.camera);
+        }
     }
 }
 

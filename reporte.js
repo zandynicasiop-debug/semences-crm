@@ -206,7 +206,7 @@ class ReporteSemanal {
         });
         const etiquetaEstado = document.createElement('label');
         etiquetaEstado.htmlFor = estado.id;
-        etiquetaEstado.className = 'sr-only';
+        etiquetaEstado.className = 'solo-lector';
         etiquetaEstado.textContent = 'Estado';
         const comentario = document.createElement('textarea');
         comentario.name = 'comentario';
