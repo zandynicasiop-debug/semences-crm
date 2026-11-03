@@ -11,6 +11,7 @@ import { ESQUEMA_REPORTES } from './reportes.js';
 import { ESQUEMA_EVENTOS } from './eventos.js';
 import { ESQUEMA_CAMPANA } from './campana.js';
 import { ESQUEMA_METAS } from './metas.js';
+import { ESQUEMA_AUDITORIA, auditarRegistro } from './auditoria.js';
 
 export const MODULOS_CRM = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'pedidos', 'sitios', 'mensajes', 'tareas', 'reuniones'];
 
@@ -129,7 +130,7 @@ export async function conectar(configMysql) {
     // La hora de la base en UTC en cada conexión: en un hosting compartido el servidor puede estar en
     // otra zona, y CURRENT_TIMESTAMP tiene que cuadrar con UTC_TIMESTAMP() (sesiones, cola de avisos)
     pool.pool.on('connection', (conexion) => conexion.query("SET time_zone = '+00:00'"));
-    const sentencias = [...ESQUEMA, ...ESQUEMA_INSTAGRAM, ...ESQUEMA_REPORTES, ...ESQUEMA_EVENTOS, ...ESQUEMA_CAMPANA, ...ESQUEMA_METAS];
+    const sentencias = [...ESQUEMA, ...ESQUEMA_INSTAGRAM, ...ESQUEMA_REPORTES, ...ESQUEMA_EVENTOS, ...ESQUEMA_CAMPANA, ...ESQUEMA_METAS, ...ESQUEMA_AUDITORIA];
     for (const sql of sentencias) await pool.query(sql);
     await ponerAlDia(pool, sentencias);
     return pool;
@@ -201,7 +202,11 @@ export function comprobarModulo(modulo) {
     }
 }
 
-export async function guardarRegistro(conexion, modulo, registro, autorId) {
+/**
+ * auditoria: { config, usuario?, sistema?, red?, anterior? } (auditoria.js): el cambio queda en el registro de
+ * auditoría, con lo que había antes (si no se da, se lee). Sin ella no se apunta (solo en pruebas sueltas).
+ */
+export async function guardarRegistro(conexion, modulo, registro, autorId, auditoria = null) {
     comprobarModulo(modulo);
     if (!registro || typeof registro !== 'object' || Array.isArray(registro) || !registro.id) {
         const error = new Error('Registro sin id');
@@ -209,16 +214,21 @@ export async function guardarRegistro(conexion, modulo, registro, autorId) {
         throw error;
     }
     const id = String(registro.id).slice(0, 100);
+    const anterior = auditoria ? (auditoria.anterior !== undefined ? auditoria.anterior : await leerRegistro(conexion, modulo, id)) : null;
+    const guardado = { ...registro, id };
     await conexion.query(
         `INSERT INTO registros (modulo, id, datos, autor_id) VALUES (?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE datos = VALUES(datos), autor_id = VALUES(autor_id)`,
-        [modulo, id, JSON.stringify({ ...registro, id }), autorId || null]
+        [modulo, id, JSON.stringify(guardado), autorId || null]
     );
+    if (auditoria) await auditarRegistro(conexion, auditoria, modulo, anterior, guardado);
 }
 
-export async function eliminarRegistro(conexion, modulo, id) {
+export async function eliminarRegistro(conexion, modulo, id, auditoria = null) {
     comprobarModulo(modulo);
+    const anterior = auditoria ? (auditoria.anterior !== undefined ? auditoria.anterior : await leerRegistro(conexion, modulo, id)) : null;
     await conexion.query('DELETE FROM registros WHERE modulo = ? AND id = ?', [modulo, String(id)]);
+    if (auditoria) await auditarRegistro(conexion, auditoria, modulo, anterior, null);
 }
 
 // Todos los registros, agrupados por módulo: { clientes: [...], visitas: [...], ... }
@@ -245,8 +255,10 @@ export async function leerRegistro(conexion, modulo, id, bloquear = false) {
  * Devuelve { datos, guardados: [{ modulo, registro, anterior }] } (los guardados, para los avisos).
  * alConfirmar(conexion, guardados): se ejecuta dentro de la transacción, justo antes de confirmarla
  * (outbox transaccional: los eventos de eventos.js se guardan o se deshacen junto con los cambios).
+ * auditoria: { config, red } → cada registro creado, cambiado o borrado queda en la auditoría, en la misma
+ * transacción.
  */
-export async function sincronizar(pool, { guardar = [], eliminar = [] }, usuario, permitido = () => true, { alConfirmar = null } = {}) {
+export async function sincronizar(pool, { guardar = [], eliminar = [] }, usuario, permitido = () => true, { alConfirmar = null, auditoria = null } = {}) {
     // Cada cambio tiene que ser un objeto: un null o un texto en la lista es un 400, no un fallo interno
     const malformado = [...guardar, ...eliminar].some(op => !op || typeof op !== 'object' || Array.isArray(op));
     if (malformado) throw Object.assign(new Error('Cada cambio tiene que ser un objeto { modulo, registro } o { modulo, id }'), { estado: 400 });
@@ -262,14 +274,14 @@ export async function sincronizar(pool, { guardar = [], eliminar = [] }, usuario
             // Cada registro guarda la cuenta verificada que lo subió, no lo que diga la app; y quién lo creó,
             // que ya no cambia (las metas cuentan clientes, visitas y ensayos de quien los creó)
             const registro = { ...op.registro, cuenta: usuario.email, creadoPor: anterior ? (anterior.creadoPor || anterior.cuenta || usuario.email) : usuario.email };
-            await guardarRegistro(conexion, op.modulo, registro, usuario.id);
+            await guardarRegistro(conexion, op.modulo, registro, usuario.id, auditoria && { ...auditoria, usuario, anterior });
             guardados.push({ modulo: op.modulo, registro, anterior });
         }
         for (const op of eliminar) {
             comprobarModulo(op.modulo);
             const anterior = await leerRegistro(conexion, op.modulo, op.id, true);
             if (anterior && !permitido(op.modulo, anterior)) throw rechazo();
-            await eliminarRegistro(conexion, op.modulo, op.id);
+            await eliminarRegistro(conexion, op.modulo, op.id, auditoria && { ...auditoria, usuario, anterior });
         }
         if (alConfirmar) await alConfirmar(conexion, guardados);
         const datos = await listarTodo(conexion);

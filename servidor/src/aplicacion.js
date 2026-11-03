@@ -24,6 +24,7 @@ import { cabecerasSeguras, limiteGeneral, limiteEntrada as limiteDeEntrada, limi
 import { firmaValida, recibirWebhook } from './instagram.js';
 import { semanaBloqueada, SIN_REPORTE } from './reportes.js';
 import { IDIOMAS } from './idioma.js';
+import { auditar, redDe, AUDITAR_ACCION } from './auditoria.js';
 
 // El "state" de OAuth va firmado: así nadie puede inventar una vuelta de Google
 function firmarEstado(config, valor) {
@@ -121,11 +122,15 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
         throw errorApp('Google no aceptó el inicio de sesión. Inténtalo de nuevo.', 401, 'sesion');
     };
 
-    // Comprueba la cuenta que devolvió Google, la guarda y abre la sesión
-    async function entrar(datosGoogle) {
-        if (!datosGoogle.verificado) throw errorApp('La cuenta de Google no tiene el correo verificado', 403, 'acceso');
+    // Comprueba la cuenta que devolvió Google, la guarda y abre la sesión. Un rechazo queda en la auditoría
+    async function entrar(datosGoogle, req) {
+        const rechazo = async (motivo) => {
+            await auditar(pool, config, { email: datosGoogle.email, nombre: datosGoogle.nombre || datosGoogle.email, accion: 'ingreso_rechazado', resumen: motivo, red: redDe(req) });
+            return errorApp(motivo, 403, 'acceso');
+        };
+        if (!datosGoogle.verificado) throw await rechazo('La cuenta de Google no tiene el correo verificado');
         if (!(await cuentas.cuentaAutorizada(pool, config, datosGoogle.email, datosGoogle.dominio))) {
-            throw errorApp(`La cuenta ${datosGoogle.email} no está autorizada. Pide a un administrador que te añada al equipo.`, 403, 'acceso');
+            throw await rechazo(`La cuenta ${datosGoogle.email} no está autorizada. Pide a un administrador que te añada al equipo.`);
         }
         const usuario = await cuentas.guardarUsuario(pool, config, datosGoogle);
         return usuario;
@@ -196,7 +201,7 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
         try {
             if (!estado) throw errorApp('La autorización caducó. Inténtalo de nuevo.', 400, 'sesion');
             if (req.query.error) throw errorApp('No se dio permiso en Google', 403, 'acceso');
-            const usuario = await entrar(await google.canjearCodigo(String(req.query.code || '')).catch(noAceptado));
+            const usuario = await entrar(await google.canjearCodigo(String(req.query.code || '')).catch(noAceptado), req);
             volver({ codigo: await cuentas.crearCodigo(pool, usuario.id, estado.reto) });
         } catch (error) {
             registrar.error('vuelta de Google:', error.message);
@@ -211,6 +216,7 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
             if (!usuarioId) throw errorApp('El código caducó o ya se usó. Entra de nuevo.', 401, 'sesion');
             const sesion = await cuentas.crearSesion(pool, config, usuarioId);
             const [filas] = await pool.query('SELECT * FROM usuarios WHERE id = ?', [usuarioId]);
+            await auditar(pool, config, { usuario: filas[0], accion: 'ingreso', resumen: 'Entró en la app', red: redDe(req) });
             res.json({ ok: true, sesion, usuario: cuentas.publico(filas[0], config) });
         } catch (error) {
             next(error);
@@ -222,6 +228,7 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
     api.post('/salir', conSesion, async (req, res, next) => {
         try {
             await cuentas.cerrarSesion(pool, req.sesion);
+            await auditar(pool, config, { usuario: req.usuario, accion: 'salida', resumen: 'Cerró la sesión', red: redDe(req) });
             res.json({ ok: true });
         } catch (error) {
             next(error);
@@ -250,7 +257,12 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
                 const semana = await semanaBloqueada(pool, config, req.usuario);
                 if (semana) throw errorApp(`Entrega tu reporte semanal (semana ${semana.slice(6)}) para seguir usando la app`, 423, 'reporte');
             }
-            res.json(await accion(datos, { pool, config, google, avisos, transportistas, instagram, ia, registrar, usuario: req.usuario, ambito: req.ambito }));
+            const red = redDe(req);
+            const respuesta = await accion(datos, { pool, config, google, avisos, transportistas, instagram, ia, registrar, usuario: req.usuario, ambito: req.ambito, red });
+            // Auditoría de lo que cambia algo fuera del CRM (los registros y los accesos se apuntan dentro)
+            const apuntar = respuesta && respuesta.ok !== false && Object.hasOwn(AUDITAR_ACCION, datos.accion) && AUDITAR_ACCION[datos.accion](datos, respuesta);
+            if (apuntar) await auditar(pool, config, { usuario: req.usuario, ...apuntar, red });
+            res.json(respuesta);
         } catch (error) {
             next(error);
         }
@@ -264,7 +276,18 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
     app.use((error, req, res, next) => {
         if (error.type === 'entity.too.large') return res.status(413).json({ ok: false, codigo: 'datos', error: 'La petición pesa demasiado' });
         if (error.type === 'entity.parse.failed') return res.status(400).json({ ok: false, codigo: 'datos', error: 'El cuerpo no es JSON válido' });
-        if (error.estado) return res.status(error.estado).json({ ok: false, codigo: error.codigo || 'datos', error: error.message });
+        if (error.estado) {
+            const responder = () => res.status(error.estado).json({ ok: false, codigo: error.codigo || 'datos', error: error.message });
+            // Intento de hacer algo sin permiso: queda en la auditoría (sin el contenido de la petición) antes de responder
+            if (error.estado === 403 && req.usuario && ['permiso', 'acceso'].includes(error.codigo)) {
+                const accion = req.body && typeof req.body.accion === 'string' ? req.body.accion.slice(0, 40) : '';
+                auditar(pool, config, { usuario: req.usuario, accion: 'denegado', modulo: accion, resumen: error.message, red: redDe(req) })
+                    .catch((e) => registrar.error('Auditoría:', e.message))
+                    .finally(responder);
+                return;
+            }
+            return responder();
+        }
         registrar.error(`${req.method} ${req.path}:`, error);
         res.status(500).json({ ok: false, codigo: 'servidor', error: 'Error interno del servidor' });
     });

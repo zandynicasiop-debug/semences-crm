@@ -3,12 +3,14 @@
  *   1. npm run clave                       → una clave nueva
  *   2. Panel (o .env): CLAVE_CIFRADO_ANTERIOR = la de antes; CLAVE_CIFRADO = la nueva. Reinicia la app
  *      (mientras tanto, cada token se vuelve a cifrar solo la primera vez que se usa)
- *   3. npm run rotar-clave                 → vuelve a cifrar ya todos los que quedan con la clave anterior
+ *   3. npm run rotar-clave                 → vuelve a cifrar ya todos los que quedan con la clave anterior y
+ *      vuelve a firmar la cadena de la auditoría con la clave nueva (después de comprobarla entera)
  *   4. Quita CLAVE_CIFRADO_ANTERIOR y reinicia
  */
 import { leerConfig } from '../src/config.js';
 import { conectar } from '../src/db.js';
 import { descifrarToken, actualizarToken } from '../src/cuentas.js';
+import { refirmarCadena } from '../src/auditoria.js';
 
 try { process.loadEnvFile(new URL('../.env', import.meta.url)); } catch (e) { /* variables del panel */ }
 const config = leerConfig();
@@ -31,7 +33,11 @@ try {
         }
     }
     console.log(`Rotados: ${cuenta.rotados} · ya con la clave nueva: ${cuenta.yaNuevos} · ilegibles: ${cuenta.ilegibles.length}${cuenta.ilegibles.length ? ` (${cuenta.ilegibles.join(', ')})` : ''}`);
-    if (!cuenta.ilegibles.length) console.log('Listo: ya puedes quitar CLAVE_CIFRADO_ANTERIOR y reiniciar.');
+    // La auditoría está firmada con una clave sacada de CLAVE_CIFRADO: se vuelve a firmar con la nueva
+    const auditoria = await refirmarCadena(pool, config);
+    if (auditoria.ok) console.log(`Auditoría: ${auditoria.revisadas} entradas comprobadas, ${auditoria.refirmadas} firmadas con la clave nueva.`);
+    else console.error(`Auditoría: la cadena está rota en la entrada ${auditoria.rota.id} (${auditoria.rota.motivo}). No se ha tocado; revísalo antes de quitar CLAVE_CIFRADO_ANTERIOR.`);
+    if (!cuenta.ilegibles.length && auditoria.ok) console.log('Listo: ya puedes quitar CLAVE_CIFRADO_ANTERIOR y reiniciar.');
 } finally {
     await pool.end();
 }

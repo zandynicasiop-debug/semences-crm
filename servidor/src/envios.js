@@ -14,6 +14,7 @@ import { ambitoDe, puedeLeer, dentroDelAmbito } from './permisos.js';
 import { destinosDe } from './cuentas.js';
 import { encolar } from './cola.js';
 import { registrarAviso } from './campana.js';
+import { quienDe } from './auditoria.js';
 
 export const ESTADOS_ENVIO = ['Registrado', 'En tránsito', 'Retenido en aduana', 'En reparto', 'Entregado', 'Incidencia'];
 export const TRANSPORTISTAS = ['DHL', 'FedEx'];
@@ -164,7 +165,8 @@ export async function actualizarEnvio(contexto, envio) {
             ? [...(Array.isArray(envio.historial) ? envio.historial : []), { fecha: ahora, estado: vivo.estado, ubicacion: vivo.ubicacion, detalle: vivo.detalle }].slice(-15)
             : envio.historial
     };
-    await db.guardarRegistro(pool, 'envios', actualizado, null);
+    // En la auditoría, a nombre de quien pulsó Rastrear o del rastreo automático
+    await db.guardarRegistro(pool, 'envios', actualizado, null, contexto.usuario ? quienDe(contexto) : { config: contexto.config, sistema: 'Rastreo automático de envíos' });
     if (cambio) await avisarEnvio(contexto, actualizado, envio, null);
     return actualizado;
 }

@@ -10,6 +10,7 @@
 import crypto from 'node:crypto';
 import * as db from './db.js';
 import { conGoogle } from './llamadasGoogle.js';
+import { quienDe } from './auditoria.js';
 
 const textoParticipantes = (lista) => lista.map(p => p.nombre || p.email).join(', ');
 
@@ -46,7 +47,7 @@ export async function accionReunion(datos, contexto, { errorApp, enviarDirecto, 
             temas: '', acuerdos: [], acuerdosTexto: '', acta: false,
             creado: new Date().toISOString(), responsable: yo, cuenta: usuario.email, creadoPor: usuario.email
         };
-        await db.guardarRegistro(pool, 'reuniones', registro, usuario.id);
+        await db.guardarRegistro(pool, 'reuniones', registro, usuario.id, quienDe(contexto));
         for (const p of personas) {
             await enviarDirecto(contexto, p, 'reunion', `Te invita a la reunión "${titulo}" el ${horaLocal(inicio, config)}`, registro.meet);
         }
@@ -80,7 +81,7 @@ export async function accionReunion(datos, contexto, { errorApp, enviarDirecto, 
                     creadaPor: yo, reunionId: reunion.id, creadoPor: usuario.email
                 };
                 Object.assign(tarea, { titulo: texto, vence, para: acuerdo.responsableNombre, cuenta: usuario.email });
-                await db.guardarRegistro(pool, 'tareas', tarea, usuario.id);
+                await db.guardarRegistro(pool, 'tareas', tarea, usuario.id, quienDe(contexto));
                 acuerdo.tareaId = tarea.id;
                 if (!existente && persona.id !== usuario.id) {
                     await enviarDirecto(contexto, persona, 'tarea', `Acuerdo de la reunión "${reunion.titulo}": ${texto}${vence ? ` (para el ${vence})` : ''}`, '');
@@ -92,7 +93,7 @@ export async function accionReunion(datos, contexto, { errorApp, enviarDirecto, 
             ...reunion, temas, acuerdos, acta: true, actaPor: yo, actaEn: ahora, cuenta: usuario.email,
             acuerdosTexto: acuerdos.map(a => `${a.texto}${a.responsableNombre ? ` (${a.responsableNombre}${a.vence ? `, ${a.vence}` : ''})` : ''}`).join(' · ')
         };
-        await db.guardarRegistro(pool, 'reuniones', actualizada, usuario.id);
+        await db.guardarRegistro(pool, 'reuniones', actualizada, usuario.id, quienDe(contexto));
         return { ok: true, reunion: actualizada };
     }
 

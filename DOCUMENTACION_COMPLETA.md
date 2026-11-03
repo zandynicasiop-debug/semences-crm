@@ -109,6 +109,7 @@ semences-crm/
 ├── accesos.js              Barra de accesos (cabecera y barra inferior del móvil), campana y mensajes 1 a 1
 ├── agenda.js               Agenda de la semana: datos de la app + Google Calendar
 ├── reunionesMetas.js       Reuniones (programar con Meet, acta → tareas) y metas mensuales
+├── auditoria.js            Auditoría (solo Master): ingresos y qué crea, cambia o borra cada persona
 ├── pwa.js                  Instalar la app y compartirla
 ├── ventana.js              Finca 3D en ventana flotante (Picture-in-Picture de documentos)
 ├── iconos/, marcas/        Iconos de la PWA y logos de las casas comerciales
@@ -148,7 +149,8 @@ Si hay `api`, manda el backend y se ignoran `url` y `token`.
 `index.html` carga, en este orden: `tema.js`, `textosIngles.js` e `idioma.js` (en `<head>`), las librerías del CDN y
 después, al final del `<body>`,
 `googleSync.js → app.js → datos.js → usuario.js → mapa.js → cotizador.js → crm.js → equipo.js → tareas.js →
-tablero.js → bandejaInstagram.js → panel.js → reporte.js → accesos.js → agenda.js → reunionesMetas.js → pwa.js →
+tablero.js → bandejaInstagram.js → panel.js → reporte.js → accesos.js → agenda.js → reunionesMetas.js → auditoria.js →
+pwa.js →
 ventana.js`. Son scripts clásicos que comparten el ámbito global (`window.baseDatos`,
 `window.responsable`, `window.cotizador`, `window.appDashboard`, `window.equipo`…). Los módulos que dependen del
 3D se crean en el evento `load`.
@@ -263,6 +265,10 @@ Al publicar cambios grandes hay que subir `VERSION` (ahora `semences-v10`) para 
   Google Calendar. **Reuniones**: se programan con Meet e invitación; el acta convierte cada acuerdo con
   responsable en una tarea suya. **Metas**: las fijan Master y administración; el avance se calcula solo.
   Sin backend quedan la Agenda (con los datos del dispositivo), Tareas y Chat.
+- **`auditoria.js`:** menú › *Auditoría*, solo para los Master. *Actividad*: las entradas más recientes con filtros
+  (persona, qué, módulo, fechas, texto); cada una se abre para ver campo a campo el antes y el después, la IP y el
+  navegador; se exporta a CSV. *Por persona*: ingresos, último ingreso y cuánto creó, cambió y borró cada quien.
+  *Comprobar integridad*: el servidor recorre la cadena firmada (ver 6.2 y 7).
 - **`idioma.js` / `textosIngles.js`:** la app en español o en inglés. Se elige con el botón *English* / *Español* de
   la cabecera (*EN* / *ES* en pantallas estrechas), de la entrada o de la sala de espera; queda en el dispositivo
   (`localStorage.sdc_idioma`) y la página se recarga. Empieza siempre en español. El código sigue escribiendo
@@ -363,6 +369,7 @@ de la mañana (cada minuto).
 | `campana.js` | Avisos de cada persona en la app (tabla `avisos_persona`): registrar, listar y marcar leídos |
 | `reuniones.js` | Reuniones: evento con Meet e invitados, acta y acuerdos convertidos en tareas |
 | `metas.js` | Metas mensuales por persona y su avance calculado con los datos del CRM |
+| `auditoria.js` | Registro de auditoría: ingresos y rechazos, salidas, cada registro creado, cambiado (campo a campo) o borrado, accesos, equipo, metas, Instagram, exportaciones, correos e intentos sin permiso. Solo se añade, encadenado y firmado con HMAC (clave sacada de `CLAVE_CIFRADO`) y con un ancla de la última entrada |
 | `idioma.js` | Traduce al inglés, para quien lo eligió, lo que el servidor manda fuera: push, WhatsApp, correos y la campana |
 
 ### 6.3 Rutas
@@ -395,6 +402,7 @@ Todas bajo `/api` (y también en la raíz, por si el proxy de cPanel quita el pr
 | `agenda` | Aprobados | Eventos de Google Calendar entre `desde` y `hasta` (hasta 62 días); `{ conectado: false }` sin Google |
 | `reunion` | Aprobados | `crear` (evento con Meet, invitación y aviso) / `acta` (organizador, participante o Master) |
 | `metas` | Aprobados (fijar: Master y administración) | `listar` con avance / `guardar` / `quitar` |
+| `auditoria` | Master | `listar` (filtros: `email`, `tipo`, `modulo`, `objeto`, `desde`, `hasta`, `texto`, `antesDe`) / `personas` / `verificar`. No hay operación para cambiar ni borrar |
 | `sala` / `telefono` / `push` | **También en sala de espera** | Pedir acceso / mi WhatsApp / activar avisos push |
 | `resumen` | Aprobados | Recibir o no el resumen de la mañana |
 | `accesos` | Master | Aprobar (cargo, países, casas), rechazar o reabrir |
@@ -412,6 +420,8 @@ Todas bajo `/api` (y también en la raíz, por si el proxy de cPanel quita el pr
 | `directos` | Mensajes directos del tablero y conversaciones 1 a 1 |
 | `avisos_persona` | La campana: avisos de cada persona, con tipo, enlace y si se leyó |
 | `metas` | Meta de cada persona por mes e indicador, y quién la fijó |
+| `auditoria` | Quién, cuándo, qué (acción, módulo, id, resumen), el cambio campo a campo, IP y navegador; huella de la anterior y la suya (HMAC). No se borra ni se cambia nunca |
+| `auditoria_ancla` | Una fila: la última entrada de la auditoría y su firma (detecta que se borren las últimas) |
 | `push_suscripciones` | Suscripciones Web Push por dispositivo |
 | `cola_avisos` | WhatsApp y push pendientes, enviados o fallidos (se limpian a los 30 días) |
 | `metricas` | Métricas del simulador |
@@ -480,6 +490,16 @@ es solo quien está en `ADMINS`.
 | Errores | Los inesperados se registran y se responde sin detalles internos |
 
 ---
+
+**Auditoría.** Todo lo que cambia datos queda apuntado en `auditoria` con la persona, la hora, la IP y el
+navegador: los ingresos (y los rechazados), las salidas, cada registro del CRM creado, cambiado o borrado (en la
+misma transacción que el cambio: si no se puede apuntar, no se hace), los accesos, el equipo, las metas, las
+cuentas de Instagram, las exportaciones, los respaldos, los correos y los intentos sin permiso. Nunca se guardan
+tokens, suscripciones ni adjuntos. La tabla solo crece: no hay ninguna acción para cambiarla ni borrarla, y cada
+entrada lleva la huella de la anterior y la suya, un HMAC-SHA256 con una clave derivada de `CLAVE_CIFRADO`, más un
+ancla firmada con la última. Quien la toque a mano (cambiar, colar o borrar filas, también las últimas) rompe la
+cadena, y *Comprobar integridad* dice dónde. `npm run rotar-clave` la vuelve a firmar con la clave nueva después
+de comprobarla.
 
 ## 8. Avisos: Google Chat, WhatsApp y push
 
@@ -565,6 +585,10 @@ node --test pruebas-web/*.test.js
   cabeceras, adjuntos), *exportación*, *configuración* (`RESUMEN_HORA`), *cola*, *conGoogle*.
 - *App web:* cotizador (importes RD/VE, lista de precios, totales por moneda), enlaces de WhatsApp, fecha local,
   sincronización (pendientes, fusión, sin conexión, permisos, **tandas**), conector (sesión Bearer, Apps Script).
+- *Auditoría:* crear, cambiar (solo lo que cambió) y borrar quedan apuntados; guardar lo mismo no; los ingresos y
+  los rechazados; quien no es Master no la ve y el intento queda apuntado; el resumen por persona; un retoque a mano,
+  una fila borrada o quitar la última entrada se detectan. Y en la web, que un registro editado mientras subía por
+  primera vez y borrado enseguida se borra también en el servidor.
 - *Idioma:* la app en inglés (textos exactos, con datos y por trozos; lo escrito por el equipo y los ejemplos no se
   tocan; el diccionario no traduce dos veces) y, en el servidor, el idioma guardado con cada acción, la campana y
   el WhatsApp en inglés para quien lo eligió y en español para los demás.

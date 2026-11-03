@@ -16,6 +16,7 @@ import { destinosDe } from './cuentas.js';
 import { encolar } from './cola.js';
 import { registrarAviso } from './campana.js';
 import * as db from './db.js';
+import { quienDe } from './auditoria.js';
 
 export const VENTANA_RESPUESTA_MS = 24 * 3600 * 1000;
 const ID_META = /^\d{5,30}$/;
@@ -260,7 +261,7 @@ export async function accionInstagram(datos, contexto, { errorApp, enviarDirecto
         registro.asignado = vendedor.email;
         registro.asignadoNombre = vendedor.nombre || vendedor.email;
         if (!puedeEscribir(ambito, 'clientes', registro)) throw errorApp('No puedes registrar clientes de esa cuenta', 403, 'permiso');
-        await db.guardarRegistro(pool, 'clientes', { ...registro, cuenta: usuario.email }, usuario.id);
+        await db.guardarRegistro(pool, 'clientes', { ...registro, cuenta: usuario.email }, usuario.id, quienDe(contexto));
         await pool.query("UPDATE instagram_conversaciones SET estado = 'convertida', cliente_id = ? WHERE cuenta_id = ? AND igsid = ?", [registro.id, cuenta.ig_id, c.igsid]);
         await enviarDirecto(contexto, vendedor, 'cliente',
             `Te asignó un cliente nuevo que llegó por Instagram (${cuenta.nombre || 'cuenta de la empresa'}${c.usuario ? `, @${c.usuario}` : ''}): ${nombre}${registro.whatsapp ? ` · WhatsApp ${registro.whatsapp}` : ''}${registro.notas ? ` — ${registro.notas}` : ''}`, '');

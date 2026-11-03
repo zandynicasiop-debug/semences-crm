@@ -82,6 +82,7 @@
     --sdc-dialogo-sm: 560px;
     --sdc-dialogo-md: 640px;
     --sdc-dialogo-lg: 720px;
+    --sdc-dialogo-xl: 960px;  /* Auditoría: lista ancha con filtros */
 
     /* Capas (z-index), de abajo arriba */
     --sdc-capa-emergente: 2;          /* Etiqueta emergente dentro de un diálogo */
@@ -3790,5 +3791,175 @@ body.ventana-flotante {
 
     .btn-idioma-cabecera .idioma-corto {
         display: inline;
+    }
+}
+
+/* ----- Auditoría (auditoria.js, solo Master) ----- */
+.dialogo-auditoria {
+    width: min(var(--sdc-dialogo-xl), calc(100vw - 2 * var(--sdc-espacio-5)));
+}
+
+.auditoria-pestanas {
+    display: flex;
+    gap: var(--sdc-espacio-2);
+    border-bottom: 1px solid var(--ui-borde);
+}
+
+.auditoria-pestana {
+    min-height: var(--sdc-objetivo-tactil);
+    padding: 0 var(--sdc-espacio-4);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--ui-texto-suave);
+    font-weight: var(--sdc-peso-medio);
+    cursor: pointer;
+}
+
+.auditoria-pestana[aria-selected="true"] {
+    color: var(--ui-titulo);
+    border-bottom-color: var(--sdc-primario);
+}
+
+.auditoria-pestana:focus-visible {
+    outline: 2px solid var(--ui-foco);
+    outline-offset: 2px;
+}
+
+.auditoria-filtros {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: var(--sdc-espacio-3);
+}
+
+.auditoria-filtros .form-group[hidden] {
+    display: none;
+}
+
+.auditoria-barra {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sdc-espacio-3);
+}
+
+.auditoria-barra [hidden] {
+    display: none;
+}
+
+.auditoria-integridad {
+    flex: 1 1 240px;
+    margin: 0;
+}
+
+.auditoria-rota {
+    color: var(--ui-error);
+    font-weight: var(--sdc-peso-medio);
+}
+
+.auditoria-lista {
+    list-style: none;
+    display: grid;
+    gap: var(--sdc-espacio-2);
+    max-height: 55vh;
+    overflow-y: auto;
+}
+
+.auditoria-entrada {
+    background: var(--ui-apagado);
+    border: 1px solid var(--ui-borde);
+    border-radius: var(--sdc-radio-sm);
+}
+
+.auditoria-entrada summary {
+    display: grid;
+    grid-template-columns: 9.5rem auto minmax(6rem, 10rem) 1fr;
+    align-items: center;
+    gap: var(--sdc-espacio-3);
+    min-height: var(--sdc-objetivo-tactil);
+    padding: var(--sdc-espacio-2) var(--sdc-espacio-3);
+    cursor: pointer;
+    font-size: var(--sdc-texto-sm);
+    color: var(--ui-texto);
+}
+
+.auditoria-entrada summary:focus-visible {
+    outline: 2px solid var(--ui-foco);
+    outline-offset: 2px;
+}
+
+.auditoria-cuando {
+    color: var(--ui-texto-suave);
+    font-variant-numeric: tabular-nums;
+}
+
+.auditoria-quien {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.auditoria-que {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.auditoria-modulo {
+    color: var(--ui-texto-suave);
+}
+
+/* Etiqueta de la acción: el color va en el borde izquierdo, el texto siempre en el color del tema */
+.auditoria-accion {
+    justify-self: start;
+    padding: 2px var(--sdc-espacio-2);
+    border: 1px solid var(--ui-borde);
+    border-left: 4px solid var(--ui-texto-suave);
+    border-radius: var(--sdc-radio-xs);
+    font-size: var(--sdc-texto-xs);
+    font-weight: var(--sdc-peso-fuerte);
+    white-space: nowrap;
+}
+
+.auditoria-sesion { border-left-color: var(--sdc-agua-claro); }
+.auditoria-crea { border-left-color: var(--sdc-primario); }
+.auditoria-cambia { border-left-color: var(--sdc-dorado); }
+.auditoria-borra { border-left-color: var(--sdc-peligro); }
+
+.auditoria-detalle {
+    display: grid;
+    gap: var(--sdc-espacio-2);
+    padding: 0 var(--sdc-espacio-3) var(--sdc-espacio-3);
+}
+
+.auditoria-detalle td {
+    overflow-wrap: anywhere;
+}
+
+.auditoria-meta {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.auditoria-mas {
+    justify-self: center;
+    margin-top: var(--sdc-espacio-3);
+}
+
+@media (max-width: 768px) {
+    /* En el teléfono se desplaza el diálogo entero: sin una lista con su propio desplazamiento dentro */
+    .auditoria-lista {
+        max-height: none;
+    }
+
+    .auditoria-entrada summary {
+        grid-template-columns: auto 1fr;
+    }
+
+    .auditoria-cuando {
+        grid-column: 1 / -1;
+    }
+
+    .auditoria-que {
+        grid-column: 1 / -1;
     }
 }

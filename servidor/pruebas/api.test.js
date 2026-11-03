@@ -142,7 +142,7 @@ for (const base of BASES) {
                 try { pool = await conectar(config.mysql); break; } catch (e) { if (i > 60) throw e; await new Promise(r => setTimeout(r, 1000)); }
             }
             // Base limpia: se borran las tablas y conectar() las vuelve a crear
-            for (const tabla of ['eventos', 'avisos_persona', 'metas', 'reportes_revisiones', 'reportes_resumenes', 'reportes_avisos_equipo', 'reportes_semanales', 'reportes_recordatorios', 'instagram_mensajes', 'instagram_conversaciones', 'instagram_cuentas', 'sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'directos', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
+            for (const tabla of ['auditoria', 'auditoria_ancla', 'eventos', 'avisos_persona', 'metas', 'reportes_revisiones', 'reportes_resumenes', 'reportes_avisos_equipo', 'reportes_semanales', 'reportes_recordatorios', 'instagram_mensajes', 'instagram_conversaciones', 'instagram_cuentas', 'sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'directos', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
             await pool.end();
             pool = await conectar(config.mysql);
 
@@ -1235,6 +1235,52 @@ for (const base of BASES) {
             assert.match(aLuis.cuerpo.template.components[0].parameters[0].text, /Assigned you a task \(high priority\): Revisar el riego/);
 
             await pool.query("UPDATE usuarios SET idioma = 'es', telefono = ? WHERE email = 'luis@semillasdata.com'", [antes.telefono]);
+        });
+
+        test('auditoría: ingresos, qué crea, cambia y borra cada persona, intentos sin permiso y cadena a prueba de retoques', async () => {
+            const ultimas = async (filtro = {}) => (await accion(sesiones.jefa, { accion: 'auditoria', ...filtro })).json;
+            // Los ingresos de las pruebas (por Google) ya están, con su IP; y algún rechazo de cuentas no autorizadas
+            const ingresos = (await ultimas({ tipo: 'ingreso' })).entradas;
+            assert.ok(ingresos.some(e => e.email === 'ana@semillasdata.com' && e.ip));
+            assert.ok((await ultimas({ tipo: 'ingreso_rechazado' })).entradas.length > 0);
+
+            // Crear, cambiar (solo lo que cambió), guardar igual (no se apunta) y borrar
+            const id = `aud-${Date.now()}`;
+            await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: { id, nombre: 'Finca Auditada', telefono: '8095550001', pais: 'RD', casa: 'Fitó' } }] });
+            await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: { id, nombre: 'Finca Auditada', telefono: '8095550002', pais: 'RD', casa: 'Fitó' } }] });
+            await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: { id, nombre: 'Finca Auditada', telefono: '8095550002', pais: 'RD', casa: 'Fitó' } }] });
+            await accion(sesiones.ana, { accion: 'sincronizar', eliminar: [{ modulo: 'clientes', id }] });
+            const delCliente = (await ultimas({ modulo: 'clientes', objeto: id })).entradas.reverse();
+            assert.deepEqual(delCliente.map(e => [e.accion, e.email]), [['crear', 'ana@semillasdata.com'], ['modificar', 'ana@semillasdata.com'], ['eliminar', 'ana@semillasdata.com']]);
+            assert.equal(delCliente[0].resumen, 'Finca Auditada');
+            assert.deepEqual(delCliente[1].cambios, { telefono: ['8095550001', '8095550002'] }, 'campo a campo, solo lo que cambió');
+            assert.equal(delCliente[2].cambios.nombre[0], 'Finca Auditada', 'lo borrado queda guardado');
+
+            // Sin permiso: quien no es Master no ve la auditoría, y el intento queda apuntado
+            assert.equal((await accion(sesiones.luis, { accion: 'auditoria' })).estado, 403);
+            const denegados = (await ultimas({ tipo: 'denegado', email: 'luis@semillasdata.com' })).entradas;
+            assert.equal(denegados[0].modulo, 'auditoria');
+
+            // Por persona: cuánto entró, creó, cambió y borró
+            const ana = (await ultimas({ operacion: 'personas' })).personas.find(p => p.email === 'ana@semillasdata.com');
+            assert.ok(ana.ingresos >= 1 && ana.creados >= 1 && ana.modificados >= 1 && ana.eliminados >= 1);
+
+            // Integridad: la cadena está bien; un retoque a mano, un borrado o quitar la última entrada se notan
+            assert.deepEqual((await ultimas({ operacion: 'verificar' })).rota, null);
+            const [[fila]] = await pool.query('SELECT id, resumen FROM auditoria WHERE accion = ? ORDER BY id LIMIT 1', ['crear']);
+            await pool.query('UPDATE auditoria SET resumen = ? WHERE id = ?', ['Otra cosa', fila.id]);
+            let r = await ultimas({ operacion: 'verificar' });
+            assert.deepEqual([r.ok, r.rota.id], [false, Number(fila.id)]);
+            await pool.query('UPDATE auditoria SET resumen = ? WHERE id = ?', [fila.resumen, fila.id]);
+            assert.equal((await ultimas({ operacion: 'verificar' })).ok, true, 'con lo de antes vuelve a cuadrar');
+            const [[ultima]] = await pool.query('SELECT * FROM auditoria ORDER BY id DESC LIMIT 1');
+            await pool.query('DELETE FROM auditoria WHERE id = ?', [ultima.id]);
+            r = await ultimas({ operacion: 'verificar' });
+            assert.equal(r.ok, false, 'borrar la última entrada también se nota (ancla)');
+            await pool.query('INSERT INTO auditoria SET ?', [ultima]);
+            assert.equal((await ultimas({ operacion: 'verificar' })).ok, true);
+            // No hay ninguna acción para cambiar ni borrar la auditoría
+            assert.equal((await accion(sesiones.jefa, { accion: 'auditoria', operacion: 'borrar' })).estado, 400);
         });
 
         test('rechazar a alguien lo saca: sesiones fuera y sin avisos', async () => {

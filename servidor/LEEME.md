@@ -248,6 +248,12 @@ En la cabecera (y en el móvil, en la barra inferior con "Más"):
   - **Clientes nuevos**, **visitas** y **ensayos de validación por variedad** (cliente + lote + variedad) del mes.
   - **Actividades cumplidas:** % de actividades completadas en sus reportes semanales del mes.
 
+## Auditoría (solo Master)
+
+Menú › **Auditoría**: quién entró (y quién lo intentó sin estar autorizado), quién salió y qué creó, cambió o borró cada persona, campo a campo con el antes y el después, con fecha, IP y navegador. También los cambios de accesos, equipo, metas, cuentas de Instagram, reuniones y reportes, las exportaciones, los respaldos, los correos enviados y los intentos de hacer algo sin permiso. Se filtra por persona, tipo, módulo, fechas o texto, se ve el resumen por persona y se exporta a CSV.
+
+Es un registro que solo crece (tablas `auditoria` y `auditoria_ancla`, se crean solas al arrancar): desde la app no se puede cambiar ni borrar. Cada entrada está encadenada a la anterior y firmada con una clave sacada de `CLAVE_CIFRADO`; **Comprobar integridad** recorre la cadena y avisa si alguien tocó la tabla directamente en la base. Al rotar la clave (`npm run rotar-clave`) la cadena se vuelve a firmar con la nueva. Para conservarla aunque se pierda la base, entra en los respaldos de MySQL de cPanel como el resto.
+
 ## Idioma (español o inglés)
 
 Cada persona elige el idioma en la app (botón *English* / *Español*). La web lo manda con cada acción y el servidor lo guarda en `usuarios.idioma` (`es` por defecto; una base de una versión anterior recibe la columna sola al arrancar). Con ese idioma le llegan sus avisos push, sus WhatsApp, sus correos de aviso y su resumen de la mañana, y quedan escritos sus avisos de la campana (`src/idioma.js`, línea a línea; lo que escribió alguien se queda como está). Lo que va al espacio de Google Chat y a los clientes sigue en español. Los WhatsApp salen con la plantilla aprobada en Meta, que está en español: en inglés cambia el texto que va dentro, no el marco de la plantilla.
@@ -268,4 +274,4 @@ Cada persona elige el idioma en la app (botón *English* / *Español*). La web l
 | `POST /api/auth/canjear` | `{ codigo, verificador }` → `{ sesion, usuario }` |
 | `GET /api/yo` · `POST /api/salir` | La persona de la sesión · cerrar sesión |
 | `GET` · `POST /api/instagram/webhook` | Verificación de Meta (`hub.verify_token`) · mensajes directos de Instagram (firmados con `META_APP_SECRET`) |
-| `POST /api/accion` | `{ accion, … }`: `sincronizar`, `crm`, `sheets`, `chat`, `avisar`, `calendar` (con `invitados`, `conMeet`, `whatsapp`), `disponibilidad`, `meet`, `correo` (con `whatsapp`), `reporte`, `exportar`, `push`, `telefono`, `equipo`, `sala`, `accesos`, `presencia`, `directo`, `bandeja`, `pasarCliente`, `resumen`, `rastrear`, `instagram`, `documentos`, `subirDocumento`, `respaldar`, `sincronizarAgenda`, `reporteSemanal`, `conversaciones`, `conversacion`, `avisos`, `agenda`, `reunion`, `metas`. Sin aprobar solo se admiten `sala`, `telefono` y `push` |
+| `POST /api/accion` | `{ accion, … }`: `sincronizar`, `crm`, `sheets`, `chat`, `avisar`, `calendar` (con `invitados`, `conMeet`, `whatsapp`), `disponibilidad`, `meet`, `correo` (con `whatsapp`), `reporte`, `exportar`, `push`, `telefono`, `equipo`, `sala`, `accesos`, `presencia`, `directo`, `bandeja`, `pasarCliente`, `resumen`, `rastrear`, `instagram`, `documentos`, `subirDocumento`, `respaldar`, `sincronizarAgenda`, `reporteSemanal`, `conversaciones`, `conversacion`, `avisos`, `agenda`, `reunion`, `metas`, `auditoria` (solo Master: `listar`, `personas`, `verificar`). Sin aprobar solo se admiten `sala`, `telefono` y `push` |

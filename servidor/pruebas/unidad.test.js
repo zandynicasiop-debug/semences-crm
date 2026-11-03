@@ -9,6 +9,7 @@ import { esPasajero, conReintentos, conVariacion } from '../src/reintentos.js';
 import { semanaDe, diasDeSemana, semanas, semanaValida } from '../src/reportes.js';
 import { crearIA, ErrorIA } from '../src/ia.js';
 import { traducir } from '../src/idioma.js';
+import { diferencias, nombreDeRegistro } from '../src/auditoria.js';
 
 const CLAVE = crypto.randomBytes(32).toString('hex');
 
@@ -249,4 +250,14 @@ test('idioma: los avisos del servidor en inglés, línea a línea; lo escrito po
     assert.equal(traducir('💬 Luis\nhola, ¿cómo vas?', 'en'), '💬 Luis\nhola, ¿cómo vas?');
     assert.equal(traducir('☀️ Buenos días, Ana. Soy Borja, tu resumen de hoy\n📋 Tus tareas: 1 · Revisar riego (vence hoy, prioridad alta)', 'en'),
         '☀️ Good morning, Ana. I’m Borja, here’s your summary for today\n📋 Your tasks: 1 · Revisar riego (due today, high priority)');
+});
+
+test('auditoría: diferencias campo a campo sin ruido y nombre legible de cada registro', () => {
+    assert.deepEqual(diferencias({ nombre: 'A', telefono: '1', cuenta: 'x', notas: '' }, { nombre: 'A', telefono: '2', cuenta: 'y' }), { telefono: ['1', '2'] },
+        'la cuenta la pone el servidor y vacío = sin campo');
+    assert.deepEqual(diferencias(null, { id: 'c1', nombre: 'Finca' }), { nombre: [null, 'Finca'] });
+    assert.equal(diferencias({ notas: 'x'.repeat(900) }, {}).notas[0].length, 501, 'los textos largos se recortan');
+    assert.equal(nombreDeRegistro({ id: 'e1', transportista: 'DHL', guia: 'JD1' }), 'DHL JD1');
+    assert.equal(nombreDeRegistro({ id: 'l1', lote: 'L-7' }), 'Lote L-7');
+    assert.equal(nombreDeRegistro({ id: 'x9' }), 'x9');
 });

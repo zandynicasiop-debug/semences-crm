@@ -220,7 +220,10 @@ class BaseDatos {
             const fusion = remotos.filter(r =>
                 !localesNuevos.some(l => l.id === r.id) &&
                 !this.borrados.some(b => b.modulo === m && b.id === r.id));
-            this.datos[m] = [...fusion, ...localesNuevos];
+            // Lo cambiado aquí que el servidor ya tiene queda como subido: si se borra antes de la siguiente
+            // vuelta, hay que pedir que se borre también allí (si no, volvería a aparecer)
+            const enServidor = new Set(remotos.map(r => r.id));
+            this.datos[m] = [...fusion, ...localesNuevos.map(l => (enServidor.has(l.id) && !l._remoto ? { ...l, _remoto: true } : l))];
         });
         this.guardarLocal();
         this.avisar('sincronizado');

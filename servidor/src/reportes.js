@@ -23,6 +23,7 @@ import { encolar } from './cola.js';
 import { registrarAviso } from './campana.js';
 import { enZona, inicioDelDia, sumarDias } from './fechas.js';
 import * as db from './db.js';
+import { quienDe } from './auditoria.js';
 
 export const ESTADOS_ACTIVIDAD = ['En progreso', 'Retrasada', 'Completada', 'Terminada sin éxito'];
 const CIERRAN = ['Completada', 'Terminada sin éxito'];
@@ -274,7 +275,7 @@ export async function accionReporte(datos, contexto, { errorApp }) {
                     estadoSemanal: a.estado, comentarioSemanal: a.comentario, reportada: semana, cuenta: usuario.email,
                     hecha: cierra ? (tarea.hecha || ahora) : '', hechaPor: cierra ? (tarea.hechaPor || nombre) : ''
                 });
-                await db.guardarRegistro(conexion, 'tareas', tarea, usuario.id);
+                await db.guardarRegistro(conexion, 'tareas', tarea, usuario.id, quienDe(contexto));
                 a.id = tarea.id;
             }
             await conexion.query(

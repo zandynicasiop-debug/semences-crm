@@ -24,6 +24,7 @@ import { accionReporte } from './reportes.js';
 import { registrarAviso, accionAvisos, avisosSinLeer } from './campana.js';
 import { accionReunion } from './reuniones.js';
 import { accionMetas } from './metas.js';
+import { auditar, diferencias, quienDe, accionAuditoria } from './auditoria.js';
 
 export { errorApp, conGoogle }; // (en llamadasGoogle.js; se reexportan aquí como antes)
 
@@ -144,8 +145,9 @@ function comprobarCambios(lista, nombre) {
 }
 
 // Disparadores (flujos.js): los eventos se guardan en la misma transacción que los cambios (outbox)
-const conEventos = ({ usuario, config }) => ({
-    alConfirmar: (conexion, guardados) => emitirEventosDeCambios(conexion, REGLAS, guardados, { usuario, hoy: enZona(new Date(), config.zonaHoraria).fecha })
+const conEventos = ({ usuario, config, red }) => ({
+    alConfirmar: (conexion, guardados) => emitirEventosDeCambios(conexion, REGLAS, guardados, { usuario, hoy: enZona(new Date(), config.zonaHoraria).fecha }),
+    auditoria: { config, red }
 });
 
 export const ACCIONES = {
@@ -335,6 +337,11 @@ export const ACCIONES = {
         return accionMetas(datos, contexto, { errorApp });
     },
 
+    // Registro de auditoría: quién entró y qué creó, cambió o borró (solo Master; auditoria.js)
+    async auditoria(datos, contexto) {
+        return accionAuditoria(datos, contexto, { errorApp });
+    },
+
     // Avisos de la persona (campana): listar y marcar como leídos
     async avisos(datos, contexto) {
         return accionAvisos(datos, contexto);
@@ -439,6 +446,14 @@ export const ACCIONES = {
             await pool.query(`UPDATE usuarios SET estado = 'pendiente', cargo = NULL, paises = '[]', casas = '[]' WHERE id = ?`, [persona.id]);
         } else if (datos.operacion !== 'listar') {
             throw errorApp('Operación desconocida (listar, aprobar, rechazar o reabrir)');
+        }
+        if (datos.operacion !== 'listar') {
+            // Auditoría: el acceso de antes y el de ahora
+            const [[ahora]] = await pool.query('SELECT estado, cargo, paises, casas FROM usuarios WHERE id = ?', [persona.id]);
+            const leerLista = (v) => { try { return JSON.parse(v || '[]'); } catch (e) { return []; } };
+            const acceso = (u) => ({ estado: u.estado, cargo: u.cargo || null, paises: leerLista(u.paises), casas: leerLista(u.casas) });
+            const que = { aprobar: 'Aprobó o cambió el acceso de', rechazar: 'Rechazó el acceso de', reabrir: 'Devolvió a la sala de espera a' }[datos.operacion];
+            await auditar(pool, config, { usuario, accion: 'accesos', objeto: persona.email, resumen: `${que} ${persona.nombre || persona.email}`, cambios: diferencias(acceso(persona), acceso(ahora)), red: contexto.red });
         }
         const [personas] = await pool.query(
             `SELECT * FROM usuarios ORDER BY FIELD(estado, 'pendiente', 'aprobado', 'rechazado'), solicitado IS NULL, solicitado, nombre`);
@@ -555,7 +570,7 @@ export const ACCIONES = {
             if (!puedeEscribir(ambitoDe(destino, config), 'clientes', cliente)) {
                 throw errorApp(`${destino.nombre || destino.email} no puede ver ese cliente (su cargo, país o casa comercial no lo incluyen)`, 400, 'permiso');
             }
-            await db.guardarRegistro(conexion, 'clientes', { ...cliente, asignado: destino.email, asignadoNombre: destino.nombre || destino.email, cuenta: usuario.email }, usuario.id);
+            await db.guardarRegistro(conexion, 'clientes', { ...cliente, asignado: destino.email, asignadoNombre: destino.nombre || destino.email, cuenta: usuario.email }, usuario.id, quienDe(contexto));
             await conexion.commit();
         } catch (error) {
             await conexion.rollback();

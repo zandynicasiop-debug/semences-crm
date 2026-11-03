@@ -175,6 +175,19 @@ describe('base de datos de la app: copia local y sincronización', () => {
         assert.equal(db.pendientes(), 1);
     });
 
+    test('sincronizar: lo que se edita mientras sube por primera vez y se borra antes de la siguiente vuelta se borra también en el servidor', async () => {
+        let db;
+        ({ db } = base((cambios, vuelta) => {
+            if (vuelta === 1) db.guardar('clientes', { id: 'c1', nombre: 'Finca (editada)' }); // Se edita mientras sube
+            return { ok: true, datos: { ...vacio(), clientes: vuelta === 1 ? [{ id: 'c1', nombre: 'Finca' }] : [] } };
+        }));
+        db.guardar('clientes', { id: 'c1', nombre: 'Finca' });
+        await db.sincronizar();
+        db.eliminar('clientes', 'c1');
+        assert.deepEqual(plano(db.borrados), [{ modulo: 'clientes', id: 'c1' }], 'el servidor ya lo tiene: hay que pedir que lo borre');
+        assert.equal(db.pendientes(), 1);
+    });
+
     test('sincronizar: sin conexión, todo sigue pendiente', async () => {
         const { db } = base(() => null);
         db.guardar('visitas', { id: 'v1' });
