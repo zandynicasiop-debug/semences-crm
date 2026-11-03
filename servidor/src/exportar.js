@@ -11,6 +11,7 @@ export const PESTANAS = [
     ['germinador', 'Germinador', { lote: 'Lote', cliente: 'Cliente', variedad: 'Variedad', estado: 'Estado', siembra: 'Siembra', trasplante: 'Trasplante previsto', bandejas: 'Bandejas', semillasMiles: 'Semillas (miles)', germinacion: 'Germinación (%)', temperatura: 'Temperatura (°C)', humedad: 'Humedad (%)', comentarios: 'Comentarios', pais: 'País', casa: 'Casa comercial' }],
     ['envios', 'Envíos', { guia: 'Guía', transportista: 'Transportista', cliente: 'Cliente', estado: 'Estado', ubicacion: 'Ubicación', eta: 'Llegada estimada', contenido: 'Contenido', semillasMiles: 'Semillas (miles)', detalle: 'Detalle del transportista', rastreado: 'Último rastreo', pais: 'País', casa: 'Casa comercial' }],
     ['pedidos', 'Pedidos', { fecha: 'Fecha', cliente: 'Cliente', variedad: 'Variedad', semillasMiles: 'Semillas (miles)', precioMil: 'Precio por mil', estado: 'Estado', notas: 'Notas', pais: 'País', casa: 'Casa comercial' }],
+    ['cotizaciones', 'Cotizaciones', { numero: 'Número', fecha: 'Fecha', cliente: 'Cliente', lineas: 'Productos', moneda: 'Moneda', total: 'Total', estado: 'Estado', revisadoPor: 'Revisó', revisadoEn: 'Revisada', motivo: 'Motivo del rechazo', condiciones: 'Condiciones', validez: 'Validez (días)', pais: 'País', casa: 'Casa comercial' }],
     ['tareas', 'Tareas', { titulo: 'Tarea', prioridad: 'Prioridad', vence: 'Vence', para: 'Para', creadaPor: 'Creada por', creada: 'Creada', hecha: 'Hecha', hechaPor: 'Hecha por' }],
     ['reuniones', 'Reuniones', { titulo: 'Reunión', inicio: 'Inicio', organizadorNombre: 'Organiza', participantesTexto: 'Participantes', meet: 'Meet', temas: 'Temas', acuerdosTexto: 'Acuerdos' }]
 ];
@@ -29,6 +30,8 @@ export function filasDe(registros, etiquetas) {
     const filas = registros.map(r => claves.map(c => {
         const v = r[c];
         if (v === undefined || v === null) return '';
+        // Las líneas de una cotización, legibles: "10 sobre de Tomate saladette a 45"
+        if (Array.isArray(v)) return v.map(l => (l && typeof l === 'object' ? `${l.cantidad ?? ''} ${l.unidad || ''} de ${l.producto || ''} a ${l.precio ?? ''}`.replace(/\s+/g, ' ').trim() : String(l))).join('; ').slice(0, 5000);
         return typeof v === 'number' || typeof v === 'boolean' ? v : String(v).slice(0, 5000);
     }));
     return [cabecera, ...filas];

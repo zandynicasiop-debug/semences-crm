@@ -1760,25 +1760,6 @@ summary {
     margin-bottom: 0;
 }
 
-.cotizador-form {
-    display: flex;
-    flex-direction: column;
-    gap: var(--sdc-espacio-3);
-}
-
-.cotizador-fila {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 84px;
-    gap: var(--sdc-espacio-2);
-}
-
-.cotizador-fila select,
-.mapa-extra select {
-    width: 100%;
-    min-width: 0;
-}
-
-.cotizador-lineas,
 .ensayos-lista {
     display: flex;
     flex-direction: column;
@@ -1786,27 +1767,125 @@ summary {
     list-style: none;
 }
 
-.cotizador-lineas li {
+/* ----- Cotizaciones (cotizador.js): líneas libres y aprobación de administración ----- */
+.cotizacion-estado {
+    padding: var(--sdc-espacio-3) var(--sdc-espacio-4);
+    border: 1px solid var(--ui-borde);
+    border-left: 4px solid var(--sdc-dorado);
+    border-radius: var(--sdc-radio-sm);
+    font-size: var(--sdc-texto-sm);
+    font-weight: var(--sdc-peso-medio);
+}
+
+.cotizacion-estado[data-tono="exito"] { border-left-color: var(--sdc-primario); }
+.cotizacion-estado[data-tono="peligro"] { border-left-color: var(--sdc-peligro); }
+
+.cotizacion-datos {
     display: grid;
-    grid-template-columns: 1fr auto auto;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0 var(--sdc-espacio-4);
+}
+
+.cotizacion-lineas {
+    border: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sdc-espacio-3);
+    min-width: 0;
+}
+
+.cotizacion-lineas legend {
+    margin-bottom: var(--sdc-espacio-2);
+    font-size: var(--sdc-texto-sm);
+    font-weight: var(--sdc-peso-fuerte);
+    color: var(--ui-texto-suave);
+}
+
+.cotizacion-cabecera,
+.cotizacion-filas li {
+    display: grid;
+    grid-template-columns: minmax(0, 2.4fr) minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1.3fr) minmax(0, 1.3fr) auto;
     align-items: center;
     gap: var(--sdc-espacio-2);
+}
+
+.cotizacion-cabecera {
+    font-size: var(--sdc-texto-xs);
+    font-weight: var(--sdc-peso-fuerte);
+    color: var(--ui-texto-suave);
+}
+
+.cotizacion-filas {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sdc-espacio-2);
+    list-style: none;
+}
+
+.cotizacion-filas input {
+    width: 100%;
+    min-width: 0;
+    min-height: var(--sdc-objetivo-raton);
+    padding: 0 var(--sdc-espacio-3);
+    background: var(--ui-fondo);
+    color: var(--ui-texto);
+    border: 1px solid var(--ui-borde);
+    border-radius: var(--sdc-radio-sm);
+    font: inherit;
     font-size: var(--sdc-texto-sm);
 }
 
-.cotizador-importe,
-.cotizador-total {
+.cotizacion-subtotal,
+.cotizacion-total {
     font-family: var(--font-dato);
+    text-align: right;
 }
 
-.cotizador-total {
-    font-weight: var(--sdc-peso-medio);
+.cotizacion-subtotal {
+    font-size: var(--sdc-texto-sm);
+}
+
+.cotizacion-anadir {
+    align-self: flex-start;
+}
+
+.cotizacion-total {
+    font-size: var(--sdc-texto-lg);
+    font-weight: var(--sdc-peso-fuerte);
     color: var(--ui-titulo);
 }
 
-.cotizador-pdf:disabled {
-    opacity: var(--sdc-opacidad-apagado);
-    cursor: not-allowed;
+.cotizacion-nota {
+    font-size: var(--sdc-texto-sm);
+    color: var(--ui-texto-suave);
+}
+
+.cotizacion-acciones {
+    flex-wrap: wrap;
+}
+
+/* En el móvil cada producto es una tarjeta: el nombre arriba y cantidad, unidad y precio debajo */
+@media (max-width: 600px) {
+    .cotizacion-cabecera {
+        display: none;
+    }
+
+    .cotizacion-filas li {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        padding: var(--sdc-espacio-3);
+        background: var(--ui-tarjeta);
+        border: 1px solid var(--ui-borde);
+        border-radius: var(--sdc-radio-sm);
+    }
+
+    .cotizacion-producto {
+        grid-column: 1 / -1;
+    }
+
+    .cotizacion-subtotal {
+        grid-column: 1 / 3;
+        text-align: left;
+    }
 }
 
 .ensayos-lista li {

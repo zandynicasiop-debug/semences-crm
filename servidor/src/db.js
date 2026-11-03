@@ -13,7 +13,7 @@ import { ESQUEMA_CAMPANA } from './campana.js';
 import { ESQUEMA_METAS } from './metas.js';
 import { ESQUEMA_AUDITORIA, auditarRegistro } from './auditoria.js';
 
-export const MODULOS_CRM = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'pedidos', 'sitios', 'mensajes', 'tareas', 'reuniones'];
+export const MODULOS_CRM = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'pedidos', 'cotizaciones', 'sitios', 'mensajes', 'tareas', 'reuniones'];
 
 const ESQUEMA = [
     `CREATE TABLE IF NOT EXISTS usuarios (
@@ -257,8 +257,10 @@ export async function leerRegistro(conexion, modulo, id, bloquear = false) {
  * (outbox transaccional: los eventos de eventos.js se guardan o se deshacen junto con los cambios).
  * auditoria: { config, red } → cada registro creado, cambiado o borrado queda en la auditoría, en la misma
  * transacción.
+ * ajustar(modulo, registro, anterior): lo que el servidor corrige antes de guardar (p. ej. el total y la
+ * aprobación de las cotizaciones).
  */
-export async function sincronizar(pool, { guardar = [], eliminar = [] }, usuario, permitido = () => true, { alConfirmar = null, auditoria = null } = {}) {
+export async function sincronizar(pool, { guardar = [], eliminar = [] }, usuario, permitido = () => true, { alConfirmar = null, auditoria = null, ajustar = null } = {}) {
     // Cada cambio tiene que ser un objeto: un null o un texto en la lista es un 400, no un fallo interno
     const malformado = [...guardar, ...eliminar].some(op => !op || typeof op !== 'object' || Array.isArray(op));
     if (malformado) throw Object.assign(new Error('Cada cambio tiene que ser un objeto { modulo, registro } o { modulo, id }'), { estado: 400 });
@@ -273,14 +275,15 @@ export async function sincronizar(pool, { guardar = [], eliminar = [] }, usuario
             if (!permitido(op.modulo, op.registro || {}) || (anterior && !permitido(op.modulo, anterior))) throw rechazo();
             // Cada registro guarda la cuenta verificada que lo subió, no lo que diga la app; y quién lo creó,
             // que ya no cambia (las metas cuentan clientes, visitas y ensayos de quien los creó)
-            const registro = { ...op.registro, cuenta: usuario.email, creadoPor: anterior ? (anterior.creadoPor || anterior.cuenta || usuario.email) : usuario.email };
+            const propio = ajustar ? ajustar(op.modulo, op.registro, anterior) : op.registro;
+            const registro = { ...propio, cuenta: usuario.email, creadoPor: anterior ? (anterior.creadoPor || anterior.cuenta || usuario.email) : usuario.email };
             await guardarRegistro(conexion, op.modulo, registro, usuario.id, auditoria && { ...auditoria, usuario, anterior });
             guardados.push({ modulo: op.modulo, registro, anterior });
         }
         for (const op of eliminar) {
             comprobarModulo(op.modulo);
             const anterior = await leerRegistro(conexion, op.modulo, op.id, true);
-            if (anterior && !permitido(op.modulo, anterior)) throw rechazo();
+            if (anterior && !permitido(op.modulo, anterior, 'eliminar')) throw rechazo();
             await eliminarRegistro(conexion, op.modulo, op.id, auditoria && { ...auditoria, usuario, anterior });
         }
         if (alConfirmar) await alConfirmar(conexion, guardados);

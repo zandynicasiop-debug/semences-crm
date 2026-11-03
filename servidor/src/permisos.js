@@ -16,19 +16,20 @@ export const CASAS = ['Gautier Semences', 'Hexagon Seeds', 'Genome Seeds', 'Fit�
 export const CARGOS = ['vendedor', 'tecnico', 'plantulador', 'administrativo', 'master'];
 
 // Módulos con país y casa comercial (los demás son de todo el equipo: tareas, chat, fichas del mapa)
-export const MODULOS_CON_AMBITO = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'pedidos'];
+export const MODULOS_CON_AMBITO = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'pedidos', 'cotizaciones'];
 
 // Reuniones del equipo: las ve y completa (acta) todo el equipo, como las tareas
 const COMUNES = ['tareas', 'mensajes', 'sitios', 'reuniones'];
 export const MODULOS_POR_CARGO = {
-    // Pedidos: los registra el vendedor (y administración); de ahí salen las ventas de las metas
-    vendedor: ['clientes', 'visitas', 'pedidos', ...COMUNES],
+    // Pedidos: los registra el vendedor (y administración); de ahí salen las ventas de las metas.
+    // Cotizaciones: las prepara el vendedor y las aprueba administración (reglaCotizacion)
+    vendedor: ['clientes', 'visitas', 'pedidos', 'cotizaciones', ...COMUNES],
     tecnico: ['agronomia', 'rendimiento', 'visitas', 'germinador', ...COMUNES],
     // Plantulador: el germinador (lotes en cámara y bandejas) de sus países y casas
     plantulador: ['germinador', ...COMUNES],
     // Envíos (guías de DHL y FedEx): solo administración los registra
-    administrativo: ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'pedidos', ...COMUNES],
-    master: ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'pedidos', ...COMUNES]
+    administrativo: ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'pedidos', 'cotizaciones', ...COMUNES],
+    master: ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'pedidos', 'cotizaciones', ...COMUNES]
 };
 
 // Módulos que un cargo puede ver pero no escribir: el vendedor y el plantulador siguen los envíos
@@ -76,8 +77,61 @@ export function puedeLeer(ambito, modulo) {
     return ambito.modulos.includes(modulo) || (ambito.lectura || []).includes(modulo) || (modulo === 'clientes' && CLIENTES_SOLO_NOMBRE.includes(ambito.cargo));
 }
 
-export function puedeEscribir(ambito, modulo, registro) {
-    return ambito.modulos.includes(modulo) && dentroDelAmbito(ambito, modulo, registro);
+// operacion: 'guardar' o 'eliminar' (una cotización aprobada solo la borra administración)
+export function puedeEscribir(ambito, modulo, registro, operacion = 'guardar') {
+    if (!ambito.modulos.includes(modulo) || !dentroDelAmbito(ambito, modulo, registro)) return false;
+    if (modulo === 'cotizaciones' && operacion === 'eliminar' && registro.estado === 'Aprobada') return apruebaCotizaciones(ambito);
+    return true;
+}
+
+/**
+ * Cotizaciones: líneas libres (producto, cantidad, unidad y precio, sin lista de precios) que aprueba
+ * administración. Solo un administrativo o un Master las aprueba o rechaza; si otro las cambia, vuelven a
+ * 'Pendiente'. El total y quién la revisó los pone siempre el servidor, no la app.
+ */
+export const ESTADOS_COTIZACION = ['Pendiente', 'Aprobada', 'Rechazada'];
+export const MONEDAS_COTIZACION = ['US$', 'RD$', 'Bs'];
+export const apruebaCotizaciones = (ambito) => ambito.master || ambito.cargo === 'administrativo';
+
+const texto = (v, max) => String(v ?? '').replace(/[\r\n]+/g, ' ').trim().slice(0, max);
+const importe = (v) => { const n = Number(v); return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : 0; };
+
+// Lo que decide el precio: si cambia, la cotización tiene que volver a aprobarse
+const CAMPOS_COTIZACION = ['clienteId', 'cliente', 'pais', 'casa', 'moneda', 'lineas', 'condiciones', 'validez'];
+const mismoContenido = (a, b) => CAMPOS_COTIZACION.every(c => JSON.stringify(a[c] ?? '') === JSON.stringify(b[c] ?? ''));
+
+export function ajustarCotizacion(ambito, usuario, registro, anterior) {
+    const lineas = (Array.isArray(registro.lineas) ? registro.lineas : []).slice(0, 100).map(l => ({
+        producto: texto(l && l.producto, 200),
+        cantidad: importe(l && l.cantidad),
+        unidad: texto(l && l.unidad, 40),
+        precio: importe(l && l.precio)
+    })).filter(l => l.producto && l.cantidad > 0);
+    const r = {
+        ...registro,
+        lineas,
+        moneda: MONEDAS_COTIZACION.includes(registro.moneda) ? registro.moneda : MONEDAS_COTIZACION[0],
+        total: Math.round(lineas.reduce((t, l) => t + l.cantidad * l.precio, 0) * 100) / 100
+    };
+    const sinCambios = anterior && mismoContenido(r, anterior);
+    const revision = ['estado', 'revisadoPor', 'revisadoEn', 'motivo'];
+    if (!apruebaCotizaciones(ambito) || !ESTADOS_COTIZACION.includes(r.estado)) {
+        // Quien no aprueba solo la envía a aprobación; si la reenvía sin cambios, se queda como estaba
+        if (sinCambios) revision.forEach(c => { if (anterior[c] !== undefined) r[c] = anterior[c]; else delete r[c]; });
+        else r.estado = 'Pendiente';
+    }
+    if (r.estado === 'Pendiente') {
+        ['revisadoPor', 'revisadoEn', 'motivo'].forEach(c => delete r[c]);
+    } else if (sinCambios && anterior.estado === r.estado && anterior.revisadoEn) {
+        r.revisadoPor = anterior.revisadoPor;
+        r.revisadoEn = anterior.revisadoEn;
+    } else {
+        r.revisadoPor = usuario.nombre || usuario.email;
+        r.revisadoEn = new Date().toISOString();
+    }
+    if (r.estado !== 'Rechazada') delete r.motivo;
+    else r.motivo = texto(r.motivo, 500);
+    return r;
 }
 
 // Los datos que puede ver la persona, por módulo (los demás módulos ni aparecen)

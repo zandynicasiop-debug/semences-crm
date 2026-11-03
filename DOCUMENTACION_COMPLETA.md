@@ -101,7 +101,7 @@ semences-crm/
 ├── datos.js                Base de datos de la app: copia local (localStorage) + sincronización
 ├── usuario.js              Quién usa la app: entrar con Google, sala de espera, cuenta, sesión
 ├── mapa.js                 Fichas editables de edificios y parcelas del 3D (lista de precios, notas)
-├── cotizador.js            Cotización desde la lista de precios de la oficina → PDF o correo
+├── cotizador.js            Cotizaciones libres con aprobación de administración → PDF o correo
 ├── crm.js                  Módulos del CRM: clientes, visitas, procesos, rendimiento, germinador, pedidos
 ├── equipo.js               Chat del equipo y "Notificar al equipo" (alertas)
 ├── tareas.js               Tareas del equipo
@@ -206,22 +206,21 @@ Desde la ficha de un cliente: expediente, correo (Gmail), reunión con Meet (com
 ocupada), reporte PDF en Drive (carpeta propia del cliente) y enlaces `tel:`, `mailto:` y WhatsApp
 (`wa.me/…`, con números de **RD y de Venezuela** pasados a formato internacional).
 
-### 4.4 Cotizador (`cotizador.js`)
+### 4.4 Cotizaciones (`cotizador.js`, módulo `cotizaciones`)
 
-La lista de precios es el texto de la ficha de las oficinas en el mapa 3D, una línea por producto:
+Cotizaciones **libres**, sin lista de precios: cada línea se escribe a mano (producto, cantidad, unidad y precio
+unitario), en US$, RD$ o Bs, con condiciones y días de validez opcionales. Se abren desde el menú de módulos ›
+*Cotizaciones* o desde la ficha de las oficinas del mapa.
 
-```
-- Semilla de tomate saladette F1: US$45,50 / sobre
-- Semilla de pimiento Fitó: RD$1,250.00 / sobre
-- Asesoría técnica: incluida            ← sin precio: no se cotiza
-```
-
-- Monedas: `$`, `US$`, `RD$`. Los totales van **por moneda** (RD$ y US$ no se suman entre sí).
-- Importes como en RD (`1,250.50`) o como en Venezuela (`1.250,50`, `45,50`). Con un solo separador seguido de
-  3 cifras (`1,500`) se lee como miles; `1.500` se lee como 1,5 (como siempre). Para evitar dudas, escribe los
-  céntimos (`1.500,00` o `1,500.00`).
-- Sale un PDF (jsPDF) con número `COT-AAAAMMDD-HHMM`, que se descarga (en el APK, a *Descargas*) o se envía por
-  correo desde el Gmail de quien cotiza, con aviso por WhatsApp al cliente si está configurado.
+- **Aprobación de administración.** Quien la prepara la envía a aprobación (`Pendiente`). Solo un
+  **administrativo** o un **Master** de su país y casa la aprueba o la rechaza (con motivo). Si alguien la cambia
+  después, vuelve a `Pendiente`. Lo comprueba el servidor (`permisos.js › ajustarCotizacion`): también calcula el
+  total y firma quién la revisó y cuándo, aunque la app diga otra cosa. Una aprobada solo la borra administración.
+- **Avisos.** Al enviarla a aprobación, a administración de su país y casa; al aprobarla o rechazarla, a quien la
+  preparó (campana, push y WhatsApp).
+- **Solo las aprobadas** dan PDF (jsPDF, con el país, la casa y quién la aprobó) y se envían por correo desde el
+  Gmail de quien la usa, con aviso por WhatsApp al cliente si está configurado.
+- Cargos: la preparan vendedor, administrativo y Master; se exportan en la pestaña *Cotizaciones* de la hoja.
 
 ### 4.5 Inicio de sesión (`usuario.js`), en modo backend
 
@@ -462,7 +461,7 @@ países y casas comerciales:
 
 | Cargo | Módulos | Clientes |
 |---|---|---|
-| Vendedor | clientes, visitas, pedidos, tareas, chat, mapa | completos |
+| Vendedor | clientes, visitas, pedidos, cotizaciones (las aprueba administración), tareas, chat, mapa | completos |
 | Técnico | procesos, rendimiento, visitas, germinador, tareas, chat, mapa | solo id, nombre, país, casa, ubicación |
 | Plantulador | germinador, tareas, chat, mapa | solo id, nombre, país, casa, ubicación |
 | Administrativo | todos los del CRM | completos |
@@ -587,7 +586,7 @@ node --test pruebas-web/*.test.js
 - *Avisos:* plantillas de WhatsApp, reintentos de Chat, push con VAPID, suscripciones válidas (SSRF).
 - *Teléfonos de RD y Venezuela*, *reintentos* (tiempos agotados y cortes de red), *correo* (inyección de
   cabeceras, adjuntos), *exportación*, *configuración* (`RESUMEN_HORA`), *cola*, *conGoogle*.
-- *App web:* cotizador (importes RD/VE, lista de precios, totales por moneda), enlaces de WhatsApp, fecha local,
+- *App web:* cotizador (total de las líneas, quién aprueba, solo las aprobadas dan PDF), enlaces de WhatsApp, fecha local,
   sincronización (pendientes, fusión, sin conexión, permisos, **tandas**), conector (sesión Bearer, Apps Script).
 - *Auditoría:* crear, cambiar (solo lo que cambió) y borrar quedan apuntados; guardar lo mismo no; los ingresos y
   los rechazados; quien no es Master no la ve y el intento queda apuntado; el resumen por persona; un retoque a mano,
@@ -661,7 +660,7 @@ decisión de negocio.
 | R3 | Media | Planificar la migración de **Three.js r128 → r18x** como proyecto aparte | No tiene vulnerabilidades conocidas (es una librería de dibujo), pero desde r160 no hay versión `<script>` clásica (solo módulos ES), `examples/js` desapareció en r148 y la iluminación cambió en r155: hay que adaptar las ~3.200 líneas de `app.js` y revisar la escena a ojo. Alto riesgo para poco beneficio inmediato |
 | R4 | Media | Decidir la **pantalla de consentimiento de OAuth**: con "Interna" (lo que dice `servidor/LEEME.md`), los `ADMINS` y la tabla `equipo` con Gmail personales **no pueden entrar** | Hoy el código admite cuentas externas, pero Google las bloquea antes. O se usan solo cuentas del Workspace (lo más seguro) o se pasa a "Externa" y se verifica la app con Google |
 | R5 | Media | Añadir una **Content-Security-Policy** (cabecera en `.htaccess` o `<meta>`) | Segunda barrera contra XSS para proteger la sesión guardada en el navegador. Hay que probarla con el 3D, Google Fonts y el backend |
-| R6 | Media | Cotización con el **país del cliente**: hoy el PDF dice siempre "República Dominicana", y no hay moneda "Bs." | Para los clientes de Venezuela, la cotización debería salir con su país y, si se cotiza en bolívares, admitir `Bs.` en `PATRON_PRECIO` |
+| R6 | Hecho | Cotización con el **país del cliente** y en bolívares | El PDF sale con el país de la cotización y admite la moneda Bs |
 | R7 | Baja | Comprobar el origen de la página en el puente `window.AndroidApp` | Hoy cualquier *iframe* cargado en el WebView podría llamar a `guardarArchivo` (riesgo bajo: el WebView solo carga la app) |
 | R8 | Baja | En el `rate limit` en memoria, tener en cuenta que con varios procesos de Passenger el límite es por proceso | Suficiente para el tamaño actual del equipo |
 

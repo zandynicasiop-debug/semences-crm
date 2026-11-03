@@ -43,46 +43,37 @@ function cargar(archivos, extras = {}, idioma = 'es') {
 const plano = (valor) => JSON.parse(JSON.stringify(valor));
 
 // ---------------------------------------------------------------------------------------------------
-describe('cotizador: lista de precios y totales', () => {
+describe('cotizador: líneas libres y aprobación', () => {
     const app = cargar(['cotizador.js', 'crm.js']);
-    const { leerImporte } = app;
     const cotizador = new (app.global('Cotizador'))();
+    const total = app.global('totalCotizacion');
 
-    test('importes como en RD ("1,250.50") y como en Venezuela ("1.250,50", "45,50")', () => {
-        const casos = {
-            '45': 45, '45.50': 45.5, '1,250.50': 1250.5, '12,500,000': 12500000, '1,500': 1500,
-            '45,50': 45.5, '45,5': 45.5, '1.250,50': 1250.5, '1.500.000': 1500000,
-            '1.500': 1.5 // ambiguo: se mantiene como antes (decimal)
-        };
-        for (const [texto, esperado] of Object.entries(casos)) assert.equal(leerImporte(texto), esperado, texto);
-        assert.ok(Number.isNaN(leerImporte('1,5,0')));
-        assert.ok(Number.isNaN(leerImporte('gratis')));
+    test('total: cantidad por precio de cada línea, con 2 decimales', () => {
+        assert.equal(total([{ cantidad: 10, precio: 45.5 }, { cantidad: '2', precio: '1250' }, { cantidad: 3, precio: 0 }]), 2955);
+        assert.equal(total([{ cantidad: 3, precio: 0.1 }]), 0.3);
+        assert.equal(total([]), 0);
+        assert.equal(total(undefined), 0);
     });
 
-    test('leerPrecios: producto, moneda, precio y unidad de cada línea de la ficha', () => {
-        const precios = plano(cotizador.leerPrecios([
-            'Lista de precios 2026',
-            '- Semilla de tomate saladette F1: $45 / sobre',
-            '• Pimiento Fitó: US$45,50/sobre',
-            '* Cebolla Gautier: RD$1,250.00',
-            'Asesoría técnica: incluida',
-            '- Muestra: $0 / sobre'
-        ].join('\n')));
-        assert.deepEqual(precios, [
-            { nombre: 'Semilla de tomate saladette F1', moneda: '$', precio: 45, unidad: 'sobre' },
-            { nombre: 'Pimiento Fitó', moneda: 'US$', precio: 45.5, unidad: 'sobre' },
-            { nombre: 'Cebolla Gautier', moneda: 'RD$', precio: 1250, unidad: 'unidad' }
-        ]);
-        assert.deepEqual(plano(cotizador.leerPrecios('')), []);
-        assert.deepEqual(plano(cotizador.leerPrecios(null)), []);
+    test('quién aprueba: administración y Master; el vendedor no', () => {
+        app.baseDatos = { compartida: true };
+        app.responsable = { ambito: { estado: 'aprobado', cargo: 'vendedor', master: false } };
+        assert.equal(cotizador.apruebo, false);
+        app.responsable = { ambito: { estado: 'aprobado', cargo: 'administrativo', master: false } };
+        assert.equal(cotizador.apruebo, true);
+        app.responsable = { ambito: { estado: 'aprobado', cargo: 'master', master: true } };
+        assert.equal(cotizador.apruebo, true);
+        // Sin backend (todo en este navegador) no hay a quién pedírselo
+        app.baseDatos = { compartida: false };
+        app.responsable = null;
+        assert.equal(cotizador.apruebo, true);
     });
 
-    test('calcular: subtotales y un total por moneda (RD$ y US$ no se suman entre sí)', () => {
-        cotizador.precios = cotizador.leerPrecios('- Tomate: US$45,50 / sobre\n- Cebolla: RD$1,250.00 / sobre\n- Melón: US$10 / sobre');
-        cotizador.lineas = [{ producto: 'Tomate', cantidad: 10 }, { producto: 'Cebolla', cantidad: 2 }, { producto: 'Melón', cantidad: 3 }];
-        const { filas, totales } = cotizador.calcular();
-        assert.deepEqual(plano(filas.map(f => f.subtotal)), [455, 2500, 30]);
-        assert.deepEqual(plano(totales), ['US$485.00', 'RD$2,500.00']);
+    test('solo las aprobadas dan PDF', () => {
+        const avisos = [];
+        app.equipo = { mostrarAviso: (t) => avisos.push(t) };
+        assert.equal(cotizador.crearPdf({ estado: 'Pendiente', lineas: [] }), null);
+        assert.match(avisos[0], /aprobadas/);
     });
 });
 

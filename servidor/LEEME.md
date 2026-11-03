@@ -137,10 +137,10 @@ Cada persona escribe su WhatsApp en la app (menú › Cuenta). Los administrador
 
   | Cargo | Módulos |
   |---|---|
-  | Vendedor | Clientes, visitas, tareas y chat; ve los envíos |
+  | Vendedor | Clientes, visitas, pedidos, cotizaciones, tareas y chat; ve los envíos |
   | Técnico | Procesos agronómicos, rendimiento, visitas, germinador, tareas y chat (de los clientes, solo el nombre) |
   | Plantulador | Germinador (lotes en cámara y bandejas), tareas y chat (de los clientes, solo el nombre); ve los envíos |
-  | Administrativo | Todo, y es quien registra los envíos |
+  | Administrativo | Todo: registra los envíos y aprueba las cotizaciones |
   | Master | Todo, más la sala de espera y los accesos |
 
 - **Ámbito:** clientes, visitas, procesos y rendimientos llevan su propio **país** y **casa comercial** (al elegir el cliente se proponen los suyos). Cada persona solo ve y escribe registros de sus países **y** sus casas. Lo que no tiene país o casa (datos de antes) solo lo ve quien tiene todo.

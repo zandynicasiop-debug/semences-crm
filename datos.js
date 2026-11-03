@@ -11,7 +11,7 @@
  * Marcas internas de cada registro (no se suben a la hoja):
  *   _remoto: el registro ya está en la hoja · _pendiente: tiene cambios que aún no se subieron
  */
-const MODULOS_DATOS = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'pedidos', 'sitios', 'mensajes', 'tareas', 'reuniones']; // mensajes: chat y alertas del equipo · tareas: lista de tareas del equipo
+const MODULOS_DATOS = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'pedidos', 'cotizaciones', 'sitios', 'mensajes', 'tareas', 'reuniones']; // mensajes: chat y alertas del equipo · tareas: lista de tareas del equipo
 
 // Tope por sincronización (el backend admite 500 cambios y 10 MB por petición). Si hay más pendientes
 // (p. ej. tras días sin señal en el campo), salen en varias vueltas seguidas en vez de rechazarse siempre

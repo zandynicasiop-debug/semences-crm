@@ -256,6 +256,28 @@ const MODULOS_CRM = {
             { titulo: 'Registró', valor: r => r.responsable }
         ]
     },
+    // Cotizaciones libres con aprobación de administración: el editor y el PDF están en cotizador.js
+    cotizaciones: {
+        pestana: 'Cotizaciones',
+        titulo: 'Cotizaciones',
+        subtitulo: 'Productos, cantidades y precios escritos a mano, sin lista de precios. Administración aprueba cada una; solo las aprobadas se descargan en PDF o se envían al cliente.',
+        nuevo: 'Nueva cotización',
+        vacio: 'Todavía no hay cotizaciones. Prepara la primera: administración la revisa antes de enviarla al cliente.',
+        editor: (valores) => window.cotizador.abrir(valores),
+        campos: [
+            { id: 'clienteId', etiqueta: 'Cliente', tipo: 'cliente', requerido: true }
+        ],
+        columnas: [
+            { titulo: 'Número', valor: r => r.numero || '' },
+            { titulo: 'Fecha', valor: r => formatearFecha(r.fecha || String(r.creado || '').slice(0, 10)), orden: r => r.fecha || r.creado || '' },
+            { titulo: 'Cliente', valor: r => nombreCliente(r), expediente: true, sinCliente: true },
+            { titulo: 'Total', valor: r => `${r.moneda || 'US$'}${numero(Math.round(Number(r.total || 0) * 100) / 100)}`, dato: true },
+            { titulo: 'Estado', valor: r => r.estado || 'Pendiente', tono: r => ({ Pendiente: 'aviso', Aprobada: 'exito', Rechazada: 'peligro' }[r.estado || 'Pendiente']) },
+            { titulo: 'Preparó', valor: r => r.responsable },
+            { titulo: 'Revisó', valor: r => r.revisadoPor ? `${r.revisadoPor}${r.motivo ? ` · ${r.motivo}` : ''}` : '' },
+            ...COLUMNAS_AMBITO
+        ]
+    },
     germinador: {
         pestana: 'Germinador',
         titulo: 'Germinador: lotes de plantulación',
@@ -295,7 +317,7 @@ const MODULOS_CRM = {
 };
 
 // Módulos cuyos registros pertenecen a un cliente
-const MODULOS_DEL_CLIENTE = ['agronomia', 'visitas', 'rendimiento', 'germinador', 'envios', 'pedidos'];
+const MODULOS_DEL_CLIENTE = ['agronomia', 'visitas', 'rendimiento', 'germinador', 'envios', 'pedidos', 'cotizaciones'];
 // Módulos que el cargo solo puede ver (sin crear, cambiar ni eliminar)
 const soloLectura = (modulo) => { const a = ambitoCRM(); return Boolean(a && !a.modulos.includes(modulo) && (a.lectura || []).includes(modulo)); };
 
@@ -705,6 +727,12 @@ class CRM {
                         a.rel = 'noopener';
                     }
                     td.appendChild(a);
+                } else if (col.tono && texto) {
+                    const span = document.createElement('span');
+                    span.className = 'etiqueta-borde';
+                    span.dataset.tono = col.tono(registro);
+                    span.textContent = texto;
+                    td.appendChild(span);
                 } else if (col.etiqueta && texto) {
                     const span = document.createElement('span');
                     span.className = 'etiqueta';
@@ -728,7 +756,19 @@ class CRM {
                     rastrear.addEventListener('click', () => this.rastrearEnvio(registro, rastrear));
                     acciones.appendChild(rastrear);
                 }
+                // Cotizaciones: se abren para revisarlas, aprobarlas o descargarlas. Una aprobada solo la
+                // borra administración (el servidor lo rechazaría)
+                if (modulo === 'cotizaciones') {
+                    const abrir = document.createElement('button');
+                    abrir.type = 'button';
+                    abrir.className = 'btn-texto';
+                    abrir.textContent = 'Abrir';
+                    abrir.setAttribute('aria-label', `Abrir la cotización ${registro.numero || ''}`);
+                    abrir.addEventListener('click', () => window.cotizador.abrir({ id: registro.id }));
+                    acciones.appendChild(abrir);
+                }
                 const eliminar = document.createElement('button');
+                eliminar.hidden = modulo === 'cotizaciones' && registro.estado === 'Aprobada' && !window.cotizador.apruebo;
                 eliminar.type = 'button';
                 eliminar.className = 'btn-texto btn-peligro';
                 eliminar.textContent = 'Eliminar';
@@ -1378,6 +1418,10 @@ class CRM {
             form.append(p, acciones);
             this.mostrarEnDialogo(form);
             registrar.focus();
+            return;
+        }
+        if (def.editor) {
+            def.editor(valores);
             return;
         }
 

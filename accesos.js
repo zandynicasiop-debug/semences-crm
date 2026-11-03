@@ -253,7 +253,7 @@ class Accesos {
     }
 
     // ----- Campana -----
-    static ICONO_AVISO = { mensaje: 'mensajes', cliente: 'equipo', tarea: 'tareas', reunion: 'video', germinador: 'invernadero', envio: 'paquete', instagram: 'camara', reporte: 'tareas', meta: 'metas' };
+    static ICONO_AVISO = { mensaje: 'mensajes', cliente: 'equipo', tarea: 'tareas', reunion: 'video', germinador: 'invernadero', envio: 'paquete', instagram: 'camara', reporte: 'tareas', meta: 'metas', cotizacion: 'tareas' };
 
     async alternarCampana() {
         if (this.campana.abierto) return this.campana.cerrar();

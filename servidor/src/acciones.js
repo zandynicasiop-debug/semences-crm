@@ -8,7 +8,7 @@
 import * as db from './db.js';
 import { telefonosDelEquipo, guardarTelefono, esAdmin, publico,
     guardarSuscripcion, borrarSuscripcion, suscripcionesDelEquipo, tieneSuscripcion, destinosDe, tokenDe } from './cuentas.js';
-import { ambitoDe, puedeEscribir, puedeLeer, dentroDelAmbito, filtrarDatos, asignacionValida, PAISES, CASAS, CARGOS, NOMBRE_PAIS } from './permisos.js';
+import { ambitoDe, puedeEscribir, puedeLeer, dentroDelAmbito, filtrarDatos, asignacionValida, ajustarCotizacion, apruebaCotizaciones, PAISES, CASAS, CARGOS, NOMBRE_PAIS } from './permisos.js';
 import { construirCorreo, destinatarios } from './correo.js';
 import { pestanasDe } from './exportar.js';
 import { normalizarTelefono, suscripcionValida } from './avisos.js';
@@ -118,6 +118,42 @@ export async function avisarGerminacionBaja(contexto, guardados) {
     return enviados;
 }
 
+/**
+ * Cotizaciones: al enviarse a aprobación (nueva o cambiada) se avisa a administración de su país y casa;
+ * al aprobarse o rechazarse, a quien la preparó. Campana, push y WhatsApp, como el resto de avisos.
+ */
+const importeCotizacion = (r) => `${r.moneda || ''}${Number(r.total || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+export async function avisarCotizaciones(contexto, guardados) {
+    const { pool, config, avisos, usuario } = contexto;
+    const cambios = guardados.filter(({ modulo, registro, anterior }) => modulo === 'cotizaciones'
+        && (!anterior || anterior.estado !== registro.estado || (registro.estado === 'Pendiente' && JSON.stringify(anterior.lineas) !== JSON.stringify(registro.lineas))));
+    if (!cambios.length) return 0;
+    const [personas] = await pool.query(`SELECT * FROM usuarios WHERE id <> ? AND (estado = 'aprobado' OR email IN (?))`,
+        [usuario.id, config.google.admins.length ? config.google.admins : ['']]);
+    let enviados = 0;
+    for (const { registro } of cambios) {
+        const quien = usuario.nombre || usuario.email;
+        const cabecera = `${registro.cliente || 'sin cliente'}\n${registro.numero || registro.id} · ${importeCotizacion(registro)}`;
+        let destino, texto;
+        if (registro.estado === 'Pendiente') {
+            destino = personas.filter(p => { const a = ambitoDe(p, config); return apruebaCotizaciones(a) && dentroDelAmbito(a, 'cotizaciones', registro); });
+            texto = `🧾 Cotización por aprobar · ${cabecera} — preparó ${quien}`;
+        } else {
+            destino = personas.filter(p => p.email === registro.creadoPor);
+            texto = registro.estado === 'Aprobada'
+                ? `✅ Cotización aprobada · ${cabecera} — aprobó ${quien}`
+                : `❌ Cotización rechazada · ${cabecera}${registro.motivo ? ` · ${registro.motivo}` : ''} — rechazó ${quien}`;
+        }
+        if (!destino.length) continue;
+        const { huellas, telefonos } = await destinosDe(pool, destino.map(p => p.id));
+        await registrarAviso(pool, destino.map(p => p.id), 'cotizacion', texto.replace(/^\S+\s*/, '').replace('\n', ': '));
+        if (avisos.pushActivo) enviados += await encolar(pool, 'push', huellas, texto);
+        if (avisos.whatsappActivo) enviados += await encolar(pool, 'whatsapp', telefonos, texto);
+    }
+    return enviados;
+}
+
 // Ficha de un cliente que la persona puede ver (su país y su casa comercial), o error 400/403/404
 async function clienteVisible({ pool, ambito }, clienteId) {
     const id = String(clienteId || '');
@@ -145,9 +181,10 @@ function comprobarCambios(lista, nombre) {
 }
 
 // Disparadores (flujos.js): los eventos se guardan en la misma transacción que los cambios (outbox)
-const conEventos = ({ usuario, config, red }) => ({
+const conEventos = ({ usuario, config, red, ambito }) => ({
     alConfirmar: (conexion, guardados) => emitirEventosDeCambios(conexion, REGLAS, guardados, { usuario, hoy: enZona(new Date(), config.zonaHoraria).fecha }),
-    auditoria: { config, red }
+    auditoria: { config, red },
+    ajustar: (modulo, registro, anterior) => (modulo === 'cotizaciones' ? ajustarCotizacion(ambito, usuario, registro, anterior) : registro)
 });
 
 export const ACCIONES = {
@@ -160,18 +197,20 @@ export const ACCIONES = {
         for (const op of guardar) {
             if (JSON.stringify(op && op.registro || {}).length > MAX_REGISTRO) throw errorApp('Un registro es demasiado grande');
         }
-        const { datos: todo, guardados } = await db.sincronizar(pool, { guardar, eliminar }, usuario, (modulo, registro) => puedeEscribir(ambito, modulo, registro), conEventos(contexto));
+        const { datos: todo, guardados } = await db.sincronizar(pool, { guardar, eliminar }, usuario, (modulo, registro, operacion) => puedeEscribir(ambito, modulo, registro, operacion), conEventos(contexto));
         await avisarGerminacionBaja(contexto, guardados);
         await avisarEnvios(contexto, guardados);
+        await avisarCotizaciones(contexto, guardados);
         return { ok: true, datos: filtrarDatos(todo, ambito), hora: new Date().toISOString() };
     },
 
     async crm(datos, contexto) {
         const { pool, usuario, ambito } = contexto;
         if (JSON.stringify(datos.registro || {}).length > MAX_REGISTRO) throw errorApp('El registro es demasiado grande');
-        const { guardados } = await db.sincronizar(pool, { guardar: [{ modulo: datos.modulo, registro: datos.registro }] }, usuario, (m, r) => puedeEscribir(ambito, m, r), conEventos(contexto));
+        const { guardados } = await db.sincronizar(pool, { guardar: [{ modulo: datos.modulo, registro: datos.registro }] }, usuario, (m, r, operacion) => puedeEscribir(ambito, m, r, operacion), conEventos(contexto));
         await avisarGerminacionBaja(contexto, guardados);
         await avisarEnvios(contexto, guardados);
+        await avisarCotizaciones(contexto, guardados);
         return { ok: true };
     },
 

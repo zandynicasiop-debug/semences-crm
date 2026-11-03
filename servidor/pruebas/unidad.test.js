@@ -271,3 +271,38 @@ test('arranque en cPanel: inicio.cjs se puede cargar con require() (LiteSpeed y 
     assert.doesNotMatch(r.stderr, /ERR_REQUIRE_ASYNC_MODULE|ERR_REQUIRE_ESM/);
     assert.match(r.stderr, /Falta configurar/);
 });
+
+test('cotizaciones: líneas libres, total del servidor y solo administración aprueba', async () => {
+    const { ajustarCotizacion, puedeEscribir } = await import('../src/permisos.js');
+    const vendedor = { cargo: 'vendedor', master: false, paises: ['RD'], casas: ['Fitó'], modulos: ['cotizaciones'] };
+    const admin = { cargo: 'administrativo', master: false, paises: ['RD'], casas: ['Fitó'], modulos: ['cotizaciones'] };
+    const luis = { nombre: 'Luis', email: 'luis@x.com' }, ana = { nombre: 'Ana', email: 'ana@x.com' };
+    const base = { id: 'co-1', pais: 'RD', casa: 'Fitó', cliente: 'Finca', moneda: 'XX', total: 1,
+        lineas: [{ producto: ' Tomate\nsaladette ', cantidad: '10', unidad: 'sobre', precio: 45.555 }, { producto: '', cantidad: 3, precio: 1 }, { producto: 'Melón', cantidad: 0, precio: 9 }] };
+
+    // El vendedor no puede aprobarla él mismo: queda pendiente, con el total calculado aquí
+    const enviada = ajustarCotizacion(vendedor, luis, { ...base, estado: 'Aprobada', revisadoPor: 'Yo' }, null);
+    assert.deepEqual([enviada.estado, enviada.total, enviada.moneda, enviada.revisadoPor], ['Pendiente', 455.6, 'US$', undefined]);
+    assert.deepEqual(enviada.lineas, [{ producto: 'Tomate saladette', cantidad: 10, unidad: 'sobre', precio: 45.56 }]);
+
+    // Administración la aprueba: el servidor firma quién y cuándo
+    const aprobada = ajustarCotizacion(admin, ana, { ...enviada, estado: 'Aprobada', revisadoPor: 'Otro' }, enviada);
+    assert.equal(aprobada.estado, 'Aprobada');
+    assert.equal(aprobada.revisadoPor, 'Ana');
+    assert.ok(aprobada.revisadoEn);
+
+    // Si el vendedor la reenvía tal cual, sigue aprobada; si cambia un precio, vuelve a aprobación
+    assert.equal(ajustarCotizacion(vendedor, luis, { ...aprobada, estado: 'Pendiente' }, aprobada).estado, 'Aprobada');
+    const cambiada = ajustarCotizacion(vendedor, luis, { ...aprobada, lineas: [{ ...aprobada.lineas[0], precio: 40 }] }, aprobada);
+    assert.deepEqual([cambiada.estado, cambiada.revisadoPor, cambiada.total], ['Pendiente', undefined, 400]);
+
+    // Rechazo con motivo; el motivo no queda en otra cosa que no sea rechazada
+    const rechazada = ajustarCotizacion(admin, ana, { ...cambiada, estado: 'Rechazada', motivo: 'Precio bajo' }, cambiada);
+    assert.deepEqual([rechazada.estado, rechazada.motivo], ['Rechazada', 'Precio bajo']);
+    assert.equal(ajustarCotizacion(admin, ana, { ...rechazada, estado: 'Aprobada' }, rechazada).motivo, undefined);
+
+    // Una aprobada solo la borra administración
+    assert.equal(puedeEscribir(vendedor, 'cotizaciones', aprobada, 'eliminar'), false);
+    assert.equal(puedeEscribir(admin, 'cotizaciones', aprobada, 'eliminar'), true);
+    assert.equal(puedeEscribir(vendedor, 'cotizaciones', cambiada, 'eliminar'), true);
+});

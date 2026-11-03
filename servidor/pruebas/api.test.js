@@ -265,7 +265,7 @@ for (const base of BASES) {
             assert.equal(r.json.datos.clientes[0].nombre, 'Finca Ñame');
             assert.equal(r.json.datos.clientes[0].cuenta, 'ana@semillasdata.com');
             assert.equal(r.json.datos.clientes[0].semillas, 25);
-            assert.deepEqual(Object.keys(r.json.datos).sort(), ['agronomia', 'clientes', 'envios', 'germinador', 'mensajes', 'pedidos', 'rendimiento', 'reuniones', 'sitios', 'tareas', 'visitas']);
+            assert.deepEqual(Object.keys(r.json.datos).sort(), ['agronomia', 'clientes', 'cotizaciones', 'envios', 'germinador', 'mensajes', 'pedidos', 'rendimiento', 'reuniones', 'sitios', 'tareas', 'visitas']);
 
             const otra = await accion(sesiones.jefa, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: { id: 'c1', nombre: 'Finca Ñame (editada)' } }], eliminar: [{ modulo: 'tareas', id: 't1' }] });
             assert.equal(otra.json.datos.clientes.length, 1);
@@ -347,7 +347,7 @@ for (const base of BASES) {
             assert.equal(r.json.enlace, 'https://docs.google.com/spreadsheets/d/hoja-1/edit');
             const { pestanas, hojaId } = google.llamadas.at(-1).datos;
             assert.equal(hojaId, '');
-            assert.deepEqual(pestanas.map(p => p.nombre), ['Clientes', 'Visitas', 'Procesos agronómicos', 'Rendimiento', 'Germinador', 'Envíos', 'Pedidos', 'Tareas', 'Reuniones']);
+            assert.deepEqual(pestanas.map(p => p.nombre), ['Clientes', 'Visitas', 'Procesos agronómicos', 'Rendimiento', 'Germinador', 'Envíos', 'Pedidos', 'Cotizaciones', 'Tareas', 'Reuniones']);
             const [cabecera, ...filas] = pestanas[0].filas;
             assert.deepEqual(cabecera.slice(0, 3), ['Nombre', 'Correo', 'Teléfono']);
             assert.ok(cabecera.includes('nuevoCampo') && cabecera.includes('Registró') && !cabecera.includes('_pendiente') && !cabecera.includes('clienteId'));
@@ -672,7 +672,7 @@ for (const base of BASES) {
             assert.match(aviso.texto, /Acceso aprobado/);
             const yo = (await llamar('/api/yo', { metodo: 'GET', sesion: sesiones.luis })).json.usuario;
             assert.deepEqual([yo.estado, yo.cargo, yo.paises, yo.casas], ['aprobado', 'vendedor', ['RD'], ['Gautier Semences']]);
-            assert.deepEqual(yo.modulos, ['clientes', 'visitas', 'pedidos', 'tareas', 'mensajes', 'sitios', 'reuniones']);
+            assert.deepEqual(yo.modulos, ['clientes', 'visitas', 'pedidos', 'cotizaciones', 'tareas', 'mensajes', 'sitios', 'reuniones']);
         });
 
         test('ámbito: cada quien ve y escribe solo su país, su casa comercial y los módulos de su cargo', async () => {
@@ -689,7 +689,7 @@ for (const base of BASES) {
 
             // Luis: vendedor, RD + Gautier
             const luis = (await accion(sesiones.luis, { accion: 'sincronizar' })).json.datos;
-            assert.deepEqual(Object.keys(luis).sort(), ['clientes', 'envios', 'mensajes', 'pedidos', 'reuniones', 'sitios', 'tareas', 'visitas']);
+            assert.deepEqual(Object.keys(luis).sort(), ['clientes', 'cotizaciones', 'envios', 'mensajes', 'pedidos', 'reuniones', 'sitios', 'tareas', 'visitas']);
             assert.deepEqual(luis.clientes.map(c => c.id), ['rd-g']);
             assert.equal(luis.tareas.length, 1); // Las tareas son de todo el equipo
             // No puede crear fuera de su ámbito, ni en módulos que no son suyos, ni pisar ni borrar lo ajeno
@@ -1189,6 +1189,17 @@ for (const base of BASES) {
             await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'pedidos', registro: { ...pedido, notas: 'Revisado' } }] });
             const [[fila]] = await pool.query("SELECT datos FROM registros WHERE modulo = 'pedidos' AND id = 'pe-1'");
             assert.deepEqual([JSON.parse(fila.datos).creadoPor, JSON.parse(fila.datos).cuenta], ['luis@semillasdata.com', 'ana@semillasdata.com']);
+
+            // Cotizaciones: Luis la prepara (no puede aprobarla), a Ana le llega el aviso, Ana la aprueba y Luis se entera
+            const cot = { id: 'co-1', numero: 'COT-1', clienteId: 'rd-g', cliente: 'Finca RD Gautier', pais: 'RD', casa: 'Gautier Semences', moneda: 'US$', estado: 'Aprobada', lineas: [{ producto: 'Tomate Hexagon', cantidad: 10, unidad: 'sobre', precio: 45 }] };
+            assert.equal((await accion(sesiones.luis, { accion: 'sincronizar', guardar: [{ modulo: 'cotizaciones', registro: cot }] })).estado, 200);
+            const leerCot = async () => JSON.parse((await pool.query("SELECT datos FROM registros WHERE modulo = 'cotizaciones' AND id = 'co-1'"))[0][0].datos);
+            assert.deepEqual([(await leerCot()).estado, (await leerCot()).total], ['Pendiente', 450]);
+            assert.ok((await accion(sesiones.ana, { accion: 'avisos' })).json.avisos.some(x => x.tipo === 'cotizacion' && /por aprobar · Finca RD Gautier/.test(x.texto)));
+            await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'cotizaciones', registro: { ...(await leerCot()), estado: 'Aprobada' } }] });
+            assert.deepEqual([(await leerCot()).estado, (await leerCot()).revisadoPor], ['Aprobada', 'Ana']);
+            assert.ok((await accion(sesiones.luis, { accion: 'avisos' })).json.avisos.some(x => x.tipo === 'cotizacion' && /aprobada/.test(x.texto)));
+            assert.equal((await accion(sesiones.luis, { accion: 'sincronizar', eliminar: [{ modulo: 'cotizaciones', id: 'co-1' }] })).estado, 403);
 
             // Metas: administración las fija a su equipo (no a sí misma); el vendedor solo ve las suyas, con su avance
             const meta = (sesion, datos) => accion(sesion, { accion: 'metas', operacion: 'guardar', mes, ...datos });
