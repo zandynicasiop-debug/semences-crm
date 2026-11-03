@@ -182,7 +182,7 @@ class MapaInteractivo {
         const texto = c.listoParaCosechar
             ? (c.asignadoATractor ? 'Lista · tractor en camino' : 'Lista para cosechar')
             : `Madurando · ${Math.floor(c.progreso)} %`;
-        if (this.panelEstado.textContent !== texto) this.panelEstado.textContent = texto;
+        if (this.panelEstado.textContent !== traducir(texto)) this.panelEstado.textContent = traducir(texto);
     }
 
     // ----- Lo que va debajo del texto: cotizador u ensayos por variedad -----

@@ -20,6 +20,7 @@ import { construirCorreo } from './correo.js';
 import { errorApp, conGoogle } from './llamadasGoogle.js';
 import { enZona, inicioDelDia, sumarDias } from './fechas.js';
 import { cuotaGoogle } from './cuotas.js';
+import { traducir, idiomaCorreo } from './idioma.js';
 
 export const DIAS_AGENDA = 60;          // La agenda del CRM cubre de hoy a 60 días
 export const HORA_AGENDA = 6;           // Sincronización automática: a las 6:00, antes del resumen de Borja
@@ -173,7 +174,9 @@ export async function avisarPorCorreo(contexto, { para, asunto, texto }) {
     const pie = `\n\n—\nSemences del Caribe · aviso automático del CRM${config.urlApp ? `\n${config.urlApp}` : ''}`;
     let enviados = 0;
     for (const correo of destinos) {
-        const crudo = construirCorreo({ para: correo, asunto: `Semences del Caribe · ${asunto}`.slice(0, 250), texto: `${texto}${pie}` });
+        // Cada correo en el idioma de quien lo recibe
+        const idioma = await idiomaCorreo(pool, correo);
+        const crudo = construirCorreo({ para: correo, asunto: `Semences del Caribe · ${traducir(asunto, idioma)}`.slice(0, 250), texto: traducir(`${texto}${pie}`, idioma) });
         await conGoogle({ pool, config, usuario: sistema }, (token, alRenovar) => google.enviarCorreo(token, alRenovar, crudo));
         enviados++;
     }

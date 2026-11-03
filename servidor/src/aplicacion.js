@@ -23,6 +23,7 @@ import { ambitoDe } from './permisos.js';
 import { cabecerasSeguras, limiteGeneral, limiteEntrada as limiteDeEntrada, limiteAcciones, validarEntrada } from './seguridad.js';
 import { firmaValida, recibirWebhook } from './instagram.js';
 import { semanaBloqueada, SIN_REPORTE } from './reportes.js';
+import { IDIOMAS } from './idioma.js';
 
 // El "state" de OAuth va firmado: así nadie puede inventar una vuelta de Google
 function firmarEstado(config, valor) {
@@ -232,6 +233,12 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
             const datos = req.body && typeof req.body === 'object' ? req.body : {};
             const accion = Object.hasOwn(ACCIONES, datos.accion) ? ACCIONES[datos.accion] : null;
             if (!accion) throw errorApp(`Acción desconocida: ${datos.accion}`);
+            // Idioma que eligió en la app: con él le llegan los avisos, los WhatsApp y los correos (idioma.js)
+            if (IDIOMAS.includes(datos.idioma) && datos.idioma !== req.usuario.idioma) {
+                await pool.query('UPDATE usuarios SET idioma = ? WHERE id = ?', [datos.idioma, req.usuario.id]);
+                req.usuario.idioma = datos.idioma;
+            }
+            delete datos.idioma;
             // En la sala de espera (o rechazado) solo se puede dejar el teléfono y activar avisos
             if (req.ambito.estado !== 'aprobado' && !SIN_APROBAR.includes(datos.accion)) {
                 throw errorApp(req.ambito.estado === 'rechazado'

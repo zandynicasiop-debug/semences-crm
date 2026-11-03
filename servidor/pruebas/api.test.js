@@ -1211,6 +1211,32 @@ for (const base of BASES) {
             await actualizarToken(pool, config, ana, 'refresco-ana');
         });
 
+        test('idioma: quien eligió inglés recibe en inglés la campana y el WhatsApp; los demás, en español', async () => {
+            const [[antes]] = await pool.query("SELECT telefono FROM usuarios WHERE email = 'luis@semillasdata.com'");
+            // Con cada acción va el idioma de la app y el servidor lo guarda; uno que no existe no cambia nada
+            await accion(sesiones.luis, { accion: 'presencia', idioma: 'en' });
+            await accion(sesiones.luis, { accion: 'presencia', idioma: 'fr' });
+            const [[luis]] = await pool.query("SELECT idioma FROM usuarios WHERE email = 'luis@semillasdata.com'");
+            assert.equal(luis.idioma, 'en');
+            await pool.query("UPDATE usuarios SET telefono = '18295550202' WHERE email = 'luis@semillasdata.com'");
+            await repasar(pool, avisos);
+            peticionesMeta.length = 0;
+
+            const tarea = 'Te asignó una tarea (prioridad alta): Revisar el riego';
+            await accion(sesiones.ana, { accion: 'directo', para: 'luis@semillasdata.com', tipo: 'tarea', texto: tarea });
+            await accion(sesiones.luis, { accion: 'directo', para: 'ana@semillasdata.com', tipo: 'tarea', texto: tarea });
+            const campanaLuis = (await accion(sesiones.luis, { accion: 'avisos' })).json.avisos;
+            assert.ok(campanaLuis.some(x => /Assigned you a task \(high priority\): Revisar el riego$/.test(x.texto)), 'lo de la app, en inglés; lo que escribió Ana, tal cual');
+            const campanaAna = (await accion(sesiones.ana, { accion: 'avisos' })).json.avisos;
+            assert.ok(campanaAna.some(x => x.texto.endsWith(tarea)), 'a quien sigue en español, en español');
+
+            await repasar(pool, avisos);
+            const aLuis = peticionesMeta.find(p => p.destino.startsWith('https://graph.facebook.com') && p.cuerpo.to === '18295550202');
+            assert.match(aLuis.cuerpo.template.components[0].parameters[0].text, /Assigned you a task \(high priority\): Revisar el riego/);
+
+            await pool.query("UPDATE usuarios SET idioma = 'es', telefono = ? WHERE email = 'luis@semillasdata.com'", [antes.telefono]);
+        });
+
         test('rechazar a alguien lo saca: sesiones fuera y sin avisos', async () => {
             await accion(sesiones.jefa, { accion: 'accesos', operacion: 'rechazar', email: 'tec@semillasdata.com' });
             assert.equal((await accion(sesiones.tec, { accion: 'sincronizar' })).estado, 401);

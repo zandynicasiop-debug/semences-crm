@@ -51,7 +51,7 @@ class AgendaApp {
         const diaYHora = (valor) => {
             const f = new Date(valor);
             if (Number.isNaN(f.getTime())) return null;
-            return { dia: this.iso(f), hora: f.toLocaleTimeString('es-DO', { hour: 'numeric', minute: '2-digit' }), orden: f.getTime() };
+            return { dia: this.iso(f), hora: f.toLocaleTimeString(LOCALE, { hour: 'numeric', minute: '2-digit' }), orden: f.getTime() };
         };
         const cliente = (id) => (datos.clientes || []).find(c => c.id === id);
         const abrirCliente = (id) => () => { this.panel.cerrar(); if (window.crm && cliente(id)) window.crm.abrirExpediente(id); };
@@ -91,7 +91,7 @@ class AgendaApp {
         const desde = this.iso(this.lunes);
         const domingo = new Date(this.lunes.getTime() + 6 * 86400000);
         const hasta = this.iso(domingo);
-        const formato = (d) => d.toLocaleDateString('es-DO', { day: 'numeric', month: 'short' });
+        const formato = (d) => d.toLocaleDateString(LOCALE, { day: 'numeric', month: 'short' });
         this.panel.nota.textContent = `Semana del ${formato(this.lunes)} al ${formato(domingo)}`;
         const items = this.itemsDeLaApp(desde, hasta);
         this.dibujar(items, desde);
@@ -117,7 +117,7 @@ class AgendaApp {
                 const dia = todoElDia ? e.inicio.slice(0, 10) : this.iso(f);
                 if (dia < desde || dia > hasta) return;
                 items.push({
-                    dia, hora: todoElDia ? '' : f.toLocaleTimeString('es-DO', { hour: 'numeric', minute: '2-digit' }), orden: f.getTime(),
+                    dia, hora: todoElDia ? '' : f.toLocaleTimeString(LOCALE, { hour: 'numeric', minute: '2-digit' }), orden: f.getTime(),
                     tipo: 'google', titulo: e.titulo, detalle: 'Google Calendar', meet: e.meet,
                     abrir: () => { if (e.enlace) window.open(e.enlace, '_blank', 'noopener'); }
                 });

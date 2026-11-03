@@ -37,10 +37,10 @@ function cuandoCorto(fecha) {
     const f = new Date(fecha);
     if (Number.isNaN(f.getTime())) return '';
     const hoy = new Date();
-    if (f.toDateString() === hoy.toDateString()) return f.toLocaleTimeString('es-DO', { hour: 'numeric', minute: '2-digit' });
+    if (f.toDateString() === hoy.toDateString()) return f.toLocaleTimeString(LOCALE, { hour: 'numeric', minute: '2-digit' });
     const ayer = new Date(hoy.getTime() - 86400000);
     if (f.toDateString() === ayer.toDateString()) return 'ayer';
-    return f.toLocaleDateString('es-DO', { day: 'numeric', month: 'short' });
+    return f.toLocaleDateString(LOCALE, { day: 'numeric', month: 'short' });
 }
 
 /**
@@ -401,7 +401,9 @@ class Accesos {
             nombre.textContent = c.nombre;
             const ultimo = document.createElement('span');
             ultimo.className = 'fila-texto';
-            ultimo.textContent = `${c.ultimo.mio ? 'Tú: ' : ''}${c.ultimo.texto}`;
+            // Un mensaje escrito por alguien no se traduce; los de la app ("Te pasó el cliente…") sí
+            if (c.ultimo.tipo === 'mensaje') ultimo.translate = false;
+            ultimo.textContent = `${c.ultimo.mio ? `${traducir('Tú')}: ` : ''}${c.ultimo.texto}`;
             const cuando = document.createElement('span');
             cuando.className = 'fila-cuando';
             cuando.textContent = `${cuandoCorto(c.ultimo.creado)}${c.sinLeer ? ` · ${c.sinLeer} sin leer` : ''}`;
@@ -490,6 +492,7 @@ class Accesos {
             const li = document.createElement('li');
             li.className = `burbuja${m.mio ? ' burbuja-mia' : ''}`;
             const t = document.createElement('p');
+            if (!m.tipo || m.tipo === 'mensaje') t.translate = false; // Lo escrito por la persona no se traduce
             t.textContent = m.texto;
             li.appendChild(t);
             if (m.enlace) {

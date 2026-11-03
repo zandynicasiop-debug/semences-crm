@@ -33,6 +33,7 @@ const ESQUEMA = [
         aprobado_en DATETIME NULL,
         visto DATETIME NULL,
         presencia VARCHAR(20) NOT NULL DEFAULT 'disponible',
+        idioma VARCHAR(2) NOT NULL DEFAULT 'es',
         resumen_activo TINYINT(1) NOT NULL DEFAULT 1,
         resumen_fecha DATE NULL,
         creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

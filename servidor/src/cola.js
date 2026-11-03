@@ -14,6 +14,7 @@
 import crypto from 'node:crypto';
 import { esPasajero, conVariacion } from './reintentos.js';
 import { textoWhatsapp } from './avisos.js';
+import { traducir, idiomaDestino } from './idioma.js';
 
 export const INTENTOS = 6;
 const LOTE = 10;              // Mensajes por repaso (Meta admite muchos más; así no se satura nada)
@@ -30,23 +31,26 @@ export async function encolar(pool, canal, destinos, mensaje, plantilla = null, 
 }
 
 // Lo que muestra el aviso push: título, texto y la página que abre al tocarlo
-function contenidoPush(texto) {
+function contenidoPush(texto, idioma) {
     const [primera, ...resto] = texto.split('\n');
     return resto.length
         ? { titulo: primera.slice(0, 120), texto: resto.join('\n').slice(0, 500) }
-        : { titulo: 'Semences del Caribe · Aviso del equipo', texto: texto.slice(0, 500) };
+        : { titulo: traducir('Semences del Caribe · Aviso del equipo', idioma), texto: texto.slice(0, 500) };
 }
 
 async function enviarUno(pool, avisos, fila) {
+    // En el idioma de quien lo recibe (español si el destino no es de nadie del equipo, como un cliente)
+    const idioma = await idiomaDestino(pool, fila.canal, fila.destino);
+    const texto = traducir(fila.texto, idioma);
     if (fila.canal === 'whatsapp') {
         let parametros = null;
         try { parametros = fila.parametros ? JSON.parse(fila.parametros) : null; } catch (e) { /* sin variables */ }
-        return avisos.whatsappUno(fila.destino, parametros || textoWhatsapp(fila.texto), fila.plantilla);
+        return avisos.whatsappUno(fila.destino, parametros ? parametros.map(p => traducir(p, idioma)) : textoWhatsapp(texto), fila.plantilla);
     }
     const [subs] = await pool.query('SELECT endpoint, p256dh, auth FROM push_suscripciones WHERE huella = ?', [fila.destino]);
     if (!subs.length) throw Object.assign(new Error('La suscripción push ya no existe'), { definitivo: true });
     try {
-        await avisos.pushUno(subs[0], contenidoPush(fila.texto));
+        await avisos.pushUno(subs[0], contenidoPush(texto, idioma));
     } catch (error) {
         // 404/410: el navegador anuló la suscripción (se desinstaló la app, se quitó el permiso…)
         if ([404, 410].includes(Number(error.statusCode))) {

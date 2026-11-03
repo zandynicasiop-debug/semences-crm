@@ -18,6 +18,7 @@ import { encolar } from './cola.js';
 import { enZona, inicioDelDia } from './fechas.js';
 import { construirCorreo } from './correo.js';
 import { germinacionDe } from './acciones.js';
+import { traducir } from './idioma.js';
 
 const MAX_LINEAS = 6;
 const VENTANA_HORAS = 5;
@@ -34,7 +35,7 @@ function recortar(lineas, resto) {
 
 /**
  * Secciones del resumen ([{ titulo, lineas }]) a partir de datos YA filtrados por el ámbito.
- * persona: { nombre, email }, eventos: agenda de hoy, sinLeer: mensajes del tablero, hoy: AAAA-MM-DD.
+ * persona: { nombre, email, idioma }, eventos: agenda de hoy, sinLeer: mensajes del tablero, hoy: AAAA-MM-DD.
  */
 export function componerResumen({ persona, ambito, datos, eventos = [], sinLeer = 0, hoy, zona, umbral = 85 }) {
     const secciones = [];
@@ -45,7 +46,7 @@ export function componerResumen({ persona, ambito, datos, eventos = [], sinLeer 
     if (eventos.length) {
         seccion('agenda', '📅 Tu agenda de hoy',
             recortar(eventos.map(e => {
-                const hora = e.todoElDia ? 'Todo el día' : new Date(e.inicio).toLocaleTimeString('es-DO', { timeZone: zona, hour: 'numeric', minute: '2-digit' });
+                const hora = e.todoElDia ? 'Todo el día' : new Date(e.inicio).toLocaleTimeString(persona.idioma === 'en' ? 'en-US' : 'es-DO', { timeZone: zona, hour: 'numeric', minute: '2-digit' });
                 return `${hora} · ${e.titulo}${e.meet ? ` (Meet: ${e.meet})` : ''}`;
             }), 'eventos'));
     }
@@ -183,7 +184,7 @@ async function resumirPersona(contexto, persona, datosTodos, hoy) {
     if (avisos.pushActivo && huellas.length) canales.push(encolar(pool, 'push', huellas, textos.push).then(() => 'push'));
     if (!canales.length && token) {
         // Ni WhatsApp ni push: por correo, de sí misma a sí misma
-        const crudo = construirCorreo({ para: persona.email, asunto: textos.correo.asunto, texto: textos.correo.texto });
+        const crudo = construirCorreo({ para: persona.email, asunto: traducir(textos.correo.asunto, persona.idioma), texto: traducir(textos.correo.texto, persona.idioma) });
         canales.push(google.enviarCorreo(token, () => {}, crudo).then(() => 'correo'));
     }
     return (await Promise.all(canales)).join('+') || null;

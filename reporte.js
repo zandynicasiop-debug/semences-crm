@@ -83,7 +83,7 @@ class ReporteSemanal {
     }
 
     textoDias(dias) {
-        const f = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString('es-DO', { day: 'numeric', month: 'short' });
+        const f = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString(LOCALE, { day: 'numeric', month: 'short' });
         return `del ${f(dias.lunes)} al ${f(dias.domingo)}`;
     }
 
@@ -316,7 +316,7 @@ class ReporteSemanal {
             nombre.textContent = p.nombre;
             const detalle = document.createElement('span');
             detalle.textContent = ` · ${NOMBRE_CARGO_REPORTE[p.cargo] || p.cargo || ''} · ${p.reporte
-                ? `✅ entregado el ${new Date(p.reporte.entregado).toLocaleDateString('es-DO', { weekday: 'long', day: 'numeric', month: 'short' })}`
+                ? `✅ entregado el ${new Date(p.reporte.entregado).toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'short' })}`
                 : '⚠️ sin entregar'}`;
             cab.append(nombre, detalle);
             li.appendChild(cab);
@@ -426,7 +426,7 @@ class ReporteSemanal {
         pie.className = 'nota-suave';
         // La hora va entre paréntesis: "p. m." ya termina en punto
         const creado = new Date(res.creado);
-        pie.textContent = `Hecho con IA el ${creado.toLocaleDateString('es-DO', { weekday: 'long', day: 'numeric', month: 'short' })} (${creado.toLocaleTimeString('es-DO', { hour: 'numeric', minute: '2-digit' })}). Revisa los reportes antes de decidir nada.`;
+        pie.textContent = `Hecho con IA el ${creado.toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'short' })} (${creado.toLocaleTimeString(LOCALE, { hour: 'numeric', minute: '2-digit' })}). Revisa los reportes antes de decidir nada.`;
         caja.appendChild(pie);
     }
 }

@@ -109,6 +109,7 @@ for (const base of BASES) {
             assert.equal(ana.paises, '[]');
             assert.equal(ana.casas, '[]');
             assert.equal(Number(ana.resumen_activo), 1);
+            assert.equal(ana.idioma, 'es', 'quien ya estaba sigue en español hasta que elija otro');
             assert.equal(ambitoDe(ana, config).estado, 'pendiente');
 
             const [[aviso]] = await pool.query('SELECT * FROM cola_avisos');
@@ -137,7 +138,7 @@ for (const base of BASES) {
             await pool.end();
             pool = await conectar(config.mysql);
             const [columnas] = await pool.query("SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'usuarios'");
-            assert.equal(Number(columnas[0].n), 21);
+            assert.equal(Number(columnas[0].n), 22);
         });
     });
 }

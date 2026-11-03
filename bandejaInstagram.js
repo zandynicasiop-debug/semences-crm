@@ -128,8 +128,8 @@ class BandejaInstagram {
         if (Number.isNaN(f.getTime())) return '';
         const hoy = new Date();
         return f.toDateString() === hoy.toDateString()
-            ? f.toLocaleTimeString('es-DO', { hour: 'numeric', minute: '2-digit' })
-            : f.toLocaleDateString('es-DO', { day: 'numeric', month: 'short' });
+            ? f.toLocaleTimeString(LOCALE, { hour: 'numeric', minute: '2-digit' })
+            : f.toLocaleDateString(LOCALE, { day: 'numeric', month: 'short' });
     }
 
     nombreDe(c) {
@@ -202,6 +202,7 @@ class BandejaInstagram {
             const li = document.createElement('li');
             li.className = `ig-mensaje ig-${m.direccion}`;
             const texto = document.createElement('p');
+            texto.translate = false; // Lo que escribe el cliente o la cuenta no se traduce (idioma.js)
             texto.textContent = m.texto;
             const pie = document.createElement('span');
             pie.textContent = [m.direccion === 'saliente' ? (m.autor || 'La cuenta') : this.nombreDe(c), this.fecha(m.fecha)].filter(Boolean).join(' · ');

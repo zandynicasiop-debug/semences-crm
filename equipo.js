@@ -239,6 +239,7 @@ class CanalEquipo {
             } else if (m.texto) {
                 const p = document.createElement('p');
                 p.className = 'chat-texto';
+                p.translate = false; // Lo que escribe el equipo no se traduce (idioma.js)
                 p.textContent = m.texto;
                 li.appendChild(p);
             }
@@ -268,8 +269,8 @@ class CanalEquipo {
         const hoy = new Date();
         const mismoDia = f.toDateString() === hoy.toDateString();
         return mismoDia
-            ? f.toLocaleTimeString('es-DO', { hour: 'numeric', minute: '2-digit' })
-            : f.toLocaleString('es-DO', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+            ? f.toLocaleTimeString(LOCALE, { hour: 'numeric', minute: '2-digit' })
+            : f.toLocaleString(LOCALE, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
     }
 
     // Guarda el nombre si hacía falta; devuelve false si falta

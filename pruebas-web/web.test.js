@@ -13,9 +13,10 @@ const path = require('node:path');
 
 const RAIZ = path.join(__dirname, '..');
 
-// Contexto como el de la página: los archivos comparten las variables globales, igual que con <script>
-function cargar(archivos, extras = {}) {
-    const almacen = new Map();
+// Contexto como el de la página: los archivos comparten las variables globales, igual que con <script>.
+// Como en index.html, primero van el diccionario y el idioma (español salvo que se pida otro)
+function cargar(archivos, extras = {}, idioma = 'es') {
+    const almacen = new Map([['sdc_idioma', idioma]]);
     const contexto = {
         console, setTimeout, clearTimeout, setInterval, clearInterval, URL, URLSearchParams, Intl,
         localStorage: {
@@ -23,14 +24,14 @@ function cargar(archivos, extras = {}) {
             setItem: (k, v) => almacen.set(k, String(v)),
             removeItem: (k) => almacen.delete(k)
         },
-        document: { hidden: false, addEventListener() {}, getElementById() { return null; }, createElement() { return {}; }, querySelector() { return null; } },
+        document: { hidden: false, documentElement: {}, addEventListener() {}, getElementById() { return null; }, createElement() { return {}; }, querySelector() { return null; } },
         navigator: {},
         ...extras
     };
     contexto.window = contexto;
     contexto.addEventListener = () => {};
     vm.createContext(contexto);
-    for (const archivo of archivos) vm.runInContext(fs.readFileSync(path.join(RAIZ, archivo), 'utf8'), contexto, { filename: archivo });
+    for (const archivo of ['textosIngles.js', 'idioma.js', ...archivos]) vm.runInContext(fs.readFileSync(path.join(RAIZ, archivo), 'utf8'), contexto, { filename: archivo });
     contexto.almacen = almacen;
     // Las clases y las const de primer nivel de un <script> son globales pero no cuelgan de window:
     // se leen desde dentro del contexto
@@ -247,7 +248,7 @@ describe('conector con el backend y con Apps Script', () => {
         assert.deepEqual(plano(r), { ok: true, eco: 1 });
         assert.equal(llamadas[0].url, 'https://api.semillasdata.com/api/accion');
         assert.equal(llamadas[0].opciones.headers.Authorization, 'Bearer sesion-123');
-        assert.deepEqual(JSON.parse(llamadas[0].opciones.body), { accion: 'telefono', telefono: '04141234567' });
+        assert.deepEqual(JSON.parse(llamadas[0].opciones.body), { accion: 'telefono', telefono: '04141234567', idioma: 'es' }, 'con el idioma de la app');
     });
 
     test('backend: si la sesión caducó, avisa al responsable para pedir entrar de nuevo', async () => {
@@ -380,5 +381,47 @@ describe('archivos de la app', () => {
             assert.ok(sw.includes(`'./${s}'`), `${s} falta en sw.js`);
             assert.ok(apps.includes(`'${s}'`), `${s} falta en herramientas/preparar-web.mjs`);
         }
+    });
+});
+
+describe('idioma: la app en inglés', () => {
+    // En inglés, idioma.js vigila la página; aquí basta con su función de traducir
+    const enIngles = () => cargar([], { MutationObserver: class { observe() {} }, Node: { TEXT_NODE: 3, ELEMENT_NODE: 1 }, NodeFilter: {}, alert() {}, confirm() {}, prompt() {} }, 'en');
+
+    test('en español no cambia nada y las fechas van en es-DO', () => {
+        const app = cargar([]);
+        assert.equal(app.traducir('Guardar cambios'), 'Guardar cambios');
+        assert.equal(app.LOCALE, 'es-DO');
+        assert.equal(app.document.documentElement.lang, 'es');
+    });
+
+    test('textos exactos, con datos y por trozos', () => {
+        const app = enIngles();
+        assert.equal(app.LOCALE, 'en-US');
+        assert.equal(app.traducir('Guardar cambios'), 'Save changes');
+        assert.equal(app.traducir('  Cerrar sesión '), '  Sign out ', 'respeta los espacios de los trozos de innerHTML');
+        assert.equal(app.traducir('Sincronizado hace 5 s'), 'Synced 5 s ago');
+        assert.equal(app.traducir('Guía 123456: En tránsito · Miami.'), 'Tracking 123456: In transit · Miami.');
+        assert.equal(app.traducir('Alerta · Falla de riego · Cuarto de riego'), 'Alert · Irrigation failure · Irrigation room');
+        assert.equal(app.traducir('⚠️ 1 seguimiento vencido'), '⚠️ 1 overdue follow-up');
+        assert.equal(app.traducir('Escribe un número entre 1 y 100.'), 'Enter a number between 1 and 100.', 'las concretas van antes que «Escribe …»');
+        assert.equal(app.traducir('Tienes 2 avisos nuevos (campana).'), 'You have 2 new notifications (bell).');
+    });
+
+    test('lo que escribe el equipo no se traduce, aunque se parezca a un ejemplo', () => {
+        const app = enIngles();
+        assert.equal(app.traducir('Finca López'), 'Finca López');
+        assert.equal(app.traducir('Luis: hola, ¿cómo vas?'), 'Luis: hola, ¿cómo vas?');
+        assert.equal(app.traducir('Plan de siembra de diciembre'), 'Plan de siembra de diciembre', 'los ejemplos solo se traducen como placeholder');
+        assert.equal(app.traducir('Seguimiento · Finca López'), 'Follow-up · Finca López');
+    });
+
+    test('el diccionario no traduce dos veces ni tiene patrones que no compilan', () => {
+        const app = enIngles();
+        const exactos = app.TEXTOS_EN;
+        for (const [es, en] of Object.entries(exactos)) {
+            assert.ok(exactos[en] === undefined || exactos[en] === en, `«${es}» → «${en}», que a su vez se traduciría`);
+        }
+        for (const [expresion] of app.PATRONES_EN) assert.doesNotThrow(() => new RegExp(`^${expresion}$`, 'u'), expresion);
     });
 });

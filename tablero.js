@@ -206,8 +206,9 @@ class TableroEquipo {
             const li = document.createElement('li');
             li.className = `tablero-mensaje${m.leido ? '' : ' tablero-mensaje-nuevo'}`;
             const de = document.createElement('strong');
-            de.textContent = `${m.de || m.deEmail} · ${new Date(m.creado).toLocaleString('es-DO', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`;
+            de.textContent = `${m.de || m.deEmail} · ${new Date(m.creado).toLocaleString(LOCALE, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`;
             const texto = document.createElement('p');
+            if (!m.tipo || m.tipo === 'mensaje') texto.translate = false; // Lo escrito por la persona no se traduce
             texto.textContent = m.texto;
             li.append(de, texto);
             if (/^https:\/\/meet\.google\.com\//.test(m.enlace || '')) {

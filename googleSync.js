@@ -62,6 +62,8 @@ class GoogleWorkspaceConnector {
         const cabeceras = { 'Content-Type': 'application/json' };
         const sesion = window.responsable ? window.responsable.sesionBackend() : '';
         if (sesion) cabeceras.Authorization = `Bearer ${sesion}`;
+        // Con cada acción va el idioma de la app: el servidor lo guarda y avisa a la persona en ese idioma
+        if (ruta === '/api/accion') cuerpo = { ...cuerpo, idioma: window.IDIOMA || 'es' };
         try {
             const respuesta = await fetch(this.api + ruta, {
                 method: metodo,
@@ -181,7 +183,8 @@ class GoogleWorkspaceConnector {
      */
     enviarNotificacionMovil(titulo, cuerpo) {
         if (!this.notificacionesPermitidas) return;
-        const opciones = { body: cuerpo, tag: titulo, lang: 'es' };
+        titulo = traducir(titulo);
+        const opciones = { body: traducir(cuerpo), tag: titulo, lang: IDIOMA };
         if (this.icono) opciones.icon = this.icono;
         try {
             new Notification(titulo, opciones);

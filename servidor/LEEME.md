@@ -248,6 +248,10 @@ En la cabecera (y en el móvil, en la barra inferior con "Más"):
   - **Clientes nuevos**, **visitas** y **ensayos de validación por variedad** (cliente + lote + variedad) del mes.
   - **Actividades cumplidas:** % de actividades completadas en sus reportes semanales del mes.
 
+## Idioma (español o inglés)
+
+Cada persona elige el idioma en la app (botón *English* / *Español*). La web lo manda con cada acción y el servidor lo guarda en `usuarios.idioma` (`es` por defecto; una base de una versión anterior recibe la columna sola al arrancar). Con ese idioma le llegan sus avisos push, sus WhatsApp, sus correos de aviso y su resumen de la mañana, y quedan escritos sus avisos de la campana (`src/idioma.js`, línea a línea; lo que escribió alguien se queda como está). Lo que va al espacio de Google Chat y a los clientes sigue en español. Los WhatsApp salen con la plantilla aprobada en Meta, que está en español: en inglés cambia el texto que va dentro, no el marco de la plantilla.
+
 ## Equipo y acceso
 
 - Pueden entrar todas las cuentas de `DOMINIO`, los correos de `ADMINS` y los de la tabla `equipo`.

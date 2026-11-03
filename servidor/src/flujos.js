@@ -164,7 +164,7 @@ export async function alPasarAReunion(evento, { paso, contexto }) {
     await paso('aviso', async () => {
         const enlace = (r) => (r && !r.omitido && r.enlace) || '';
         const cuando = hueco && hueco.inicio
-            ? new Date(hueco.inicio).toLocaleString('es-DO', { timeZone: config.zonaHoraria, weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' })
+            ? new Date(hueco.inicio).toLocaleString(persona.idioma === 'en' ? 'en-US' : 'es-DO', { timeZone: config.zonaHoraria, weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' })
             : '';
         const texto = [
             `🤝 ${cliente.nombre || 'Un cliente'} pasó a Reunión`,

@@ -310,6 +310,8 @@ class Responsable {
                 <div class="boton-google"></div>
                 <p class="form-error" role="alert" hidden></p>
             </div>`;
+        // El idioma se puede elegir antes de entrar
+        dialogo.querySelector('.entrada-google').prepend(Idioma.crearBoton('btn-idioma-entrada'));
         document.body.appendChild(dialogo);
         this.dialogoGoogle = dialogo;
         this.contenedorBoton = dialogo.querySelector('.boton-google');
@@ -429,6 +431,7 @@ class Responsable {
                     <button type="submit" class="btn-primary sala-enviar">Pedir acceso</button>
                 </div>
             </form>`;
+        dialogo.querySelector('form').prepend(Idioma.crearBoton('btn-idioma-entrada'));
         document.body.appendChild(dialogo);
         this.sala = dialogo;
         // Mientras no esté aprobada, la sala no se cierra con Escape

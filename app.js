@@ -1748,7 +1748,7 @@ class Alrededores {
             c.textAlign = 'center';
             c.textBaseline = 'middle';
             c.font = `800 ${Math.round(lienzo.height * 0.55)}px Raleway, sans-serif`;
-            c.fillText(texto, 256, lienzo.height / 2);
+            c.fillText(traducir(texto), 256, lienzo.height / 2);
             textura.needsUpdate = true;
         };
         dibujar();
@@ -2354,7 +2354,7 @@ class Dashboard {
             ctx.fillText('Semences del Caribe', lienzo.width / 2, 100);
             ctx.fillStyle = PALETA.css.textoSuave;
             // Los dos países donde trabaja la empresa; la letra se achica hasta caber
-            const lema = 'SEMILLAS DE HORTALIZAS · REPÚBLICA DOMINICANA · VENEZUELA';
+            const lema = traducir('SEMILLAS DE HORTALIZAS · REPÚBLICA DOMINICANA · VENEZUELA');
             let tamano = 34;
             do { ctx.font = `600 ${tamano}px Raleway, sans-serif`; tamano -= 1; } while (ctx.measureText(lema).width > lienzo.width - 70 && tamano > 18);
             ctx.fillText(lema, lienzo.width / 2, 154);
@@ -2803,10 +2803,10 @@ class Dashboard {
                 c.textAlign = 'left';
                 const tx = h * 0.98;
                 c.font = `800 ${Math.round(h * 0.2)}px Raleway, sans-serif`;
-                c.fillText(titulo, tx, h * (lineas.length ? 0.4 : 0.58));
+                c.fillText(traducir(titulo), tx, h * (lineas.length ? 0.4 : 0.58));
                 c.fillStyle = '#B91C1C';
                 c.font = `700 ${Math.round(h * 0.12)}px Raleway, sans-serif`;
-                lineas.forEach((l, i) => c.fillText(l, tx, h * (0.6 + i * 0.16)));
+                lineas.forEach((l, i) => c.fillText(traducir(l), tx, h * (0.6 + i * 0.16)));
                 textura.needsUpdate = true;
             };
             dibujar();
@@ -2907,7 +2907,7 @@ class Dashboard {
             const ancho = c.measureText('Semences del Caribe').width;
             c.fillStyle = PALETA.css.menta;
             c.font = '600 26px Raleway, sans-serif';
-            c.fillText('·  OFICINAS', 330 + ancho, 35);
+            c.fillText(traducir('·  OFICINAS'), 330 + ancho, 35);
             textura.needsUpdate = true;
         };
         dibujar();
@@ -3065,11 +3065,11 @@ class Dashboard {
                 c.textAlign = 'left';
                 c.textBaseline = 'middle';
                 c.font = `800 ${Math.round(h * (conSubtitulo ? 0.3 : 0.42))}px Raleway, sans-serif`;
-                c.fillText('CUARTO DE RIEGO', h * 0.95, h * (conSubtitulo ? 0.38 : 0.52));
+                c.fillText(traducir('CUARTO DE RIEGO'), h * 0.95, h * (conSubtitulo ? 0.38 : 0.52));
                 if (conSubtitulo) {
                     c.fillStyle = PALETA.css.aguaPalido;
                     c.font = `600 ${Math.round(h * 0.17)}px Raleway, sans-serif`;
-                    c.fillText('Fertirriego · Nutrición de cultivos', h * 0.95, h * 0.72);
+                    c.fillText(traducir('Fertirriego · Nutrición de cultivos'), h * 0.95, h * 0.72);
                 }
                 textura.needsUpdate = true;
             };
@@ -3315,10 +3315,10 @@ class Dashboard {
             c.fillStyle = PALETA.css.blanco;
             c.textBaseline = 'middle';
             c.font = '800 52px Raleway, sans-serif';
-            c.fillText('GERMINADOR', 140, 62);
+            c.fillText(traducir('GERMINADOR'), 140, 62);
             c.fillStyle = PALETA.css.mentaClaro;
             c.font = '600 26px Raleway, sans-serif';
-            c.fillText('Plántulas · germinación por lote', 140, 114);
+            c.fillText(traducir('Plántulas · germinación por lote'), 140, 114);
             textura.needsUpdate = true;
         };
         dibujar();
@@ -3613,7 +3613,7 @@ class Dashboard {
      * agenda la inspección dentro de una hora con el enlace y lo anuncia por Chat y en el dispositivo.
      */
     async celebrarHito() {
-        const total = Math.round(this.semillasMiles).toLocaleString('es-DO');
+        const total = Math.round(this.semillasMiles).toLocaleString(LOCALE);
         let meetUrl = '';
         if (this.google && this.google.activo) {
             meetUrl = await this.google.crearReunionMeet('Revisión de logística y despacho · Semences del Caribe');
@@ -3697,9 +3697,10 @@ class Dashboard {
     actualizarMetricasDOM() {
         const fijar = (id, texto) => {
             const el = document.getElementById(id);
+            texto = traducir(texto); // Lo que se ve: en inglés, ya traducido
             if (el.textContent !== texto) el.textContent = texto;
         };
-        fijar('val-semillas', `${Math.round(this.semillasMiles).toLocaleString('es-DO')} mil`);
+        fijar('val-semillas', `${Math.round(this.semillasMiles).toLocaleString(LOCALE)} mil`);
         fijar('val-parcelas', `${this.cultivos.length} de ${this.cultivos.length + 1}`);
         fijar('nota-parcelas', '1 libre en preparación');
 
@@ -3725,7 +3726,7 @@ class Dashboard {
         const partes = [];
         if (listas) partes.push(`${listas} ${listas === 1 ? 'lista' : 'listas'} para cosechar`);
         if (enRuta) partes.push(`${enRuta} ${enRuta === 1 ? 'tractor' : 'tractores'} en camino`);
-        const textoResumen = partes.length ? partes.join(' · ') : 'Todas las parcelas madurando';
+        const textoResumen = traducir(partes.length ? partes.join(' · ') : 'Todas las parcelas madurando');
         if (this.resumen.textContent !== textoResumen) {
             this.resumen.textContent = textoResumen;
             this.resumen.title = textoResumen; // Completo al pasar el ratón, si no cabe en la línea

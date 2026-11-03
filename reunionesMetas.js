@@ -130,7 +130,7 @@ class ReunionesMetas {
         h.textContent = r.titulo;
         const cuando = document.createElement('span');
         cuando.className = 'fila-cuando';
-        cuando.textContent = `${f.toLocaleDateString('es-DO', { weekday: 'long', day: 'numeric', month: 'short' })} (${f.toLocaleTimeString('es-DO', { hour: 'numeric', minute: '2-digit' })}) · organiza ${r.organizadorNombre || r.organizador}`;
+        cuando.textContent = `${f.toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'short' })} (${f.toLocaleTimeString(LOCALE, { hour: 'numeric', minute: '2-digit' })}) · organiza ${r.organizadorNombre || r.organizador}`;
         const quienes = document.createElement('span');
         quienes.className = 'fila-texto';
         quienes.textContent = `Con ${r.participantesTexto || '—'}`;
@@ -358,7 +358,7 @@ class ReunionesMetas {
             nombre.textContent = m.nombre;
             const cifra = document.createElement('span');
             cifra.className = 'meta-cifra';
-            cifra.textContent = `${m.porcentaje >= 100 ? '✅ ' : ''}${Number(m.avance).toLocaleString('es-DO')} de ${Number(m.objetivo).toLocaleString('es-DO')}${m.indicador === 'actividades' ? ' %' : ''}`;
+            cifra.textContent = `${m.porcentaje >= 100 ? '✅ ' : ''}${Number(m.avance).toLocaleString(LOCALE)} de ${Number(m.objetivo).toLocaleString(LOCALE)}${m.indicador === 'actividades' ? ' %' : ''}`;
             const barra = document.createElement('div');
             barra.className = 'meta-barra';
             barra.setAttribute('role', 'progressbar');

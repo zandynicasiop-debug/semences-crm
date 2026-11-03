@@ -94,6 +94,8 @@ semences-crm/
 ├── manifest.webmanifest    PWA instalable (iconos, colores, pantalla completa)
 ├── sw.js                   Service worker: sin conexión + avisos push con la app cerrada
 ├── tema.js                 Tema claro/oscuro antes de pintar (en <head>, sin parpadeo)
+├── textosIngles.js         Diccionario español → inglés de la app (textos exactos, ejemplos y patrones)
+├── idioma.js               Idioma de la app (español o inglés): traduce lo que se pinta, fechas en LOCALE
 ├── googleSync.js           Conector: backend Node (api) o Apps Script (url + token)
 ├── app.js                  Simulador 3D de la finca (Three.js), métricas y panel de parcelas
 ├── datos.js                Base de datos de la app: copia local (localStorage) + sincronización
@@ -143,7 +145,8 @@ Si hay `api`, manda el backend y se ignoran `url` y `token`.
 
 ### 4.1 Carga
 
-`index.html` carga, en este orden: `tema.js` (en `<head>`), las librerías del CDN y después, al final del `<body>`,
+`index.html` carga, en este orden: `tema.js`, `textosIngles.js` e `idioma.js` (en `<head>`), las librerías del CDN y
+después, al final del `<body>`,
 `googleSync.js → app.js → datos.js → usuario.js → mapa.js → cotizador.js → crm.js → equipo.js → tareas.js →
 tablero.js → bandejaInstagram.js → panel.js → reporte.js → accesos.js → agenda.js → reunionesMetas.js → pwa.js →
 ventana.js`. Son scripts clásicos que comparten el ámbito global (`window.baseDatos`,
@@ -260,6 +263,16 @@ Al publicar cambios grandes hay que subir `VERSION` (ahora `semences-v10`) para 
   Google Calendar. **Reuniones**: se programan con Meet e invitación; el acta convierte cada acuerdo con
   responsable en una tarea suya. **Metas**: las fijan Master y administración; el avance se calcula solo.
   Sin backend quedan la Agenda (con los datos del dispositivo), Tareas y Chat.
+- **`idioma.js` / `textosIngles.js`:** la app en español o en inglés. Se elige con el botón *English* / *Español* de
+  la cabecera (*EN* / *ES* en pantallas estrechas), de la entrada o de la sala de espera; queda en el dispositivo
+  (`localStorage.sdc_idioma`) y la página se recarga. Empieza siempre en español. El código sigue escribiendo
+  en español: en inglés, `idioma.js` traduce cada texto al pintarse (textos, `placeholder`, `title`,
+  `aria-label`, `alt`, y `alert`/`confirm`/`prompt`) con el diccionario. Lo que escribe el equipo (mensajes,
+  nombres, notas) no se traduce: los mensajes van con `translate="no"` y los textos de ejemplo de los campos
+  (`EJEMPLOS_EN`) solo se traducen como `placeholder`. Para lo que no es del DOM (los carteles de la finca 3D,
+  los avisos del dispositivo) está `traducir(texto)`; fechas y números usan `LOCALE` (`es-DO` o `en-US`).
+  Se quedan en español, a propósito: lo que sale hacia fuera para el equipo o los clientes (Google Chat,
+  eventos de Calendar, la cotización en PDF y el correo que la acompaña, el expediente de Docs).
 
 ### 4.8 Sistema de diseño (`style.css`)
 
@@ -350,6 +363,7 @@ de la mañana (cada minuto).
 | `campana.js` | Avisos de cada persona en la app (tabla `avisos_persona`): registrar, listar y marcar leídos |
 | `reuniones.js` | Reuniones: evento con Meet e invitados, acta y acuerdos convertidos en tareas |
 | `metas.js` | Metas mensuales por persona y su avance calculado con los datos del CRM |
+| `idioma.js` | Traduce al inglés, para quien lo eligió, lo que el servidor manda fuera: push, WhatsApp, correos y la campana |
 
 ### 6.3 Rutas
 
@@ -390,7 +404,7 @@ Todas bajo `/api` (y también en la raíz, por si el proxy de cPanel quita el pr
 
 | Tabla | Contenido |
 |---|---|
-| `usuarios` | Cuenta, nombre, foto, token de Google **cifrado**, teléfono, estado (`pendiente`/`aprobado`/`rechazado`), cargo, países y casas (JSON), presencia, preferencias del resumen |
+| `usuarios` | Cuenta, nombre, foto, token de Google **cifrado**, teléfono, estado (`pendiente`/`aprobado`/`rechazado`), cargo, países y casas (JSON), presencia, idioma (`es`/`en`), preferencias del resumen |
 | `sesiones` | **Huella** SHA-256 de cada sesión (nunca la sesión), usuario y caducidad |
 | `codigos` | Huella del código de un solo uso, reto PKCE, caducidad (2 min) |
 | `equipo` | Cuentas de fuera del dominio autorizadas, con su teléfono |
@@ -551,6 +565,9 @@ node --test pruebas-web/*.test.js
   cabeceras, adjuntos), *exportación*, *configuración* (`RESUMEN_HORA`), *cola*, *conGoogle*.
 - *App web:* cotizador (importes RD/VE, lista de precios, totales por moneda), enlaces de WhatsApp, fecha local,
   sincronización (pendientes, fusión, sin conexión, permisos, **tandas**), conector (sesión Bearer, Apps Script).
+- *Idioma:* la app en inglés (textos exactos, con datos y por trozos; lo escrito por el equipo y los ejemplos no se
+  tocan; el diccionario no traduce dos veces) y, en el servidor, el idioma guardado con cada acción, la campana y
+  el WhatsApp en inglés para quien lo eligió y en español para los demás.
 
 **Resultado al cerrar la auditoría:** 98/98 en el backend (contra MariaDB 10.11, en Node 22 y Node 24) y 21/21
 en la app web. Las pruebas nuevas se ejecutaron también contra el código **anterior**: fallan exactamente las 19
@@ -658,6 +675,12 @@ JSON, así que no hay que tocar el servidor; si debe salir con nombre bonito en 
 **Añadir un módulo nuevo:** `MODULOS_CRM` en `servidor/src/db.js` y en `apps-script/Code.gs`,
 `MODULOS_DATOS` en `datos.js`, su definición en `crm.js`, y en `permisos.js` decidir qué cargos lo ven y si lleva
 país y casa (`MODULOS_CON_AMBITO`).
+
+**Añadir o cambiar un texto de la pantalla:** escríbelo en español en el código, como siempre, y su
+traducción en `textosIngles.js`: en `TEXTOS_EN` si es fijo, en `PATRONES_EN` si lleva datos (con su expresión
+regular). Sin traducción se ve en español en la app en inglés, sin romper nada.
+`node herramientas/textos-sin-traducir.mjs` lista los que faltan (con algunos falsos avisos). Si el texto lo manda
+el servidor por push, WhatsApp o correo, su traducción va en `servidor/src/idioma.js`.
 
 **Rotar claves:** `CLAVE_CIFRADO` (`npm run clave`): todos tendrán que volver a conectar Google. Claves VAPID
 (`npm run vapid`): todos tendrán que reactivar los avisos push. Firma del APK: **no se rota**; guárdala bien.

@@ -4,6 +4,8 @@
  * mensajes directos, clientes que te pasan, tareas y reuniones, germinación baja, envíos, Instagram,
  * reportes semanales y metas.
  */
+import { traducir, idiomasDe } from './idioma.js';
+
 export const ESQUEMA_CAMPANA = [
     `CREATE TABLE IF NOT EXISTS avisos_persona (
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -24,7 +26,9 @@ export async function registrarAviso(pool, usuarioIds, tipo, texto, enlace = '')
     const ids = [...new Set(usuarioIds.filter(Boolean))];
     if (!ids.length) return 0;
     const t = TIPOS_AVISO.includes(tipo) ? tipo : 'mensaje';
-    const filas = ids.map(id => [id, t, String(texto).slice(0, 600), String(enlace || '').slice(0, 500), new Date()]);
+    // Cada uno en su idioma: el aviso queda escrito como se le mostró
+    const idiomas = await idiomasDe(pool, ids);
+    const filas = ids.map(id => [id, t, traducir(String(texto), idiomas.get(id)).slice(0, 600), String(enlace || '').slice(0, 500), new Date()]);
     const [r] = await pool.query('INSERT INTO avisos_persona (usuario_id, tipo, texto, enlace, creado) VALUES ?', [filas]);
     return r.affectedRows;
 }

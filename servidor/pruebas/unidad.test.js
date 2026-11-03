@@ -8,6 +8,7 @@ import { normalizarTelefono, tarjetaChat } from '../src/avisos.js';
 import { esPasajero, conReintentos, conVariacion } from '../src/reintentos.js';
 import { semanaDe, diasDeSemana, semanas, semanaValida } from '../src/reportes.js';
 import { crearIA, ErrorIA } from '../src/ia.js';
+import { traducir } from '../src/idioma.js';
 
 const CLAVE = crypto.randomBytes(32).toString('hex');
 
@@ -234,4 +235,18 @@ test('IA: sin clave está apagada; rechazos, respuestas cortadas y JSON roto se 
     await assert.rejects(responder({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'no es json' }] }).revisarReporte(reporte), /formato/);
     const bien = await responder({ stop_reason: 'end_turn', model: 'claude-opus-5-5', content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: '{"resumen":"ok"}' }] }).revisarReporte(reporte);
     assert.deepEqual(bien, { datos: { resumen: 'ok' }, modelo: 'claude-opus-5-5' });
+});
+
+test('idioma: los avisos del servidor en inglés, línea a línea; lo escrito por alguien se queda igual', () => {
+    assert.equal(traducir('✅ Acceso aprobado\nHola Ana, ya puedes usar la app de Semences del Caribe. Ábrela de nuevo para entrar.', 'es'),
+        '✅ Acceso aprobado\nHola Ana, ya puedes usar la app de Semences del Caribe. Ábrela de nuevo para entrar.');
+    assert.equal(traducir('✅ Acceso aprobado\nHola Ana, ya puedes usar la app de Semences del Caribe. Ábrela de nuevo para entrar.', 'en'),
+        '✅ Access approved\nHi Ana, you can now use the Semences del Caribe app. Open it again to sign in.');
+    assert.equal(traducir('📦 Envío DHL 123 · Finca López\nEn tránsito · Miami · llegada estimada 5/11', 'en'),
+        '📦 Shipment DHL 123 · Finca López\nIn transit · Miami · estimated arrival 5/11');
+    assert.equal(traducir('🚨 ALERTA · Falla de riego · Cuarto de riego\nSe rompió la bomba\n— Luis', 'en'),
+        '🚨 ALERT · Irrigation failure · Irrigation room\nSe rompió la bomba\n— Luis');
+    assert.equal(traducir('💬 Luis\nhola, ¿cómo vas?', 'en'), '💬 Luis\nhola, ¿cómo vas?');
+    assert.equal(traducir('☀️ Buenos días, Ana. Soy Borja, tu resumen de hoy\n📋 Tus tareas: 1 · Revisar riego (vence hoy, prioridad alta)', 'en'),
+        '☀️ Good morning, Ana. I’m Borja, here’s your summary for today\n📋 Your tasks: 1 · Revisar riego (due today, high priority)');
 });

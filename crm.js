@@ -224,7 +224,7 @@ const MODULOS_CRM = {
             { titulo: 'Ubicación', valor: r => r.ubicacion },
             { titulo: 'Llegada estimada', valor: r => formatearFecha(r.eta), orden: r => r.eta || r.creado },
             { titulo: 'Contenido', valor: r => [r.contenido, r.semillasMiles && `${numero(r.semillasMiles)} mil semillas`].filter(Boolean).join(' · ') },
-            { titulo: 'Último rastreo', valor: r => r.rastreado ? new Date(r.rastreado).toLocaleString('es-DO', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '' },
+            { titulo: 'Último rastreo', valor: r => r.rastreado ? new Date(r.rastreado).toLocaleString(LOCALE, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '' },
             ...COLUMNAS_AMBITO,
             { titulo: 'Registró', valor: r => r.responsable }
         ]
@@ -319,8 +319,8 @@ function enlaceWhatsApp(numero) {
 // Entre paréntesis: la hora termina en "a. m." y así no queda un punto doble al cerrar la frase
 function textoTramo({ inicio, fin }) {
     const a = new Date(inicio), b = new Date(fin);
-    const hora = (d) => d.toLocaleTimeString('es-DO', { hour: 'numeric', minute: '2-digit' });
-    return `(${a.toLocaleDateString('es-DO', { weekday: 'long', day: 'numeric', month: 'long' })}, de ${hora(a)} a ${hora(b)})`;
+    const hora = (d) => d.toLocaleTimeString(LOCALE, { hour: 'numeric', minute: '2-digit' });
+    return `(${a.toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'long' })}, de ${hora(a)} a ${hora(b)})`;
 }
 
 function fechaLocal(iso, hora = 0, minutos = 0) {
@@ -330,7 +330,7 @@ function fechaLocal(iso, hora = 0, minutos = 0) {
 
 function formatearFecha(iso) {
     if (!iso) return '';
-    return fechaLocal(iso).toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' });
+    return fechaLocal(iso).toLocaleDateString(LOCALE, { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function hoyISO() {
@@ -338,7 +338,7 @@ function hoyISO() {
     return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, '0')}-${String(h.getDate()).padStart(2, '0')}`;
 }
 
-const numero = (v) => (v === '' || v === undefined || v === null) ? '' : Number(v).toLocaleString('es-DO');
+const numero = (v) => (v === '' || v === undefined || v === null) ? '' : Number(v).toLocaleString(LOCALE);
 const porcentaje = (v) => numero(v) && `${numero(v)} %`;
 
 const nuevoId = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -445,9 +445,11 @@ class CRM {
             titulo = 'Los datos coinciden con la hoja compartida. Pulsa para sincronizar ahora.';
         }
         this.indicador.dataset.estado = estado;
-        this.indicador.title = titulo;
-        this.indicador.setAttribute('aria-label', `${texto}. ${titulo}`);
+        this.indicador.title = traducir(titulo);
+        this.indicador.setAttribute('aria-label', `${traducir(texto)}. ${traducir(titulo)}`);
         const span = this.indicador.querySelector('span');
+        // Se compara con lo que se ve (en inglés, ya traducido): si no, se repintaría en cada vuelta
+        texto = traducir(texto);
         if (span.textContent !== texto) span.textContent = texto;
     }
 
@@ -818,7 +820,7 @@ class CRM {
         const total = registros.length;
         document.getElementById(`vacio-${modulo}`).hidden = total > 0;
         document.getElementById(`contador-${modulo}`).textContent =
-            total === 1 ? '1 registro' : `${total.toLocaleString('es-DO')} registros`;
+            total === 1 ? '1 registro' : `${total.toLocaleString(LOCALE)} registros`;
     }
 
     eliminar(modulo, id) {
@@ -883,7 +885,7 @@ class CRM {
             if (!respuesta.archivos.length) lista.appendChild(Object.assign(document.createElement('li'), { className: 'dialogo-nota', textContent: 'Todavía no hay documentos.' }));
             respuesta.archivos.forEach(archivo => {
                 const li = document.createElement('li');
-                const fecha = archivo.fecha ? new Date(archivo.fecha).toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+                const fecha = archivo.fecha ? new Date(archivo.fecha).toLocaleDateString(LOCALE, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
                 if (/^https:\/\/(drive|docs)\.google\.com\//.test(archivo.enlace || '')) {
                     const a = Object.assign(document.createElement('a'), { href: archivo.enlace, target: '_blank', rel: 'noopener', textContent: archivo.nombre });
                     li.appendChild(a);
@@ -1166,7 +1168,7 @@ class CRM {
         const proxima = reunion && !Number.isNaN(reunion.getTime()) && reunion.getTime() > Date.now() - 3600000 ? document.createElement('p') : null;
         if (proxima) {
             proxima.className = 'expediente-datos';
-            proxima.textContent = `Próxima reunión: ${reunion.toLocaleString('es-DO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' })}`;
+            proxima.textContent = `Próxima reunión: ${reunion.toLocaleString(LOCALE, { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' })}`;
             if (/^https:\/\/meet\.google\.com\//.test(cliente.reunionMeet || '')) {
                 const a = document.createElement('a');
                 a.href = cliente.reunionMeet;
