@@ -50,7 +50,7 @@ Prueban el backend completo contra MySQL 8.4 y MariaDB 10.11, con Google, Meta y
 
 ### 2. Base de datos
 
-cPanel › **Bases de datos MySQL**: crea la base (p. ej. `usuario_semences`), un usuario con contraseña larga y dale **todos los privilegios** sobre esa base. Las tablas se crean solas al arrancar.
+cPanel › **Bases de datos MySQL**: crea la base (p. ej. `usuario_semences`), un usuario con contraseña larga y dale **todos los privilegios** sobre esa base. Las tablas se crean solas al arrancar. Si la base ya existe de una versión anterior, al arrancar se le añaden las columnas nuevas sin tocar los datos (el registro de la app dice cuáles: "Base puesta al día…"). Aun así, haz antes una copia en cPanel › **phpMyAdmin › Exportar**.
 
 ### 3. Subdominio
 
@@ -58,7 +58,7 @@ cPanel › **Dominios** › crea `api.semillasdata.com` (con su carpeta, p. ej. 
 
 ### 4. La aplicación Node
 
-1. Sube la carpeta `servidor/` **sin `node_modules` ni `.env`** a tu cuenta, fuera de `public_html` (p. ej. `~/semences-servidor`).
+1. Sube la carpeta `servidor/` **sin `node_modules` ni `.env`** a tu cuenta, fuera de `public_html` (p. ej. `~/semences-servidor`). Ya preparada: GitHub › Actions › la última ejecución de `main` › Artifacts › `Semences-para-FastComet` › `semences-servidor.zip` (la lista completa del día del despliegue está en `DOCUMENTACION_SISTEMA_COMPLETO.md`, sección 16).
 2. cPanel › **Setup Node.js App › Create Application**:
    - Node.js version: **22** o **24** (las pruebas de GitHub pasan en las dos; Node 20 dejó de recibir parches de seguridad en abril de 2026)
    - Application mode: **Production**

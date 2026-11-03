@@ -21,6 +21,10 @@ cp -R iconos marcas publicar/
 cat > publicar/.htaccess <<'HTACCESS'
 <IfModule mod_rewrite.c>
     RewriteEngine On
+    # www.semillasdata.com → semillasdata.com: el backend solo acepta el origen sin www (ORIGENES), así
+    # que desde www el inicio de sesión y la sincronización fallarían
+    RewriteCond %{HTTP_HOST} ^www\.(.+)$ [NC]
+    RewriteRule ^ https://%1%{REQUEST_URI} [L,R=301]
     RewriteCond %{HTTPS} !=on
     RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 </IfModule>

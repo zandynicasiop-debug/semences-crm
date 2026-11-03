@@ -27,6 +27,7 @@
 13. [Pruebas y verificación](#13-pruebas-y-verificación)
 14. [Decisiones, límites y próximos pasos](#14-decisiones-límites-y-próximos-pasos)
 15. [Motor de eventos y flujos automáticos (ARM)](#15-motor-de-eventos-y-flujos-automáticos-arm)
+16. [Subir a semillasdata.com (FastComet): el día del despliegue](#16-subir-a-semillasdatacom-fastcomet-el-día-del-despliegue)
 
 ---
 
@@ -504,4 +505,64 @@ como HTTP 400) se tratan como pasajeros y la cola los reintenta con espera.
 **Rotar `CLAVE_CIFRADO`** sin que nadie vuelva a entrar: `npm run clave` → en el panel, `CLAVE_CIFRADO_ANTERIOR` = la
 de antes y `CLAVE_CIFRADO` = la nueva → reiniciar (cada token se vuelve a cifrar al usarse) → `npm run rotar-clave`
 (todos de una vez) → quitar `CLAVE_CIFRADO_ANTERIOR`.
+
+---
+
+## 16. Subir a semillasdata.com (FastComet): el día del despliegue
+
+Dos piezas en la misma cuenta de FastComet: el **backend** en `https://api.semillasdata.com` (app Node) y la **web**
+en `https://semillasdata.com` (archivos en `public_html`). La primera vez, sigue antes `servidor/LEEME.md` ›
+"Despliegue en FastComet" (Google Cloud, base de datos, subdominio). El orden importa: la web y las apps solo
+salen conectadas cuando el backend ya responde y existe el secreto `SEMENCES_API`.
+
+**0. Antes de tocar nada**
+- [ ] Copia de la base (si ya existe): cPanel › phpMyAdmin › la base › **Exportar**.
+- [ ] Copia de lo que haya: renombra la carpeta del backend (`semences-servidor` → `semences-servidor-anterior`) y
+      descarga un zip de `public_html`. Es la vuelta atrás.
+- [ ] A mano: `CLAVE_CIFRADO` (la de siempre; si se cambia, todos vuelven a conectar Google), `GOOGLE_CLIENT_ID`,
+      `GOOGLE_CLIENT_SECRET` y los datos de MySQL.
+
+**1. Backend (api.semillasdata.com)**
+1. GitHub › Actions › "Compilar APK y publicar la app" › la última ejecución verde de `main` › **Artifacts** ›
+   `Semences-para-FastComet`. Dentro: `semences-servidor.zip` y `semences-web-dominio.zip`.
+2. cPanel › Setup Node.js App › la app › **Stop App**. File Manager: sube `semences-servidor.zip` a
+   `~/semences-servidor` (fuera de `public_html`) y **Extract**.
+3. En la app Node: Node **22 o 24**, modo **Production**, archivo de inicio `app.js`. Variables de entorno
+   (todas en `servidor/.env.example`):
+   - Obligatorias: `URL_PUBLICA`, `DOMINIO` y/o `ADMINS`, `MYSQL_*`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+     `CLAVE_CIFRADO`. `ORIGENES` vacía ya acepta semillasdata.com, GitHub Pages y las apps.
+   - Opcionales de esta versión: `DOCUMENTOS_CARPETA_ID` y `REPORTE_PLANTILLA_ID` (carpeta del cliente y expediente
+     PDF al pasar a "Reunión"), `ANTHROPIC_API_KEY` (revisión de los reportes semanales). `CLAVE_CIFRADO_ANTERIOR`
+     solo al rotar la clave.
+4. **Run NPM Install** y **Start/Restart**.
+5. `https://api.semillasdata.com/api/salud` → `"ok":true`, `"base":"ok"` y la clave `"eventos"`. Si la base venía de
+   una versión anterior, el registro de la app dice `Base puesta al día (…)`: se añadieron las columnas nuevas sin
+   tocar los datos. Si no arranca, el motivo está en ese registro (cPanel › Setup Node.js App, o `stderr.log`).
+
+**2. Conectar la web y las apps**
+1. GitHub › Settings › Secrets and variables › Actions › secreto `SEMENCES_API` = `https://api.semillasdata.com`.
+2. Actions › "Compilar APK y publicar la app" › **Run workflow** (main). Al terminar, GitHub Pages y el APK ya
+   salen conectados, y el artifact `Semences-para-FastComet` nuevo trae la web conectada (sin el secreto, la
+   ejecución avisa: "El paquete web para FastComet va SIN CONEXIÓN").
+3. Actions › "Apps nativas" › **Run workflow** (main): Windows, Mac, Android (Capacitor) e iOS conectados, en
+   Releases.
+
+**3. Web (semillasdata.com)**
+1. Descarga el artifact nuevo (paso 2.2). File Manager › `public_html` (activa "Show Hidden Files") › sube
+   `semences-web-dominio.zip` › **Extract**. Lleva su `.htaccess`: siempre https, `www` → sin `www` (el backend solo
+   acepta `https://semillasdata.com`) e `index.html`/`sw.js` sin caché vieja. Trae también `Semences.apk` para el
+   botón de descarga.
+2. Si `public_html` ya tiene la web corporativa: usa un subdominio (p. ej. `app.semillasdata.com`), crea la
+   variable del repositorio `SEMENCES_WEB` = `https://app.semillasdata.com`, añade ese origen a `ORIGENES` en el
+   backend (junto con los de la lista por defecto que se usen) y repite el paso 2.2.
+
+**4. Prueba final (10 minutos)**
+- [ ] `https://semillasdata.com` en el ordenador y en el teléfono: carga sin avisos de "sin conexión".
+- [ ] Entrar con una cuenta de la empresa y con una personal: la personal queda en la sala de espera.
+- [ ] Un Master aprueba a alguien con su cargo, país y casa; esa persona ve solo lo suyo.
+- [ ] Crear un cliente y pasarlo a "Reunión": al responsable le llega el aviso; `/api/salud` muestra
+      `CLIENTE_EN_REUNION: { hecho: 1 }`.
+
+**Volver atrás.** Stop App, borra `semences-servidor`, renombra `semences-servidor-anterior` a `semences-servidor`,
+Restart. Si algo de la base falló, importa la copia del paso 0. La web: vuelve a extraer el zip de `public_html`.
 

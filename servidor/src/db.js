@@ -126,8 +126,66 @@ export async function conectar(configMysql) {
     // La hora de la base en UTC en cada conexión: en un hosting compartido el servidor puede estar en
     // otra zona, y CURRENT_TIMESTAMP tiene que cuadrar con UTC_TIMESTAMP() (sesiones, cola de avisos)
     pool.pool.on('connection', (conexion) => conexion.query("SET time_zone = '+00:00'"));
-    for (const sql of [...ESQUEMA, ...ESQUEMA_INSTAGRAM, ...ESQUEMA_REPORTES, ...ESQUEMA_EVENTOS]) await pool.query(sql);
+    const sentencias = [...ESQUEMA, ...ESQUEMA_INSTAGRAM, ...ESQUEMA_REPORTES, ...ESQUEMA_EVENTOS];
+    for (const sql of sentencias) await pool.query(sql);
+    await ponerAlDia(pool, sentencias);
     return pool;
+}
+
+// Columnas que cambiaron de nombre entre versiones: [tabla, nombre antiguo, nombre actual]. El dato se conserva
+const RENOMBRADAS = [['cola_avisos', 'telefono', 'destino']];
+
+// Columnas de un CREATE TABLE: una por línea, sin índices ni claves, sin comentarios "-- …"
+export function columnasDe(sql) {
+    const m = /CREATE TABLE IF NOT EXISTS (\w+) \(([\s\S]*)\)\s*CHARACTER SET/.exec(sql);
+    if (!m) return null;
+    const columnas = m[2].split('\n')
+        .map(linea => linea.replace(/\s--\s.*$/, '').trim().replace(/,$/, '').trim())
+        .filter(linea => linea && !/^(INDEX|PRIMARY|FOREIGN|UNIQUE|KEY|CONSTRAINT)\b/i.test(linea))
+        .map(definicion => ({ nombre: definicion.split(/\s+/)[0], definicion }));
+    return { tabla: m[1], columnas };
+}
+
+/**
+ * Pone al día una base creada por una versión anterior del backend. CREATE TABLE IF NOT EXISTS no toca una
+ * tabla que ya existe: sin esto, las columnas añadidas después (estado, cargo, paises, casas… en usuarios;
+ * canal, destino, plantilla… en cola_avisos) faltarían y la app fallaría con "Unknown column" al entrar.
+ * Añade lo que falta con su definición actual (las filas que ya hay toman su valor por defecto) y renombra
+ * lo que cambió de nombre. Nunca borra columnas ni datos. Igual en MySQL 8.4 y MariaDB 10.11.
+ */
+export async function ponerAlDia(pool, sentencias, registrar = console) {
+    const [filas] = await pool.query('SELECT TABLE_NAME AS tabla, COLUMN_NAME AS columna FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()');
+    const existen = new Map();
+    for (const { tabla, columna } of filas) {
+        if (!existen.has(tabla)) existen.set(tabla, new Set());
+        existen.get(tabla).add(columna);
+    }
+    const cambios = [];
+    for (const sql of sentencias) {
+        const esquema = columnasDe(sql);
+        if (!esquema || !existen.has(esquema.tabla)) continue;
+        const { tabla, columnas } = esquema;
+        const actuales = existen.get(tabla);
+        for (const { nombre, definicion } of columnas) {
+            if (actuales.has(nombre)) continue;
+            const renombrada = RENOMBRADAS.find(([t, antes, ahora]) => t === tabla && ahora === nombre && actuales.has(antes));
+            if (renombrada) {
+                await pool.query(`ALTER TABLE \`${tabla}\` CHANGE COLUMN \`${renombrada[1]}\` ${definicion}`);
+                actuales.delete(renombrada[1]);
+                cambios.push(`${tabla}.${renombrada[1]} → ${nombre}`);
+            } else if (/PRIMARY KEY|AUTO_INCREMENT|UNIQUE/i.test(definicion)) {
+                // Una clave no se puede añadir a ciegas a una tabla con filas: que lo vea quien despliega
+                registrar.error(`Esquema: falta ${tabla}.${nombre} (${definicion}) y no se añade sola; revísalo a mano`);
+                continue;
+            } else {
+                await pool.query(`ALTER TABLE \`${tabla}\` ADD COLUMN ${definicion}`);
+                cambios.push(`${tabla}.${nombre}`);
+            }
+            actuales.add(nombre);
+        }
+    }
+    if (cambios.length) registrar.log(`Base puesta al día (${cambios.length}): ${cambios.join(', ')}`);
+    return cambios;
 }
 
 // ----- Registros del CRM -----
