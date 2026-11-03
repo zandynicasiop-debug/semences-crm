@@ -67,6 +67,53 @@ function iconoSVG(nombre, clase = 'icono') {
     return `<svg class="${clase}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${caminos}</svg>`;
 }
 
+// Marcas que representa la empresa: logo (marcas/*.png) y color de cada una
+const MARCAS_LOGOS = [
+    { id: 'gautier', nombre: 'Gautier Semences', url: 'marcas/gautier.png', color: '#0b4a2f' },
+    { id: 'hexagon', nombre: 'Hexagon Seeds', url: 'marcas/hexagon.png', color: '#2b2b2b' },
+    { id: 'genome', nombre: 'Genome Seeds', url: 'marcas/genome.png', color: '#1f7a3a' },
+    { id: 'fito', nombre: 'Fitó', url: 'marcas/fito.png', color: '#00512c' }
+];
+
+/**
+ * Carga un logo y le quita el margen blanco (o transparente) que traen las imágenes: devuelve
+ * { imagen, x0, y0, w, h } con la zona del dibujo. Se hace una vez por imagen.
+ */
+const logosRecortados = new Map();
+function recortarLogo(url) {
+    if (logosRecortados.has(url)) return logosRecortados.get(url);
+    const promesa = new Promise((resolver, rechazar) => {
+        const imagen = new Image();
+        imagen.onerror = rechazar;
+        imagen.onload = () => {
+            const tmp = document.createElement('canvas');
+            tmp.width = imagen.width;
+            tmp.height = imagen.height;
+            const t = tmp.getContext('2d');
+            t.drawImage(imagen, 0, 0);
+            const { data } = t.getImageData(0, 0, tmp.width, tmp.height);
+            let x0 = tmp.width, y0 = tmp.height, x1 = 0, y1 = 0;
+            for (let py = 0; py < tmp.height; py++) {
+                for (let px = 0; px < tmp.width; px++) {
+                    const i = (py * tmp.width + px) * 4;
+                    const fondo = data[i + 3] < 20 || (data[i] > 235 && data[i + 1] > 235 && data[i + 2] > 235);
+                    if (!fondo) {
+                        if (px < x0) x0 = px;
+                        if (px > x1) x1 = px;
+                        if (py < y0) y0 = py;
+                        if (py > y1) y1 = py;
+                    }
+                }
+            }
+            if (x1 <= x0 || y1 <= y0) { x0 = 0; y0 = 0; x1 = tmp.width - 1; y1 = tmp.height - 1; }
+            resolver({ imagen, x0, y0, w: x1 - x0 + 1, h: y1 - y0 + 1 });
+        };
+        imagen.src = url;
+    });
+    logosRecortados.set(url, promesa);
+    return promesa;
+}
+
 // Con "reducir movimiento" activado en el sistema, la lluvia queda quieta
 const MOVIMIENTO_REDUCIDO = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -2177,7 +2224,43 @@ class Dashboard {
         const pista = document.createElement('p');
         pista.id = 'pista-camara';
         pista.textContent = 'Arrastra para girar · pulsa un edificio o una parcela para ver su información';
-        container.append(centrar, pista);
+        // Franja con los logos de las marcas, nítidos a cualquier tamaño: desde la vista general los carteles
+        // de la finca se ven pequeños. Al tocar una, la cámara va a los carteles y se abre su ficha
+        const marcas = document.createElement('ul');
+        marcas.id = 'marcas-escena';
+        marcas.setAttribute('aria-label', 'Marcas que representamos');
+        MARCAS_LOGOS.forEach(marca => {
+            const li = document.createElement('li');
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'marca-escena';
+            b.style.setProperty('--marca', marca.color);
+            b.title = `${marca.nombre}: ver su cartel en la finca`;
+            const img = document.createElement('img');
+            img.alt = marca.nombre;
+            img.src = marca.url;
+            // La imagen recortada (sin margen blanco) para que el logo llene la ficha
+            recortarLogo(marca.url).then(({ imagen, x0, y0, w, h }) => {
+                const c = document.createElement('canvas');
+                c.height = 96;
+                c.width = Math.max(1, Math.round((w * 96) / h));
+                const cx = c.getContext('2d');
+                cx.imageSmoothingQuality = 'high';
+                cx.drawImage(imagen, x0, y0, w, h, 0, 0, c.width, c.height);
+                img.src = c.toDataURL('image/png');
+            }).catch(() => {});
+            b.appendChild(img);
+            b.addEventListener('click', () => {
+                const sitio = this.mapa && this.mapa.sitios.find(x => x.id === 'marcas');
+                if (sitio) this.mapa.abrir(sitio, { volar: true });
+            });
+            li.appendChild(b);
+            marcas.appendChild(li);
+        });
+        container.append(centrar, pista, marcas);
+        const ocultarPista = () => pista.classList.add('pista-oculta');
+        this.renderer.domElement.addEventListener('pointerdown', ocultarPista, { once: true });
+        setTimeout(ocultarPista, 15000);
 
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.45);
         this.scene.add(ambientLight);
@@ -2518,12 +2601,7 @@ class Dashboard {
         this.crearGerminador(22, 21);
 
         // --- CARTELES DE LAS MARCAS QUE REPRESENTAMOS, al fondo del campo abierto mirando a la entrada ---
-        [
-            ['marcas/gautier.png', 6],
-            ['marcas/hexagon.png', 14],
-            ['marcas/genome.png', 22],
-            ['marcas/fito.png', 30]
-        ].forEach(([logo, x]) => this.crearCartelMarca(x, -19.6, logo));
+        MARCAS_LOGOS.forEach((marca, i) => this.crearCartelMarca(6 + i * 8, -19.6, marca));
 
         // --- LUGARES DE LA RED DE CALLES (para las rutas de los tractores) ---
         const V = (x, z) => new THREE.Vector3(x, 0, z);
@@ -3045,19 +3123,25 @@ class Dashboard {
     }
 
     /**
-     * Cartel alto (valla publicitaria): poste central con plataforma intermedia, plataforma de servicio
-     * con baranda bajo el panel, estructura de celosía detrás y focos arriba. El panel (6 x 3) mira a +Z.
-     * El logo se recorta de su fondo blanco y se centra en el panel sin deformarlo.
+     * Cartel alto (valla publicitaria) de una marca: poste central con plataforma intermedia, plataforma de
+     * servicio bajo el panel, celosía detrás y focos arriba. El panel (7,2 x 3,6) mira a +Z y se inclina
+     * hacia atrás para quedar de frente a la cámara, que mira la finca desde arriba (sin inclinar, desde
+     * la vista general se veía aplastado). Solo lleva el logo, grande, con un marco del color de la marca:
+     * de lejos el texto pequeño no se leía y ensuciaba.
      */
-    crearCartelMarca(x, z, urlLogo) {
-        const COLORES_MARCA = { gautier: '#0b4a2f', hexagon: '#2b2b2b', genome: '#1f7a3a', fito: '#00512c' };
-        const ANCHO = 6, ALTO = 3, Y_PANEL = 5.2; // Borde inferior del panel
+    crearCartelMarca(x, z, marca) {
+        const ANCHO = 7.2, ALTO = 3.6, Y_PANEL = 5.4, INCLINACION = 0.42; // Borde inferior del panel
         const aceroMat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.45, metalness: 0.7 });
         const oscuroMat = new THREE.MeshStandardMaterial({ color: 0x6b7280, roughness: 0.5, metalness: 0.6 });
-        const caja = (w, h, d, px, py, pz, m = aceroMat) => {
+        const caja = (w, h, d, px, py, pz, m = aceroMat, padre = null) => {
             const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
-            mesh.position.set(x + px, py, z + pz);
-            this.scene.add(mesh);
+            if (padre) {
+                mesh.position.set(px, py, pz);
+                padre.add(mesh);
+            } else {
+                mesh.position.set(x + px, py, z + pz);
+                this.scene.add(mesh);
+            }
             return mesh;
         };
 
@@ -3074,102 +3158,57 @@ class Dashboard {
 
         // Plataforma intermedia con baranda
         caja(1.6, 0.08, 1.6, 0, 2.6, 0, oscuroMat);
-        [[-0.8, 0], [0.8, 0]].forEach(([dx]) => caja(0.04, 0.6, 1.6, dx, 2.9, 0));
+        [-0.8, 0.8].forEach(dx => caja(0.04, 0.6, 1.6, dx, 2.9, 0));
         caja(1.6, 0.04, 0.04, 0, 3.2, 0.8);
 
-        // Plataforma de servicio bajo el panel, con baranda delantera y ménsulas
-        caja(ANCHO + 0.6, 0.1, 1.3, 0, Y_PANEL - 0.25, 0.35, oscuroMat);
-        caja(ANCHO + 0.6, 0.04, 0.04, 0, Y_PANEL + 0.45, 1.0);
-        for (let k = 0; k <= 6; k++) caja(0.04, 0.7, 0.04, -(ANCHO + 0.6) / 2 + k * ((ANCHO + 0.6) / 6), Y_PANEL + 0.1, 1.0);
-        [-2.2, 0, 2.2].forEach(dx => caja(0.12, 0.5, 0.12, dx, Y_PANEL - 0.55, 0));
+        // Plataforma de servicio bajo el panel, con ménsulas
+        caja(ANCHO + 0.4, 0.1, 1.3, 0, Y_PANEL - 0.25, 0.35, oscuroMat);
+        [-2.6, 0, 2.6].forEach(dx => caja(0.12, 0.5, 0.12, dx, Y_PANEL - 0.55, 0));
 
-        // Estructura de celosía detrás del panel
-        caja(ANCHO + 0.2, ALTO + 0.2, 0.08, 0, Y_PANEL + ALTO / 2, -0.25, oscuroMat);
-        for (let k = 0; k <= 4; k++) caja(0.1, ALTO + 0.2, 0.25, -ANCHO / 2 + k * (ANCHO / 4), Y_PANEL + ALTO / 2, -0.12);
-        const diagonal = Math.hypot(ANCHO / 4, ALTO);
-        for (let k = 0; k < 4; k++) {
-            const d = caja(0.06, diagonal, 0.06, -ANCHO / 2 + (k + 0.5) * (ANCHO / 4), Y_PANEL + ALTO / 2, -0.32);
-            d.rotation.z = (k % 2 ? 1 : -1) * Math.atan2(ANCHO / 4, ALTO);
-        }
+        // Panel inclinado: gira sobre su borde inferior; celosía y focos van con él
+        const cartel = new THREE.Group();
+        cartel.position.set(x, Y_PANEL, z);
+        cartel.rotation.x = -INCLINACION;
+        this.scene.add(cartel);
+        caja(ANCHO + 0.2, ALTO + 0.2, 0.08, 0, ALTO / 2, -0.25, oscuroMat, cartel);
+        for (let k = 0; k <= 4; k++) caja(0.1, ALTO + 0.2, 0.25, -ANCHO / 2 + k * (ANCHO / 4), ALTO / 2, -0.12, aceroMat, cartel);
 
-        // Panel con el logo: lienzo grande (nítido de cerca), franja inferior del color de la marca y algo
-        // de luz propia para que se lea aunque le dé la sombra o la niebla
-        const W = 2048, H = 1024, FRANJA = 150;
-        const marca = Object.keys(COLORES_MARCA).find(k => urlLogo.includes(k));
-        const colorMarca = COLORES_MARCA[marca] || PALETA.css.primarioOscuro;
+        const W = 2048, H = 1024, MARCO = 64;
         const lienzo = document.createElement('canvas');
         lienzo.width = W;
         lienzo.height = H;
         const ctx = lienzo.getContext('2d');
         const textura = new THREE.CanvasTexture(lienzo);
-        let logo = null; // { imagen, x0, y0, w, h } cuando ha cargado
-        const dibujar = () => {
-            ctx.fillStyle = '#ffffff';
+        const dibujar = (logo) => {
+            ctx.fillStyle = marca.color;
             ctx.fillRect(0, 0, W, H);
-            ctx.fillStyle = colorMarca;
-            ctx.fillRect(0, H - FRANJA, W, FRANJA);
-            ctx.globalAlpha = 0.35;
-            ctx.fillRect(0, H - FRANJA - 14, W, 8);
-            ctx.globalAlpha = 1;
             ctx.fillStyle = '#ffffff';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.font = '700 58px Raleway, "Segoe UI", sans-serif';
-            ctx.fillText('SEMILLAS DE HORTALIZAS  ·  REPÚBLICA DOMINICANA  ·  VENEZUELA', W / 2, H - FRANJA / 2);
+            ctx.fillRect(MARCO, MARCO, W - 2 * MARCO, H - 2 * MARCO);
             if (logo) {
-                const zona = H - FRANJA - 40;
-                const escala = Math.min((W * 0.86) / logo.w, (zona * 0.84) / logo.h);
+                // El logo, lo más grande posible dentro del marco y sin deformar
+                const zonaW = W - 2 * MARCO, zonaH = H - 2 * MARCO;
+                const escala = Math.min((zonaW * 0.9) / logo.w, (zonaH * 0.82) / logo.h);
                 const dw = logo.w * escala, dh = logo.h * escala;
                 ctx.imageSmoothingQuality = 'high';
-                ctx.drawImage(logo.imagen, logo.x0, logo.y0, logo.w, logo.h, (W - dw) / 2, (zona - dh) / 2 + 10, dw, dh);
+                ctx.drawImage(logo.imagen, logo.x0, logo.y0, logo.w, logo.h, (W - dw) / 2, (H - dh) / 2, dw, dh);
             }
             textura.needsUpdate = true;
         };
-        dibujar();
-        if (document.fonts) document.fonts.ready.then(dibujar);
-        const panelMat = new THREE.MeshStandardMaterial({ map: textura, roughness: 0.55, emissive: 0xffffff, emissiveMap: textura, emissiveIntensity: 0.32 });
+        dibujar(null);
+        recortarLogo(marca.url).then(dibujar).catch(() => {});
+        // Algo de luz propia: se lee igual a la sombra, con niebla o con lluvia
+        const panelMat = new THREE.MeshStandardMaterial({ map: textura, roughness: 0.55, emissive: 0xffffff, emissiveMap: textura, emissiveIntensity: 0.45 });
         const bordeMat = new THREE.MeshStandardMaterial({ color: 0xe5e7eb, roughness: 0.5 });
-        const panel = new THREE.Mesh(
-            new THREE.BoxGeometry(ANCHO, ALTO, 0.15),
-            [bordeMat, bordeMat, bordeMat, bordeMat, panelMat, bordeMat]
-        );
-        panel.position.set(x, Y_PANEL + ALTO / 2, z);
-        this.scene.add(panel);
-
-        const imagen = new Image();
-        imagen.onload = () => {
-            // Recorte del fondo: se buscan los píxeles que no son blancos ni transparentes
-            const tmp = document.createElement('canvas');
-            tmp.width = imagen.width;
-            tmp.height = imagen.height;
-            const t = tmp.getContext('2d');
-            t.drawImage(imagen, 0, 0);
-            const { data } = t.getImageData(0, 0, tmp.width, tmp.height);
-            let x0 = tmp.width, y0 = tmp.height, x1 = 0, y1 = 0;
-            for (let py = 0; py < tmp.height; py++) {
-                for (let px = 0; px < tmp.width; px++) {
-                    const i = (py * tmp.width + px) * 4;
-                    const fondo = data[i + 3] < 20 || (data[i] > 235 && data[i + 1] > 235 && data[i + 2] > 235);
-                    if (!fondo) {
-                        if (px < x0) x0 = px;
-                        if (px > x1) x1 = px;
-                        if (py < y0) y0 = py;
-                        if (py > y1) y1 = py;
-                    }
-                }
-            }
-            if (x1 <= x0 || y1 <= y0) { x0 = 0; y0 = 0; x1 = tmp.width - 1; y1 = tmp.height - 1; }
-            // Cabe en el panel con margen, sin deformar
-            logo = { imagen, x0, y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
-            dibujar();
-        };
-        imagen.src = urlLogo;
+        const panel = new THREE.Mesh(new THREE.BoxGeometry(ANCHO, ALTO, 0.15), [bordeMat, bordeMat, bordeMat, bordeMat, panelMat, bordeMat]);
+        panel.position.y = ALTO / 2;
+        panel.userData.nombre = `Cartel de ${marca.nombre}`;
+        cartel.add(panel);
 
         // Focos de iluminación sobre el panel
         const focoMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, emissive: 0xfef9c3, emissiveIntensity: 0.6, roughness: 0.3 });
-        [-2.25, -0.75, 0.75, 2.25].forEach(dx => {
-            caja(0.06, 0.06, 0.9, dx, Y_PANEL + ALTO + 0.15, 0.45, oscuroMat);
-            caja(0.3, 0.1, 0.18, dx, Y_PANEL + ALTO + 0.1, 0.9, focoMat);
+        [-2.7, -0.9, 0.9, 2.7].forEach(dx => {
+            caja(0.06, 0.06, 0.9, dx, ALTO + 0.15, 0.45, oscuroMat, cartel);
+            caja(0.3, 0.1, 0.18, dx, ALTO + 0.1, 0.9, focoMat, cartel);
         });
     }
 
@@ -3441,9 +3480,11 @@ class Dashboard {
     }
 
     // Vuelo suave de la cámara hasta una parcela (o salto directo con movimiento reducido)
+    // posicion.y: altura a la que mirar (0 para parcelas y edificios; los carteles de marcas, arriba)
     volarA(posicion) {
-        const objetivo = new THREE.Vector3(posicion.x, 0.5, posicion.z);
-        const destino = new THREE.Vector3(posicion.x, 13, posicion.z + 16);
+        const altura = posicion.y || 0;
+        const objetivo = new THREE.Vector3(posicion.x, 0.5 + altura, posicion.z);
+        const destino = new THREE.Vector3(posicion.x, 13 + altura * 0.4, posicion.z + 16 + altura);
         this.vistaManual = true;
         if (MOVIMIENTO_REDUCIDO || !this.controles) {
             this.camera.position.copy(destino);

@@ -38,7 +38,7 @@ const SITIOS_MAPA = [
         texto: 'Portón principal con caseta de vigilancia y pluma de control de acceso.'
     },
     {
-        id: 'marcas', titulo: 'Marcas que representamos', centro: [18, -19.6], zona: [30, 9, 2],
+        id: 'marcas', titulo: 'Marcas que representamos', centro: [18, -19.6], zona: [30, 9, 2], alturaVista: 6.5,
         texto: 'Gautier Semences, Hexagon Seeds, Genome Seeds y Fitó.'
     },
     {
@@ -170,7 +170,7 @@ class MapaInteractivo {
         this.pintarTexto();
         this.pintarExtra();
         this.panel.hidden = false;
-        if (volar) this.dashboard.volarA(new THREE.Vector3(sitio.centro[0], 0, sitio.centro[1]));
+        if (volar) this.dashboard.volarA(new THREE.Vector3(sitio.centro[0], sitio.alturaVista || 0, sitio.centro[1]));
         this.panel.querySelector('.mapa-cerrar').focus({ preventScroll: true });
     }
 
@@ -196,6 +196,31 @@ class MapaInteractivo {
             window.cotizador.pintar(this.extra, this.textoDe(sitio));
         } else if (sitio.cultivo) {
             this.pintarEnsayos();
+        } else if (sitio.id === 'marcas' && typeof MARCAS_LOGOS !== 'undefined') {
+            // Los logos de las marcas, grandes y nítidos (en la escena se ven de lejos)
+            this.extra.hidden = false;
+            const lista = document.createElement('ul');
+            lista.className = 'mapa-marcas';
+            MARCAS_LOGOS.forEach(marca => {
+                const li = document.createElement('li');
+                li.style.setProperty('--marca', marca.color);
+                const img = document.createElement('img');
+                img.src = marca.url;
+                img.alt = '';
+                // Sin el margen blanco de la imagen, el logo llena su recuadro
+                recortarLogo(marca.url).then(({ imagen, x0, y0, w, h }) => {
+                    const c = document.createElement('canvas');
+                    c.height = 144;
+                    c.width = Math.max(1, Math.round((w * 144) / h));
+                    c.getContext('2d').drawImage(imagen, x0, y0, w, h, 0, 0, c.width, c.height);
+                    img.src = c.toDataURL('image/png');
+                }).catch(() => {});
+                const nombre = document.createElement('span');
+                nombre.textContent = marca.nombre;
+                li.append(img, nombre);
+                lista.appendChild(li);
+            });
+            this.extra.appendChild(lista);
         }
     }
 

@@ -74,6 +74,7 @@
 
     /* Velos */
     --sdc-velo-dialogo: rgba(0, 0, 0, 0.6);
+    --sdc-borde-sobre-blanco: rgba(20, 83, 45, 0.18); /* Fichas blancas de los logos, en los dos temas */
     --sdc-peligro-velo: rgba(220, 38, 38, 0.14);
 
     /* Ancho de los diálogos */
@@ -1832,8 +1833,10 @@ summary {
 #pista-camara {
     position: absolute;
     left: var(--sdc-espacio-4);
-    max-width: calc(100% - 2 * var(--sdc-espacio-4));
-    bottom: var(--sdc-espacio-3);
+    /* Arriba a la izquierda (abajo van los logos de las marcas), sin llegar a "Vista general" */
+    max-width: calc(100% - 2 * var(--sdc-espacio-4) - 150px);
+    top: var(--sdc-espacio-4);
+    transition: opacity 0.6s ease;
     z-index: var(--sdc-capa-escena-control);
     margin: 0;
     padding: var(--sdc-espacio-1) var(--sdc-espacio-3);
@@ -1842,6 +1845,101 @@ summary {
     color: var(--ui-texto-suave);
     font-size: var(--sdc-texto-xs);
     pointer-events: none;
+}
+
+/* Tras el primer gesto (o unos segundos) la pista se va: ya se sabe usar */
+#pista-camara.pista-oculta {
+    opacity: 0;
+}
+
+/* Logos de las marcas sobre la escena (app.js): siempre en blanco, como sus logos */
+#marcas-escena {
+    position: absolute;
+    right: var(--sdc-espacio-4);
+    bottom: var(--sdc-espacio-3);
+    z-index: var(--sdc-capa-escena-control);
+    display: flex;
+    gap: var(--sdc-espacio-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.marca-escena {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 96px;
+    height: var(--sdc-objetivo-tactil);
+    padding: var(--sdc-espacio-1) var(--sdc-espacio-3);
+    background: var(--sdc-blanco);
+    border: 1px solid var(--sdc-borde-sobre-blanco);
+    border-bottom: 4px solid var(--marca);
+    border-radius: var(--sdc-radio-xs);
+    box-shadow: var(--sdc-sombra);
+    cursor: pointer;
+    transition: transform var(--sdc-transicion);
+}
+
+.marca-escena:hover {
+    transform: translateY(-2px);
+}
+
+.marca-escena:focus-visible {
+    outline: 2px solid var(--ui-foco);
+    outline-offset: 2px;
+}
+
+.marca-escena img {
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+/* Teléfono: dos por fila, en la esquina (sobre la avenida, lo menos importante de la vista) */
+@media (max-width: 520px) {
+    #marcas-escena {
+        display: grid;
+        grid-template-columns: repeat(2, 76px);
+    }
+
+    .marca-escena {
+        width: 76px;
+    }
+}
+
+/* Ficha "Marcas que representamos" (mapa.js) */
+.mapa-marcas {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--sdc-espacio-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.mapa-marcas li {
+    display: grid;
+    gap: var(--sdc-espacio-1);
+    justify-items: center;
+    padding: var(--sdc-espacio-3);
+    background: var(--sdc-blanco);
+    border: 1px solid var(--sdc-borde-sobre-blanco);
+    border-bottom: 4px solid var(--marca);
+    border-radius: var(--sdc-radio-sm);
+}
+
+.mapa-marcas img {
+    width: 100%;
+    height: 72px;
+    object-fit: contain;
+}
+
+.mapa-marcas span {
+    color: var(--sdc-fondo);
+    font-size: var(--sdc-texto-sm);
+    font-weight: var(--sdc-peso-fuerte);
 }
 
 /* Panel de parcelas: resumen + dos filas de fichas con anillo de progreso */
