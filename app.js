@@ -146,22 +146,66 @@ const INVERNADERO = { ancho: 4.6, largo: 10 }; // Túnel de un arco
 const PARCELA_CAMPO = { ancho: 8, largo: 10 };
 const COLOR_TIERRA = 0x4a3319;
 
-// Suelo de una parcela de campo con sus camellones (surcos elevados) a lo largo de Z
-function crearSueloParcela(group, camellones) {
-    const suelo = new THREE.Mesh(
-        new THREE.PlaneGeometry(PARCELA_CAMPO.ancho, PARCELA_CAMPO.largo),
-        new THREE.MeshStandardMaterial({ color: COLOR_TIERRA, roughness: 0.95 })
-    );
+// Número entre 0 y 1 que depende solo de la semilla: la misma planta sale siempre igual (sin parpadeos)
+function azar(semilla) {
+    const x = Math.sin(semilla * 127.1 + 311.7) * 43758.5453;
+    return x - Math.floor(x);
+}
+
+/**
+ * Suelo de una parcela de campo a lo largo de Z: tierra con surcos, camellones (surcos elevados) con
+ * cinta de goteo, acolchado plástico si el cultivo lo lleva (negro o plateado), tubería de riego en la
+ * cabecera con una salida por camellón y estacas en las esquinas con banderín del color del cultivo.
+ * opciones: { acolchado: color o null, color: color del banderín (null: sin estacas) }
+ */
+function crearSueloParcela(group, camellones, { acolchado = null, color = null } = {}) {
+    const { ancho, largo } = PARCELA_CAMPO;
+    const mat = (c, roughness = 0.9, extra = {}) => new THREE.MeshStandardMaterial({ color: c, roughness, ...extra });
+    const caja = (w, h, d, material, x, y, z) => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+        m.position.set(x, y, z);
+        group.add(m);
+        return m;
+    };
+    const suelo = new THREE.Mesh(new THREE.PlaneGeometry(ancho, largo), mat(COLOR_TIERRA, 0.95));
     suelo.rotation.x = -Math.PI / 2;
     suelo.position.y = 0.05;
     group.add(suelo);
+    // Borde de la parcela: un caballón bajo de tierra algo más clara
+    const borde = mat(0x6b4a2b, 1);
+    caja(ancho, 0.1, 0.3, borde, 0, 0.08, -largo / 2 + 0.15);
+    caja(ancho, 0.1, 0.3, borde, 0, 0.08, largo / 2 - 0.15);
 
-    const camellonGeom = new THREE.BoxGeometry(0.9, 0.18, PARCELA_CAMPO.largo - 0.8);
-    const camellonMat = new THREE.MeshStandardMaterial({ color: 0x5c4024, roughness: 1 });
+    const camellonMat = mat(0x5c4024, 1);
+    const plastico = acolchado === null ? null : mat(acolchado, acolchado === 0x1c1917 ? 0.55 : 0.35, { metalness: acolchado === 0x1c1917 ? 0 : 0.35 });
+    const goteo = mat(0x0c0a09, 0.6);
     camellones.forEach(dx => {
-        const c = new THREE.Mesh(camellonGeom, camellonMat);
-        c.position.set(dx, 0.1, 0);
-        group.add(c);
+        caja(0.9, 0.18, largo - 0.8, camellonMat, dx, 0.1, 0);
+        if (plastico) caja(0.82, 0.02, largo - 0.9, plastico, dx, 0.2, 0);
+        caja(0.03, 0.025, largo - 0.9, goteo, dx, plastico ? 0.225 : 0.2, 0);
+    });
+    if (color === null) return;
+
+    // Cabezal de riego (PVC) en la cabecera, con una salida por camellón
+    const pvc = mat(0x2563eb, 0.45);
+    const cabezal = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, ancho - 0.4, 8), pvc);
+    cabezal.rotation.z = Math.PI / 2;
+    cabezal.position.set(0, 0.16, -largo / 2 + 0.15);
+    group.add(cabezal);
+    const salidaGeom = new THREE.CylinderGeometry(0.035, 0.035, 0.12, 6);
+    camellones.forEach(dx => {
+        const salida = new THREE.Mesh(salidaGeom, pvc);
+        salida.position.set(dx, 0.24, -largo / 2 + 0.15);
+        group.add(salida);
+    });
+    // Estacas en las esquinas con banderín del color del cultivo
+    const estaca = mat(0x8a6a43, 0.9);
+    const banderin = mat(color, 0.6, { side: THREE.DoubleSide });
+    [[-ancho / 2 + 0.15, -largo / 2 + 0.15], [ancho / 2 - 0.15, -largo / 2 + 0.15], [-ancho / 2 + 0.15, largo / 2 - 0.15], [ancho / 2 - 0.15, largo / 2 - 0.15]].forEach(([x, z]) => {
+        caja(0.06, 1.1, 0.06, estaca, x, 0.55, z);
+        const b = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.2), banderin);
+        b.position.set(x + (x < 0 ? 0.2 : -0.2), 0.98, z);
+        group.add(b);
     });
 }
 
@@ -205,6 +249,9 @@ class Cultivo {
         this.agruparPlantas(group);
         group.position.set(x, 0, z);
         scene.add(group);
+        // La estructura (arcos, camas, plástico, tuberías…) no se mueve: se junta en pocas mallas; las
+        // plantas, que crecen, ya van en sus propios grupos instanciados
+        unirVehiculo(group, [], { transparentes: true });
         return group;
     }
 
@@ -229,6 +276,8 @@ class Cultivo {
         grupos.forEach(piezas => {
             const inst = new THREE.InstancedMesh(piezas[0].mesh.geometry, piezas[0].mesh.material, piezas.length);
             inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+            // Frutos y flores: pequeños, su sombra no se ve y costaba dibujarlos otra vez (activarSombras)
+            inst.userData.sinSombra = piezas.every(p => p.modo === 'fruto');
             inst.frustumCulled = false; // Sus piezas cambian de tamaño: la caja de recorte de la geometría base no sirve
             group.add(inst);
             this.lotesPlantas.push({
@@ -265,61 +314,149 @@ class Cultivo {
 
     crearInvernadero(group) {
         const { ancho, largo } = INVERNADERO;
-        const altoPared = 2.6;
-        const mat = (color, roughness = 0.7) => new THREE.MeshStandardMaterial({ color, roughness });
+        const r = ancho / 2;
+        const altoPared = 2.4;
+        const mat = (color, roughness = 0.7, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness, ...extra });
+        const caja = (w, h, d, material, x, y, z) => {
+            const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+            m.position.set(x, y, z);
+            group.add(m);
+            return m;
+        };
+        const tuboZ = (radio, material, x, y, largoTubo = largo) => {
+            const t = new THREE.Mesh(new THREE.CylinderGeometry(radio, radio, largoTubo, 6), material);
+            t.rotation.x = Math.PI / 2;
+            t.position.set(x, y, 0);
+            group.add(t);
+        };
 
-        // Túnel de un solo arco: paredes laterales de plástico y bóveda semicircular a lo largo de Z
-        const paredes = new THREE.Mesh(
-            new THREE.BoxGeometry(ancho, altoPared, largo),
-            new THREE.MeshPhysicalMaterial({
-                color: 0xe0f7fa,
-                transparent: true,
-                opacity: 0.4,
-                roughness: 0.15,
-                transmission: 0.85,
-                depthWrite: false
-            })
-        );
-        paredes.position.y = altoPared / 2;
-        group.add(paredes);
+        // Materiales: tubo galvanizado, plástico de cubierta (lechoso, deja ver dentro), malla antiinsectos
+        // verde en los laterales, concreto, suelo cubierto de plástico blanco y cama de cultivo
+        const galvanizado = mat(0xb6bcc2, 0.35, { metalness: 0.75 });
+        const plastico = mat(0xf3faf6, 0.2, { transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false });
+        const mallaLateral = mat(0x2f6b4f, 0.9, { transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false });
+        const concreto = mat(0xc9c5bc, 0.95);
+        const coberturaSuelo = mat(0xe9e7e1, 0.9);
+        const tierraCama = mat(0x5c4024, 1);
+        const acolchadoNegro = mat(0x1c1917, 0.55);
+        const goteo = mat(0x0c0a09, 0.6);
+        const pvc = mat(0x2563eb, 0.45);
+        const verdePuerta = mat(PALETA.verdeProfundo, 0.6);
 
-        const boveda = new THREE.Mesh(
-            new THREE.CylinderGeometry(ancho / 2, ancho / 2, largo, 20, 1, false, Math.PI / 2, Math.PI),
-            new THREE.MeshPhysicalMaterial({
-                color: 0xffffff,
-                transparent: true,
-                opacity: 0.5,
-                roughness: 0.1,
-                side: THREE.DoubleSide,
-                depthWrite: false
-            })
-        );
+        // Suelo cubierto (ground cover blanco) y zócalo de concreto alrededor
+        const piso = new THREE.Mesh(new THREE.PlaneGeometry(ancho - 0.1, largo - 0.1), coberturaSuelo);
+        piso.rotation.x = -Math.PI / 2;
+        piso.position.y = 0.03;
+        group.add(piso);
+        caja(ancho + 0.1, 0.28, 0.12, concreto, 0, 0.14, -largo / 2);
+        caja(ancho + 0.1, 0.28, 0.12, concreto, 0, 0.14, largo / 2);
+        caja(0.12, 0.28, largo, concreto, -r, 0.14, 0);
+        caja(0.12, 0.28, largo, concreto, r, 0.14, 0);
+
+        // Laterales: abajo plástico hasta 1 m, arriba malla verde; la cortina enrollada entre los dos
+        [-r, r].forEach(x => {
+            const bajo = new THREE.Mesh(new THREE.PlaneGeometry(largo, 0.75), plastico);
+            bajo.rotation.y = Math.PI / 2;
+            bajo.position.set(x, 0.28 + 0.375, 0);
+            group.add(bajo);
+            const alto = new THREE.Mesh(new THREE.PlaneGeometry(largo, altoPared - 1.03), mallaLateral);
+            alto.rotation.y = Math.PI / 2;
+            alto.position.set(x, 1.03 + (altoPared - 1.03) / 2, 0);
+            group.add(alto);
+            tuboZ(0.07, mat(0xe4ece7, 0.5), x * 1.01, 1.03);
+            tuboZ(0.05, galvanizado, x, altoPared); // Canal superior
+        });
+
+        // Bóveda de plástico y ventana cenital (franja de malla a lo largo de la cumbrera)
+        const boveda = new THREE.Mesh(new THREE.CylinderGeometry(r, r, largo, 24, 1, true, Math.PI / 2, Math.PI), plastico);
         boveda.rotation.x = Math.PI / 2;
         boveda.position.y = altoPared;
         group.add(boveda);
+        const cenital = new THREE.Mesh(new THREE.CylinderGeometry(r + 0.03, r + 0.03, largo - 0.3, 6, 1, true, Math.PI - 0.22, 0.44), mallaLateral);
+        cenital.rotation.x = Math.PI / 2;
+        cenital.position.y = altoPared;
+        group.add(cenital);
 
-        // Arcos de tubo galvanizado cada 2.5 a lo largo del túnel
-        const arcoMat = new THREE.MeshStandardMaterial({ color: 0xa1a1aa, roughness: 0.4, metalness: 0.7 });
-        const arcoGeom = new THREE.TorusGeometry(ancho / 2, 0.04, 6, 20, Math.PI);
-        for (let k = 0; k <= 4; k++) {
-            const arco = new THREE.Mesh(arcoGeom, arcoMat);
-            arco.position.set(0, altoPared, -largo / 2 + k * (largo / 4));
+        // Frontales: rectángulo con su arco y el hueco de la puerta; marco y zócalo verde de la puerta
+        const frontal = new THREE.Shape();
+        frontal.moveTo(-r, 0.28);
+        frontal.lineTo(r, 0.28);
+        frontal.lineTo(r, altoPared);
+        frontal.absarc(0, altoPared, r, 0, Math.PI, false);
+        frontal.lineTo(-r, 0.28);
+        const hueco = new THREE.Path();
+        hueco.moveTo(-0.65, 0.28);
+        hueco.lineTo(0.65, 0.28);
+        hueco.lineTo(0.65, 2.15);
+        hueco.lineTo(-0.65, 2.15);
+        hueco.lineTo(-0.65, 0.28);
+        frontal.holes.push(hueco);
+        const frontalGeom = new THREE.ShapeGeometry(frontal, 12);
+        [-largo / 2, largo / 2].forEach(z => {
+            const f = new THREE.Mesh(frontalGeom, plastico);
+            f.position.z = z;
+            group.add(f);
+            caja(0.07, 1.9, 0.07, verdePuerta, -0.67, 1.23, z);
+            caja(0.07, 1.9, 0.07, verdePuerta, 0.67, 1.23, z);
+            caja(1.41, 0.07, 0.07, verdePuerta, 0, 2.18, z);
+        });
+
+        // Estructura: arcos cada 2 m con sus postes y correas a lo largo de la bóveda
+        const arcoGeom = new THREE.TorusGeometry(r, 0.035, 5, 20, Math.PI);
+        const posteGeom = new THREE.CylinderGeometry(0.045, 0.045, altoPared, 6);
+        for (let k = 0; k <= 5; k++) {
+            const z = -largo / 2 + k * (largo / 5);
+            const arco = new THREE.Mesh(arcoGeom, galvanizado);
+            arco.position.set(0, altoPared, z);
             group.add(arco);
+            [-r, r].forEach(x => {
+                const poste = new THREE.Mesh(posteGeom, galvanizado);
+                poste.position.set(x, altoPared / 2, z);
+                group.add(poste);
+            });
         }
+        [Math.PI / 4, Math.PI / 2, (3 * Math.PI) / 4].forEach(a => tuboZ(0.03, galvanizado, Math.cos(a) * r * 0.98, altoPared + Math.sin(a) * r * 0.98));
 
-        // Tres hileras dentro del túnel; el contenido depende del cultivo
+        // Tres camas dentro del túnel; tubería de riego azul en la entrada y cinta de goteo en cada cama
         const hileras = [-1.35, 0, 1.35];
         const largoHilera = largo - 1.2;
-        const aLoLargo = (separacion) => {
-            const n = Math.floor(largoHilera / separacion) + 1;
-            const inicio = -((n - 1) * separacion) / 2;
+        const conAcolchado = ['saladette', 'beef', 'cherry', 'pimiento', 'berenjena'].includes(this.variante);
+        const cabezal = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, ancho - 0.5, 8), pvc);
+        cabezal.rotation.z = Math.PI / 2;
+        cabezal.position.set(0, 0.12, -largo / 2 + 0.35);
+        group.add(cabezal);
+        hileras.forEach(dx => {
+            caja(0.85, 0.14, largoHilera, tierraCama, dx, 0.1, 0);
+            if (conAcolchado) caja(0.75, 0.02, largoHilera - 0.1, acolchadoNegro, dx, 0.18, 0);
+            caja(0.03, 0.025, largoHilera, goteo, dx, 0.2, 0);
+        });
+
+        const aLoLargo = (separacion, desde = -largoHilera / 2, hasta = largoHilera / 2) => {
+            const n = Math.floor((hasta - desde - 0.4) / separacion) + 1;
+            const inicio = (desde + hasta) / 2 - ((n - 1) * separacion) / 2;
             return Array.from({ length: n }, (_, k) => inicio + k * separacion);
         };
-        // Mata entutorada (tomate, pimiento): bloque verde a lo largo de la hilera
-        const mataEntutorada = (dx, alto) => {
-            const m = new THREE.Mesh(new THREE.BoxGeometry(0.55, alto, largoHilera), mat(PALETA.primarioOscuro, 0.8));
-            m.position.set(dx, alto / 2, 0);
-            this.planta(m, 'hilera');
+        // Hojas en dos verdes, con facetas (estilo de toda la escena) para que la mata no sea un bloque
+        const hojaGeom = new THREE.IcosahedronGeometry(1, 0);
+        const verdes = [mat(PALETA.primarioOscuro, 0.85, { flatShading: true }), mat(0x2f8f46, 0.85, { flatShading: true })];
+        // Mata entutorada: varios grupos de hojas subiendo por la rafia (tomate, pimiento, berenjena)
+        const mata = (dx, dz, alto, ancho, semilla) => {
+            const niveles = Math.max(2, Math.round(alto / 0.45));
+            for (let i = 0; i < niveles; i++) {
+                const h = new THREE.Mesh(hojaGeom, verdes[(semilla + i) % 2]);
+                const t = (i + 0.6) / niveles;
+                h.position.set(dx + (azar(semilla * 7 + i) - 0.5) * 0.12, 0.2 + alto * t, dz + (azar(semilla * 13 + i) - 0.5) * 0.1);
+                const s = ancho * (0.55 + 0.25 * Math.sin(t * Math.PI)) * (0.85 + azar(semilla + i * 3) * 0.3);
+                h.scale.set(s, s * 0.85, s);
+                h.rotation.set(azar(semilla + i) * 3, azar(semilla * 2 + i) * 3, 0);
+                this.planta(h);
+            }
+        };
+        // Tutorado: alambre a lo largo de la hilera y una rafia por planta
+        const tutorado = (dx, posiciones, alto) => {
+            const rafia = mat(0xe8d9a8, 0.9);
+            caja(0.02, 0.02, largoHilera, galvanizado, dx, alto + 0.25, 0);
+            posiciones.forEach(dz => caja(0.012, alto + 0.05, 0.012, rafia, dx, 0.2 + (alto + 0.05) / 2, dz));
         };
 
         switch (this.variante) {
@@ -328,21 +465,25 @@ class Cultivo {
             case 'cherry': {
                 // Saladette: fruto alargado mediano. Beef: fruto grande y achatado. Cherry: racimos de frutos pequeños.
                 const forma = {
-                    saladette: { radio: 0.15, escala: [0.85, 1.25, 0.85], separacion: 0.9, porRacimo: 1 },
-                    beef: { radio: 0.22, escala: [1.15, 0.85, 1.15], separacion: 1.1, porRacimo: 1 },
-                    cherry: { radio: 0.08, escala: [1, 1, 1], separacion: 0.7, porRacimo: 4 }
+                    saladette: { radio: 0.15, escala: [0.85, 1.25, 0.85], separacion: 0.55, porRacimo: 2 },
+                    beef: { radio: 0.21, escala: [1.15, 0.85, 1.15], separacion: 0.6, porRacimo: 1 },
+                    cherry: { radio: 0.075, escala: [1, 1, 1], separacion: 0.5, porRacimo: 5 }
                 }[this.variante];
-                const frutoGeom = new THREE.SphereGeometry(forma.radio, 10, 8);
-                const frutoMat = mat(0xdc2626, 0.4);
+                const frutoGeom = new THREE.IcosahedronGeometry(forma.radio, 1);
+                const rojo = mat(0xdc2626, 0.35);
+                const pinton = mat(0xf97316, 0.4); // Algunos aún madurando: el racimo no es todo igual
                 hileras.forEach((dx, n) => {
-                    mataEntutorada(dx, 1.9);
-                    aLoLargo(forma.separacion).forEach((dz, k) => {
+                    const plantas = aLoLargo(forma.separacion);
+                    tutorado(dx, plantas, 1.95);
+                    plantas.forEach((dz, k) => {
+                        const semilla = n * 100 + k;
+                        mata(dx, dz, 1.85, 0.36, semilla);
                         const lado = (n + k) % 2 ? 1 : -1;
-                        const alto = 0.55 + (k % 3) * 0.4;
-                        for (let r = 0; r < forma.porRacimo; r++) {
-                            const fruto = new THREE.Mesh(frutoGeom, frutoMat);
+                        const alto = 0.5 + (k % 3) * 0.38;
+                        for (let q = 0; q < forma.porRacimo; q++) {
+                            const fruto = new THREE.Mesh(frutoGeom, azar(semilla * 5 + q) < 0.2 ? pinton : rojo);
                             fruto.scale.set(...forma.escala);
-                            fruto.position.set(dx + lado * 0.32, alto - r * 0.13, dz + (r % 2) * 0.1);
+                            fruto.position.set(dx + lado * (0.24 + (q % 2) * 0.07), alto - q * 0.11, dz + ((q % 3) - 1) * 0.08);
                             this.planta(fruto, 'fruto');
                         }
                     });
@@ -350,68 +491,82 @@ class Cultivo {
                 break;
             }
             case 'pimiento': {
-                // Pimiento blocky rojo: frutos cúbicos colgando de la mata
-                const frutoGeom = new THREE.BoxGeometry(0.24, 0.26, 0.24);
-                const frutoMat = mat(0xb91c1c, 0.4);
+                // Pimiento blocky: frutos de cuatro lóbulos en rojo, con algunos aún verdes o amarillos
+                const frutoGeom = new THREE.CylinderGeometry(0.13, 0.1, 0.26, 7);
+                const colores = [mat(0xb91c1c, 0.35), mat(0xb91c1c, 0.35), mat(0xeab308, 0.4), mat(0x3f6212, 0.45)];
                 hileras.forEach((dx, n) => {
-                    mataEntutorada(dx, 1.2);
-                    aLoLargo(0.95).forEach((dz, k) => {
-                        const fruto = new THREE.Mesh(frutoGeom, frutoMat);
-                        fruto.position.set(dx + ((n + k) % 2 ? 0.32 : -0.32), 0.45 + (k % 2) * 0.35, dz);
-                        this.planta(fruto, 'fruto');
-                    });
-                });
-                break;
-            }
-            case 'lechuga': {
-                // Lechuga en bancales bajos: cabezas verde claro
-                const cabezaGeom = new THREE.SphereGeometry(0.3, 10, 8);
-                const cabezaMat = mat(0x86efac);
-                const bancalGeom = new THREE.BoxGeometry(0.9, 0.15, largoHilera);
-                const bancalMat = mat(0x5c4024, 1);
-                hileras.forEach(dx => {
-                    const bancal = new THREE.Mesh(bancalGeom, bancalMat);
-                    bancal.position.set(dx, 0.08, 0);
-                    group.add(bancal);
-                    aLoLargo(0.7).forEach(dz => {
-                        [-0.22, 0.22].forEach(lado => {
-                            const cabeza = new THREE.Mesh(cabezaGeom, cabezaMat);
-                            cabeza.scale.y = 0.6;
-                            cabeza.position.set(dx + lado, 0.3, dz);
-                            this.planta(cabeza);
+                    const plantas = aLoLargo(0.5);
+                    tutorado(dx, plantas, 1.25);
+                    plantas.forEach((dz, k) => {
+                        const semilla = n * 100 + k + 40;
+                        mata(dx, dz, 1.15, 0.38, semilla);
+                        [0, 1].forEach(q => {
+                            const fruto = new THREE.Mesh(frutoGeom, colores[Math.floor(azar(semilla * 3 + q) * colores.length)]);
+                            fruto.position.set(dx + ((n + k + q) % 2 ? 0.27 : -0.27), 0.45 + q * 0.32, dz + (q ? 0.08 : -0.08));
+                            this.planta(fruto, 'fruto');
                         });
                     });
                 });
                 break;
             }
+            case 'lechuga': {
+                // Lechuga en tres camas: verde y morada (lollo rosso) alternadas, en rosetas de hojas
+                const rosetaGeom = new THREE.IcosahedronGeometry(0.3, 1);
+                const corazonGeom = new THREE.IcosahedronGeometry(0.15, 0);
+                const tonos = [
+                    [mat(0x6fcf7f, 0.8, { flatShading: true }), mat(0xbbf7d0, 0.8, { flatShading: true })],
+                    [mat(0x8b2c4a, 0.75, { flatShading: true }), mat(0xc0587a, 0.75, { flatShading: true })]
+                ];
+                hileras.forEach((dx, n) => aLoLargo(0.55).forEach((dz, k) => {
+                    [-0.2, 0.2].forEach((lado, q) => {
+                        const [hoja, corazon] = tonos[(n + (k % 2 && q)) % 2];
+                        const semilla = n * 100 + k * 2 + q;
+                        const roseta = new THREE.Mesh(rosetaGeom, hoja);
+                        roseta.scale.set(1, 0.55, 1);
+                        roseta.rotation.y = azar(semilla) * 3;
+                        roseta.position.set(dx + lado, 0.32, dz + (azar(semilla * 3) - 0.5) * 0.08);
+                        this.planta(roseta);
+                        const centro = new THREE.Mesh(corazonGeom, corazon);
+                        centro.position.set(dx + lado, 0.42, roseta.position.z);
+                        this.planta(centro);
+                    });
+                }));
+                break;
+            }
             case 'berenjena': {
-                // Mitad del túnel con berenjena (mata media con frutos morados) y mitad con calabaza
-                // (guía rastrera con frutos grandes)
-                const berenjenaGeom = new THREE.CylinderGeometry(0.1, 0.13, 0.42, 10);
-                const berenjenaMat = mat(0x4c1d95, 0.3);
-                const guiaMat = mat(PALETA.primario, 0.8);
-                const calabazaGeom = new THREE.SphereGeometry(0.3, 12, 10);
-                const calabazaMat = mat(0xd97706, 0.6);
+                // Mitad del túnel con berenjena (mata entutorada con frutos morados brillantes) y mitad con
+                // calabaza (guía rastrera de hojas grandes con frutos)
+                const berenjenaGeom = new THREE.CylinderGeometry(0.09, 0.13, 0.42, 9);
+                const berenjenaMat = mat(0x3b0764, 0.25, { metalness: 0.1 });
+                const calabazaGeom = new THREE.IcosahedronGeometry(0.3, 1);
+                const calabazaMat = mat(0xd97706, 0.55, { flatShading: true });
+                const hojaGrande = mat(0x2f7d3a, 0.85, { flatShading: true });
                 const mitad = largoHilera / 2;
                 hileras.forEach((dx, n) => {
-                    // Berenjena en la mitad trasera (-Z)
-                    const mata = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.0, mitad - 0.3), mat(0x166534, 0.8));
-                    mata.position.set(dx, 0.5, -mitad / 2 - 0.15);
-                    this.planta(mata, 'hilera');
-                    aLoLargo(0.9).filter(dz => dz < -0.3).forEach((dz, k) => {
+                    const plantas = aLoLargo(0.6, -mitad, -0.3);
+                    tutorado(dx, [], 1.1);
+                    plantas.forEach((dz, k) => {
+                        const semilla = n * 100 + k + 70;
+                        mata(dx, dz, 1.05, 0.4, semilla);
                         const fruto = new THREE.Mesh(berenjenaGeom, berenjenaMat);
-                        fruto.position.set(dx + ((n + k) % 2 ? 0.34 : -0.34), 0.4, dz);
+                        fruto.position.set(dx + ((n + k) % 2 ? 0.3 : -0.3), 0.42, dz);
+                        fruto.rotation.z = (n + k) % 2 ? -0.2 : 0.2;
                         this.planta(fruto, 'fruto');
                     });
-                    // Calabaza en la mitad delantera (+Z)
-                    const guia = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.2, mitad - 0.3), guiaMat);
-                    guia.position.set(dx, 0.1, mitad / 2 + 0.15);
-                    this.planta(guia, 'hilera');
-                    aLoLargo(1.3).filter(dz => dz > 0.3).forEach((dz, k) => {
-                        const fruto = new THREE.Mesh(calabazaGeom, calabazaMat);
-                        fruto.scale.y = 0.75;
-                        fruto.position.set(dx + ((n + k) % 2 ? 0.25 : -0.25), 0.3, dz);
-                        this.planta(fruto, 'fruto');
+                    aLoLargo(0.45, 0.3, mitad).forEach((dz, k) => {
+                        const semilla = n * 100 + k + 90;
+                        const hoja = new THREE.Mesh(hojaGeom, k % 3 ? hojaGrande : verdes[1]);
+                        const s = 0.3 + azar(semilla) * 0.12;
+                        hoja.scale.set(s * 1.3, s * 0.45, s);
+                        hoja.rotation.y = azar(semilla * 3) * 3;
+                        hoja.position.set(dx + (azar(semilla * 5) - 0.5) * 0.5, 0.3, dz);
+                        this.planta(hoja);
+                        if (k % 3 === 1) {
+                            const fruto = new THREE.Mesh(calabazaGeom, calabazaMat);
+                            fruto.scale.y = 0.72;
+                            fruto.position.set(dx + ((n + k) % 2 ? 0.22 : -0.22), 0.32, dz);
+                            this.planta(fruto, 'fruto');
+                        }
                     });
                 });
                 break;
@@ -420,101 +575,138 @@ class Cultivo {
     }
 
     crearCampo(group) {
-        crearSueloParcela(group, CAMELLONES);
-        const mat = (color, roughness = 0.7) => new THREE.MeshStandardMaterial({ color, roughness });
+        const acolchado = { melon: 0xc7ccd1, calabacin: 0x1c1917, tomate: 0x1c1917 }[this.variante] ?? null;
+        crearSueloParcela(group, CAMELLONES, { acolchado, color: COLOR_PRODUCTO[this.variante] });
+        const mat = (color, roughness = 0.7, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness, ...extra });
+        const hojaGeom = new THREE.IcosahedronGeometry(1, 0);
+        const verdes = [mat(0x2f7d3a, 0.85, { flatShading: true }), mat(0x3f9a4c, 0.85, { flatShading: true })];
+        // Hoja facetada, aplastada y girada al azar (siempre la misma para la misma planta)
+        const hoja = (x, y, z, ancho, alto, semilla, material = verdes[semilla % 2]) => {
+            const h = new THREE.Mesh(hojaGeom, material);
+            const s = ancho * (0.85 + azar(semilla) * 0.3);
+            h.scale.set(s, alto, s * (0.8 + azar(semilla * 3) * 0.4));
+            h.rotation.set((azar(semilla * 5) - 0.5) * 0.5, azar(semilla * 7) * 6.28, (azar(semilla * 11) - 0.5) * 0.5);
+            h.position.set(x, y, z);
+            this.planta(h);
+            return h;
+        };
 
         switch (this.variante) {
             case 'lechuga': {
-                // Cabezas bajas en verde claro
-                const geom = new THREE.SphereGeometry(0.38, 10, 8);
-                const m = mat(0x86efac);
-                CAMELLONES.forEach(dx => plantasEnCamellon(0.9).forEach(dz => {
-                    const p = new THREE.Mesh(geom, m);
-                    p.scale.y = 0.6;
-                    p.position.set(dx, 0.36, dz);
-                    this.planta(p);
+                // Rosetas de hoja suelta: verde y morada alternando por camellón
+                const rosetaGeom = new THREE.IcosahedronGeometry(0.36, 1);
+                const corazonGeom = new THREE.IcosahedronGeometry(0.17, 0);
+                const tonos = [
+                    [mat(0x6fcf7f, 0.8, { flatShading: true }), mat(0xbbf7d0, 0.8, { flatShading: true })],
+                    [mat(0x8b2c4a, 0.75, { flatShading: true }), mat(0xc0587a, 0.75, { flatShading: true })]
+                ];
+                CAMELLONES.forEach((dx, n) => plantasEnCamellon(0.75).forEach((dz, k) => {
+                    const [h, c] = tonos[n % 2 === 1 ? 1 : 0];
+                    const roseta = new THREE.Mesh(rosetaGeom, h);
+                    roseta.scale.set(1, 0.55, 1);
+                    roseta.rotation.y = azar(n * 50 + k) * 3;
+                    roseta.position.set(dx, 0.36, dz);
+                    this.planta(roseta);
+                    const centro = new THREE.Mesh(corazonGeom, c);
+                    centro.position.set(dx, 0.47, dz);
+                    this.planta(centro);
                 }));
                 break;
             }
             case 'melon': {
-                // Guía rastrera sobre el camellón y melones cantaloupe asomando
-                const guiaGeom = new THREE.BoxGeometry(0.85, 0.22, PARCELA_CAMPO.largo - 1);
-                const guiaMat = mat(PALETA.primario, 0.8);
-                const frutoGeom = new THREE.SphereGeometry(0.3, 10, 8);
-                const frutoMat = mat(0xe9c46a, 0.6);
+                // Guía rastrera sobre el acolchado plateado: hojas sueltas a lo largo del camellón y melones
+                // cantaloupe asomando
+                const frutoGeom = new THREE.IcosahedronGeometry(0.28, 1);
+                const frutoMat = mat(0xd9b45f, 0.75, { flatShading: true });
                 CAMELLONES.forEach((dx, n) => {
-                    const guia = new THREE.Mesh(guiaGeom, guiaMat);
-                    guia.position.set(dx, 0.3, 0);
-                    this.planta(guia, 'hilera');
-                    plantasEnCamellon(1.6).forEach((dz, k) => {
-                        const fruto = new THREE.Mesh(frutoGeom, frutoMat);
-                        fruto.position.set(dx + ((n + k) % 2 ? 0.25 : -0.25), 0.45, dz);
-                        this.planta(fruto, 'fruto');
+                    plantasEnCamellon(0.42).forEach((dz, k) => {
+                        hoja(dx + (azar(n * 31 + k) - 0.5) * 0.55, 0.34, dz, 0.26, 0.12, n * 200 + k);
+                        if (k % 4 === 2) {
+                            const fruto = new THREE.Mesh(frutoGeom, frutoMat);
+                            fruto.scale.y = 0.9;
+                            fruto.position.set(dx + ((n + k) % 2 ? 0.28 : -0.28), 0.42, dz);
+                            this.planta(fruto, 'fruto');
+                        }
                     });
                 });
                 break;
             }
             case 'calabacin': {
-                // Matas grandes de hoja ancha con flores amarillas y calabacines verdes
-                const mataGeom = new THREE.SphereGeometry(0.5, 10, 8);
-                const mataMat = mat(0x166534, 0.8);
-                const florGeom = new THREE.SphereGeometry(0.12, 8, 6);
+                // Matas de hoja ancha en abanico, con flores amarillas y calabacines verdes
+                const florGeom = new THREE.ConeGeometry(0.11, 0.2, 6);
                 const florMat = mat(0xfacc15, 0.5);
-                const frutoGeom = new THREE.CylinderGeometry(0.09, 0.09, 0.55, 8);
-                const frutoMat = mat(0x3f6212, 0.5);
-                CAMELLONES.forEach(dx => plantasEnCamellon(1.2).forEach((dz, k) => {
-                    const mata = new THREE.Mesh(mataGeom, mataMat);
-                    mata.scale.set(1, 0.7, 1);
-                    mata.position.set(dx, 0.5, dz);
-                    this.planta(mata);
+                const frutoGeom = new THREE.CylinderGeometry(0.08, 0.09, 0.55, 8);
+                const frutoMat = mat(0x3f6212, 0.45);
+                CAMELLONES.forEach((dx, n) => plantasEnCamellon(1.1).forEach((dz, k) => {
+                    const semilla = n * 300 + k;
+                    for (let i = 0; i < 5; i++) {
+                        const a = (i / 5) * Math.PI * 2 + azar(semilla) * 1.2;
+                        hoja(dx + Math.cos(a) * 0.28, 0.5 + (i % 2) * 0.1, dz + Math.sin(a) * 0.28, 0.3, 0.1, semilla * 7 + i);
+                    }
+                    hoja(dx, 0.68, dz, 0.22, 0.14, semilla * 9);
                     const flor = new THREE.Mesh(florGeom, florMat);
-                    flor.position.set(dx + 0.2, 0.88, dz - 0.15);
+                    flor.rotation.x = Math.PI;
+                    flor.position.set(dx + 0.12, 0.85, dz - 0.1);
                     this.planta(flor, 'fruto');
                     if (k % 2 === 0) {
                         const fruto = new THREE.Mesh(frutoGeom, frutoMat);
-                        fruto.rotation.z = Math.PI / 2;
-                        fruto.position.set(dx + 0.45, 0.3, dz + 0.2);
+                        fruto.rotation.set(0, azar(semilla) * 3, Math.PI / 2);
+                        fruto.position.set(dx + 0.42, 0.3, dz + 0.2);
                         this.planta(fruto, 'fruto');
                     }
                 }));
                 break;
             }
             case 'coliflor': {
-                // Roseta de hojas verde azulado con la pella blanca en el centro
-                const hojaGeom = new THREE.SphereGeometry(0.45, 10, 8);
-                const hojaMat = mat(0x4d7c6f, 0.8);
-                const pellaGeom = new THREE.SphereGeometry(0.24, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2);
-                const pellaMat = mat(0xf5f0e1, 0.9);
-                CAMELLONES.forEach(dx => plantasEnCamellon(1.0).forEach(dz => {
-                    const hojas = new THREE.Mesh(hojaGeom, hojaMat);
-                    hojas.scale.set(1, 0.55, 1);
-                    hojas.position.set(dx, 0.4, dz);
-                    this.planta(hojas);
+                // Roseta de hojas verde azulado abiertas alrededor de la pella blanca
+                const azulado = [mat(0x4d7c6f, 0.8, { flatShading: true }), mat(0x5f9384, 0.8, { flatShading: true })];
+                const pellaGeom = new THREE.IcosahedronGeometry(0.22, 1);
+                const pellaMat = mat(0xf5f0e1, 0.95, { flatShading: true });
+                CAMELLONES.forEach((dx, n) => plantasEnCamellon(0.95).forEach((dz, k) => {
+                    const semilla = n * 400 + k;
+                    for (let i = 0; i < 6; i++) {
+                        const a = (i / 6) * Math.PI * 2 + azar(semilla) * 0.8;
+                        const h = hoja(dx + Math.cos(a) * 0.24, 0.42, dz + Math.sin(a) * 0.24, 0.24, 0.07, semilla * 5 + i, azulado[i % 2]);
+                        h.rotation.set(Math.sin(a) * 0.6, -a, -Math.cos(a) * 0.6); // Hojas abiertas hacia fuera
+                    }
                     const pella = new THREE.Mesh(pellaGeom, pellaMat);
-                    pella.position.set(dx, 0.58, dz);
+                    pella.scale.set(1, 0.6, 1);
+                    pella.position.set(dx, 0.52, dz);
                     this.planta(pella, 'fruto');
                 }));
                 break;
             }
             case 'tomate': {
-                // Tomate saladette a campo: espaldera con estacas, mata verde y racimos rojos
-                const estacaGeom = new THREE.CylinderGeometry(0.04, 0.04, 1.5, 6);
+                // Tomate saladette a campo: estacas con hilo de tutorado, matas en grupos de hojas y racimos
+                const estacaGeom = new THREE.CylinderGeometry(0.035, 0.04, 1.5, 5);
                 const estacaMat = mat(0x8a6a43, 0.9);
-                const mataGeom = new THREE.BoxGeometry(0.5, 1.1, PARCELA_CAMPO.largo - 1.2);
-                const mataMat = mat(PALETA.primarioOscuro, 0.8);
-                const frutoGeom = new THREE.SphereGeometry(0.13, 8, 6);
-                const frutoMat = mat(0xdc2626, 0.4);
-                CAMELLONES.forEach(dx => {
-                    const mata = new THREE.Mesh(mataGeom, mataMat);
-                    mata.position.set(dx, 0.75, 0);
-                    this.planta(mata, 'hilera');
-                    plantasEnCamellon(1.4).forEach((dz, k) => {
+                const hiloMat = mat(0xe8d9a8, 0.9);
+                const frutoGeom = new THREE.IcosahedronGeometry(0.12, 1);
+                const rojo = mat(0xdc2626, 0.35);
+                const pinton = mat(0xf97316, 0.4);
+                const largo = PARCELA_CAMPO.largo - 1.2;
+                CAMELLONES.forEach((dx, n) => {
+                    [0.55, 1.05].forEach(y => {
+                        const hilo = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.015, largo), hiloMat);
+                        hilo.position.set(dx, y, 0);
+                        group.add(hilo);
+                    });
+                    plantasEnCamellon(1.4).forEach(dz => {
                         const estaca = new THREE.Mesh(estacaGeom, estacaMat);
                         estaca.position.set(dx, 0.85, dz);
                         group.add(estaca);
-                        const fruto = new THREE.Mesh(frutoGeom, frutoMat);
-                        fruto.position.set(dx + (k % 2 ? 0.28 : -0.28), 0.6 + (k % 3) * 0.25, dz + 0.3);
-                        this.planta(fruto, 'fruto');
+                    });
+                    plantasEnCamellon(0.55).forEach((dz, k) => {
+                        const semilla = n * 500 + k;
+                        for (let i = 0; i < 3; i++) hoja(dx + (azar(semilla + i) - 0.5) * 0.15, 0.45 + i * 0.32, dz, 0.3 - i * 0.04, 0.24, semilla * 3 + i);
+                        if (k % 2 === 0) {
+                            [0, 1].forEach(q => {
+                                const fruto = new THREE.Mesh(frutoGeom, azar(semilla * 7 + q) < 0.25 ? pinton : rojo);
+                                fruto.scale.set(0.9, 1.2, 0.9);
+                                fruto.position.set(dx + (k % 4 ? 0.25 : -0.25), 0.55 + q * 0.14 + (k % 3) * 0.15, dz + q * 0.09);
+                                this.planta(fruto, 'fruto');
+                            });
+                        }
                     });
                 });
                 break;
@@ -1629,13 +1821,16 @@ class Alrededores {
 function claveMaterial(o) {
     const m = o.material;
     return [m.type, m.color && m.color.getHex(), m.emissive && m.emissive.getHex(), m.emissiveIntensity, m.roughness, m.metalness,
-        m.side, m.flatShading, m.opacity, m.depthWrite, o.castShadow, o.receiveShadow].join('|');
+        m.side, m.flatShading, m.transparent, m.opacity, m.depthWrite, o.castShadow, o.receiveShadow].join('|');
 }
 
-function sePuedeUnir(o) {
+// transparentes: también las piezas transparentes que no escriben profundidad (plástico y malla de un
+// invernadero): juntas se ven igual y se dibujan de una vez
+function sePuedeUnir(o, transparentes = false) {
     const m = o.material;
     return o.isMesh && !o.isInstancedMesh && !Array.isArray(m) && o.visible && o.geometry.attributes.normal
-        && !(m.map || m.alphaMap || m.emissiveMap || m.normalMap || m.transparent || m.vertexColors || m.wireframe);
+        && !(m.transparent && !(transparentes && !m.depthWrite))
+        && !(m.map || m.alphaMap || m.emissiveMap || m.normalMap || m.vertexColors || m.wireframe);
 }
 
 function unirPiezas(piezas, matrizDe) {
@@ -1676,14 +1871,14 @@ function unirPiezas(piezas, matrizDe) {
     return mallas;
 }
 
-// Un vehículo que se mueve entero (sin partes sueltas): sus piezas se juntan dentro de él
-function unirVehiculo(grupo, conservar = []) {
+// Un vehículo que se mueve entero (sin partes sueltas), o una parcela: sus piezas se juntan dentro de él
+function unirVehiculo(grupo, conservar = [], { transparentes = false } = {}) {
     grupo.updateMatrixWorld(true);
     const inversa = new THREE.Matrix4().copy(grupo.matrixWorld).invert();
     const fuera = new Set();
     conservar.forEach(o => o.traverse(x => fuera.add(x)));
     const piezas = [];
-    grupo.traverse(o => { if (o !== grupo && !fuera.has(o) && sePuedeUnir(o)) piezas.push(o); });
+    grupo.traverse(o => { if (o !== grupo && !fuera.has(o) && sePuedeUnir(o, transparentes)) piezas.push(o); });
     unirPiezas(piezas, o => new THREE.Matrix4().multiplyMatrices(inversa, o.matrixWorld)).forEach(m => grupo.add(m));
 }
 
@@ -2204,7 +2399,7 @@ class Dashboard {
             obj.receiveShadow = true;
             const agrupadoSuelto = obj.isInstancedMesh && obj.parent === this.scene;
             obj.getWorldPosition(pos);
-            obj.castShadow = !agrupadoSuelto && Math.abs(pos.x - 1) < 44 && Math.abs(pos.z - 2) < 40;
+            obj.castShadow = !agrupadoSuelto && !obj.userData.sinSombra && Math.abs(pos.x - 1) < 44 && Math.abs(pos.z - 2) < 40;
         });
     }
 
