@@ -1,0 +1,66 @@
+/**
+ * Bienvenida por WhatsApp: al entrar al equipo (la primera aprobación, o cuando un Master deja su número),
+ * "Borja", el asistente de Semences del Caribe, se presenta, le da la bienvenida y le pide que toque
+ * «✅ Recibido». Esa respuesta llega al webhook de WhatsApp y confirma que los avisos le llegan de verdad:
+ * en Equipo y accesos se ve quién lo confirmó y quién no.
+ *
+ * - Con WHATSAPP_PLANTILLA_BIENVENIDA (recomendado), sale esa plantilla con el nombre en {{1}} y el botón de
+ *   respuesta rápida «✅ Recibido» que se define en Meta (ver LEEME.md). Sin ella, sale la plantilla del
+ *   equipo con el mismo texto y se le pide que conteste «OK».
+ * - Cualquier respuesta de ese número (el botón o un texto) cuenta como confirmación. Borja contesta una
+ *   vez, con un mensaje normal (ya hay conversación abierta, así que Meta no pide plantilla).
+ * - Si la persona cambia de número, se vuelve a enviar y hay que confirmar otra vez.
+ */
+import { encolar } from './cola.js';
+import { normalizarTelefono } from './avisos.js';
+import { auditar } from './auditoria.js';
+import { traducir } from './idioma.js';
+
+const primerNombre = (persona) => String(persona.nombre || persona.email || '').trim().split(/\s+/)[0] || 'equipo';
+
+export const textoBienvenida = (persona, conPlantilla) =>
+    `👋 Hola ${primerNombre(persona)}, soy Borja, de Semences del Caribe. ¡Bienvenido al equipo! Por este número te llegarán las alertas de la finca, tus tareas, las reuniones y los avisos de la app. ${conPlantilla ? 'Toca «✅ Recibido» para confirmar que te llegan.' : 'Contesta OK a este mensaje para confirmar que te llegan.'}`;
+
+export const textoConfirmado = (persona) =>
+    `✅ ¡Gracias, ${primerNombre(persona)}! Confirmado: ya estás conectado con el equipo. Cuando haya una alerta te escribo por aquí. — Borja`;
+
+// Encola la bienvenida si hay WhatsApp, número y no se le ha enviado ya a ese número. Devuelve si salió
+export async function darBienvenida({ pool, config, avisos }, persona) {
+    if (!avisos || !avisos.whatsappActivo || !persona || !persona.telefono || persona.whatsapp_bienvenida) return false;
+    const plantilla = config.whatsapp.plantillaBienvenida;
+    await encolar(pool, 'whatsapp', [persona.telefono], textoBienvenida(persona, Boolean(plantilla)),
+        plantilla || null, plantilla ? [primerNombre(persona)] : null);
+    await pool.query('UPDATE usuarios SET whatsapp_bienvenida = UTC_TIMESTAMP(), whatsapp_confirmado = NULL WHERE id = ?', [persona.id]);
+    return true;
+}
+
+/**
+ * Mensajes que llegan al número de la empresa (webhook de WhatsApp de Meta). Solo se miran los de personas
+ * del equipo que tienen la bienvenida pendiente de confirmar; lo demás se ignora.
+ * Devuelve cuántas confirmó.
+ */
+export async function recibirWhatsapp({ pool, config, avisos }, cuerpo) {
+    const mensajes = [];
+    for (const entrada of (cuerpo && Array.isArray(cuerpo.entry) ? cuerpo.entry : [])) {
+        for (const cambio of (Array.isArray(entrada.changes) ? entrada.changes : [])) {
+            const valor = cambio && cambio.value;
+            if (cambio.field !== 'messages' || !valor || !Array.isArray(valor.messages)) continue;
+            mensajes.push(...valor.messages);
+        }
+    }
+    let confirmadas = 0;
+    for (const m of mensajes) {
+        const telefono = normalizarTelefono(`+${String(m && m.from || '').replace(/\D/g, '')}`);
+        if (!telefono) continue;
+        const [filas] = await pool.query('SELECT * FROM usuarios WHERE telefono = ? AND whatsapp_bienvenida IS NOT NULL AND whatsapp_confirmado IS NULL', [telefono]);
+        for (const persona of filas) {
+            await pool.query('UPDATE usuarios SET whatsapp_confirmado = UTC_TIMESTAMP() WHERE id = ?', [persona.id]);
+            const respuesta = m.type === 'button' ? (m.button && m.button.text) : m.type === 'interactive' ? 'botón' : (m.text && m.text.body);
+            await auditar(pool, config, { usuario: persona, accion: 'whatsapp_confirmado', objeto: telefono, resumen: `Confirmó que le llegan los WhatsApp del equipo${respuesta ? ` («${String(respuesta).slice(0, 60)}»)` : ''}` });
+            confirmadas++;
+            // Borja contesta (mensaje normal: la persona acaba de escribir). Si falla, la confirmación ya quedó
+            if (avisos.whatsappTexto) await avisos.whatsappTexto(telefono, traducir(textoConfirmado(persona), persona.idioma)).catch(() => {});
+        }
+    }
+    return confirmadas;
+}

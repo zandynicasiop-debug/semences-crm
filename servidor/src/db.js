@@ -24,6 +24,8 @@ const ESQUEMA = [
         token_google TEXT NULL,
         permisos_google TEXT NULL,
         telefono VARCHAR(20) NOT NULL DEFAULT '',
+        whatsapp_bienvenida DATETIME NULL,
+        whatsapp_confirmado DATETIME NULL,
         hoja_exportacion VARCHAR(100) NOT NULL DEFAULT '',
         estado ENUM('pendiente', 'aprobado', 'rechazado') NOT NULL DEFAULT 'pendiente',
         cargo VARCHAR(20) NULL,

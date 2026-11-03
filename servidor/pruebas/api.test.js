@@ -418,6 +418,9 @@ for (const base of BASES) {
             assert.equal((await accion(sesiones.ana, { accion: 'telefono', telefono: '123' })).estado, 400);
             const tel = await accion(sesiones.ana, { accion: 'telefono', telefono: '(849) 555-1111' });
             assert.equal(tel.json.usuario.telefono, '18495551111');
+            // Ana ya es del equipo: al dejar su número, Borja le da la bienvenida (se prueba aparte)
+            assert.deepEqual([tel.json.usuario.whatsappBienvenida, tel.json.usuario.whatsappConfirmado], [true, false]);
+            await pool.query('DELETE FROM cola_avisos');
 
             peticionesMeta.length = 0;
             const r = await accion(sesiones.ana, { accion: 'avisar', mensaje: '🚨 Plaga en\nparcela 3' });
@@ -669,7 +672,32 @@ for (const base of BASES) {
             await accion(sesiones.jefa, { accion: 'accesos', operacion: 'aprobar', email: 'luis@semillasdata.com', cargo: 'vendedor', paises: ['RD'], casas: ['Gautier Semences'] });
             const [[aviso]] = await pool.query("SELECT destino, texto FROM cola_avisos WHERE canal = 'whatsapp'");
             assert.equal(aviso.destino, '18295550202');
-            assert.match(aviso.texto, /Acceso aprobado/);
+            assert.match(aviso.texto, /^👋 Hola Luis, soy Borja, de Semences del Caribe\. ¡Bienvenido al equipo!.*Contesta OK/);
+
+            // Luis contesta: el webhook de WhatsApp (firmado por Meta) lo confirma y Borja responde una sola vez
+            const whatsappWebhook = (cuerpo, firma) => {
+                const texto = JSON.stringify(cuerpo);
+                const cabeceras = { 'Content-Type': 'application/json' };
+                if (firma !== null) cabeceras['X-Hub-Signature-256'] = firma || `sha256=${crypto.createHmac('sha256', 'secreto-meta').update(texto).digest('hex')}`;
+                return fetch(`${url}/api/whatsapp/webhook`, { method: 'POST', headers: cabeceras, body: texto });
+            };
+            const respuestaLuis = { entry: [{ changes: [{ field: 'messages', value: { messages: [{ from: '18295550202', type: 'button', button: { text: '✅ Recibido', payload: 'Recibido' } }] } }] }] };
+            assert.equal((await whatsappWebhook(respuestaLuis, 'sha256=falsa')).status, 401);
+            assert.equal((await whatsappWebhook(respuestaLuis, null)).status, 401);
+            const verificacion = await fetch(`${url}/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=palabra-meta&hub.challenge=99`);
+            assert.equal(await verificacion.text(), '99');
+            peticionesMeta.length = 0;
+            assert.equal((await whatsappWebhook(respuestaLuis)).status, 200);
+            const contestaBorja = peticionesMeta.filter(p => p.destino.startsWith('https://graph.facebook.com') && p.cuerpo.type === 'text');
+            assert.equal(contestaBorja.length, 1);
+            assert.equal(contestaBorja[0].cuerpo.to, '18295550202');
+            assert.match(contestaBorja[0].cuerpo.text.body, /Gracias, Luis.*Confirmado/);
+            assert.equal((await whatsappWebhook(respuestaLuis)).status, 200); // Una segunda respuesta ya no hace nada
+            assert.equal(peticionesMeta.filter(p => p.cuerpo && p.cuerpo.type === 'text').length, 1);
+            const enLista = (await accion(sesiones.jefa, { accion: 'accesos', operacion: 'listar' })).json.personas.find(p => p.email === 'luis@semillasdata.com');
+            assert.deepEqual([enLista.whatsappBienvenida, enLista.whatsappConfirmado], [true, true]);
+            const [[auditado]] = await pool.query("SELECT resumen FROM auditoria WHERE accion = 'whatsapp_confirmado' ORDER BY id DESC LIMIT 1");
+            assert.match(auditado.resumen, /Recibido/);
             const yo = (await llamar('/api/yo', { metodo: 'GET', sesion: sesiones.luis })).json.usuario;
             assert.deepEqual([yo.estado, yo.cargo, yo.paises, yo.casas], ['aprobado', 'vendedor', ['RD'], ['Gautier Semences']]);
             assert.deepEqual(yo.modulos, ['clientes', 'visitas', 'pedidos', 'cotizaciones', 'tareas', 'mensajes', 'sitios', 'reuniones']);

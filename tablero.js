@@ -430,7 +430,10 @@ class TableroEquipo {
             const estado = persona.master ? 'Master' : { pendiente: persona.solicitado ? 'En la sala de espera' : 'Entró, sin pedir acceso todavía', aprobado: 'Aprobado', rechazado: 'Rechazado' }[persona.estado];
             // Cuenta personal de Google (opción B): se marca para que el Master lo tenga en cuenta al aprobar
             const tipo = persona.tipoCuenta === 'personal' && !persona.master ? 'cuenta personal' : '';
-            detalle.textContent = [persona.email, tipo, persona.telefono && `WhatsApp ${persona.telefono}`, estado].filter(Boolean).join(' · ');
+            // WhatsApp: si contestó a la bienvenida de Borja, los avisos le llegan de verdad
+            const whatsapp = !persona.telefono ? 'sin WhatsApp'
+                : `WhatsApp ${persona.telefono} ${persona.whatsappConfirmado ? '✅ confirmado' : persona.whatsappBienvenida ? '⏳ sin confirmar' : ''}`.trim();
+            detalle.textContent = [persona.email, tipo, whatsapp, estado].filter(Boolean).join(' · ');
             textos.append(nombre, detalle);
             cab.append(this.avatar(persona), textos);
             li.appendChild(cab);

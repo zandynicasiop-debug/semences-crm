@@ -81,6 +81,14 @@ export function crearAvisos(config, hacerFetch = fetch, enviarPush = webpush.sen
                     components: [{ type: 'body', parameters: variables.map(text => ({ type: 'text', text })) }]
                 }
             }, { Authorization: `Bearer ${whatsapp.token}` }, hacerFetch);
+        },
+
+        // Mensaje normal (sin plantilla): solo vale como respuesta, en las 24 h siguientes a que la persona escriba
+        async whatsappTexto(telefono, texto) {
+            if (!whatsappActivo) throw new Error('WhatsApp no está configurado');
+            await enviarJson(`https://graph.facebook.com/${whatsapp.version}/${whatsapp.telefonoId}/messages`, {
+                messaging_product: 'whatsapp', to: telefono, type: 'text', text: { body: String(texto).slice(0, 4000) }
+            }, { Authorization: `Bearer ${whatsapp.token}` }, hacerFetch);
         }
     };
 }

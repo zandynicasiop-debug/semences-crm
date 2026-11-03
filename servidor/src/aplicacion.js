@@ -22,6 +22,7 @@ import { estadoEventos } from './eventos.js';
 import { ambitoDe } from './permisos.js';
 import { cabecerasSeguras, limiteGeneral, limiteEntrada as limiteDeEntrada, limiteAcciones, validarEntrada } from './seguridad.js';
 import { firmaValida, recibirWebhook } from './instagram.js';
+import { recibirWhatsapp } from './bienvenida.js';
 import { semanaBloqueada, SIN_REPORTE } from './reportes.js';
 import { IDIOMAS } from './idioma.js';
 import { auditar, redDe, AUDITAR_ACCION } from './auditoria.js';
@@ -92,6 +93,24 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
             registrar.error('Webhook de Instagram:', error.message);
         }
         // Meta necesita un 200 rápido aunque algo falle (si no, reintenta y acaba desactivando el webhook)
+        res.status(200).send('EVENT_RECEIVED');
+    });
+
+    // ----- Webhook de WhatsApp (Meta, la misma app y el mismo secreto): respuestas a la bienvenida de Borja -----
+    api.get('/whatsapp/webhook', (req, res) => {
+        const ok = config.instagram.verificacion && req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === config.instagram.verificacion;
+        if (!ok) return res.sendStatus(403);
+        res.type('text/plain').send(String(req.query['hub.challenge'] || ''));
+    });
+    api.post('/whatsapp/webhook', async (req, res) => {
+        if (!firmaValida(config.instagram.secreto, req.cuerpoCrudo, req.get('X-Hub-Signature-256'))) {
+            return res.status(401).json({ ok: false, error: 'Firma de Meta no válida' });
+        }
+        try {
+            await recibirWhatsapp({ pool, config, avisos }, req.body);
+        } catch (error) {
+            registrar.error('Webhook de WhatsApp:', error.message);
+        }
         res.status(200).send('EVENT_RECEIVED');
     });
 

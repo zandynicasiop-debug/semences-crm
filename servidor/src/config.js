@@ -135,6 +135,9 @@ export function leerConfig(entorno = process.env) {
             plantilla: entorno.WHATSAPP_PLANTILLA || '',
             // Opcional: plantilla para avisar a un CLIENTE de que le llegó un correo o una invitación
             plantillaClientes: entorno.WHATSAPP_PLANTILLA_CLIENTES || '',
+            // Opcional (recomendado): bienvenida de Borja al entrar al equipo, con {{1}} = nombre y un botón de
+            // respuesta rápida «✅ Recibido» (ver LEEME.md). Sin ella, la bienvenida va en la plantilla del equipo
+            plantillaBienvenida: entorno.WHATSAPP_PLANTILLA_BIENVENIDA || '',
             // Opcional: plantilla del resumen de la mañana, de varias líneas, con 7 variables (ver LEEME.md)
             plantillaResumen: entorno.WHATSAPP_PLANTILLA_RESUMEN || '',
             idioma: entorno.WHATSAPP_IDIOMA || 'es',

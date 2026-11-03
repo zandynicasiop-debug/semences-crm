@@ -404,9 +404,11 @@ class Responsable {
         const ambito = this.ambito;
         if (!ambito) return;
         if (ambito.estado === 'aprobado') {
-            if (this.sala.open) this.sala.close();
             clearInterval(this.esperaSala);
             this.esperaSala = null;
+            // El WhatsApp es obligatorio: quien entra sin él (un Master, o alguien aprobado antes) lo deja aquí
+            if (!ambito.telefono) this.mostrarSala();
+            else if (this.sala.open) this.sala.close();
         } else {
             this.mostrarSala();
         }
@@ -443,7 +445,8 @@ class Responsable {
             const error = dialogo.querySelector('#sala-error');
             const boton = dialogo.querySelector('.sala-enviar');
             boton.disabled = true;
-            const respuesta = await this.conector.backend('/api/accion', { accion: 'sala', telefono: input.value });
+            const aprobado = (this.ambito || {}).estado === 'aprobado';
+            const respuesta = await this.conector.backend('/api/accion', { accion: aprobado ? 'telefono' : 'sala', telefono: input.value });
             boton.disabled = false;
             if (!respuesta || !respuesta.ok) {
                 error.textContent = (respuesta && respuesta.error) || 'No se pudo enviar. Revisa la conexión.';
@@ -453,6 +456,9 @@ class Responsable {
             }
             this.guardarSesion({ ...this.sesion, ...respuesta.usuario });
             this.aplicarEstado();
+            if (aprobado && window.equipo) window.equipo.mostrarAviso(respuesta.usuario.whatsappBienvenida
+                ? 'Listo. Borja te acaba de escribir por WhatsApp: toca «✅ Recibido» para confirmar que te llegan los avisos.'
+                : 'Listo: recibirás los avisos del equipo por WhatsApp.');
         });
     }
 
@@ -461,7 +467,12 @@ class Responsable {
         const texto = this.sala.querySelector('.sala-texto');
         const telefono = this.sala.querySelector('.sala-telefono');
         const enviar = this.sala.querySelector('.sala-enviar');
-        if (ambito.estado === 'rechazado') {
+        this.sala.querySelector('#sala-titulo').textContent = ambito.estado === 'aprobado' ? 'Tu WhatsApp' : 'Sala de espera';
+        enviar.textContent = ambito.estado === 'aprobado' ? 'Guardar' : 'Pedir acceso';
+        if (ambito.estado === 'aprobado') {
+            texto.textContent = `Hola, ${ambito.nombre || ambito.email}. El WhatsApp es obligatorio: por allí te llegan las alertas de la finca, tus tareas y las reuniones. Al guardarlo, Borja te escribirá para darte la bienvenida.`;
+            telefono.hidden = enviar.hidden = false;
+        } else if (ambito.estado === 'rechazado') {
             texto.textContent = 'Tu solicitud de acceso no fue aprobada. Si crees que es un error, habla con un administrador de Semences del Caribe.';
             telefono.hidden = enviar.hidden = true;
         } else if (!ambito.solicitado) {
@@ -472,6 +483,7 @@ class Responsable {
             telefono.hidden = enviar.hidden = true;
         }
         if (!this.sala.open) this.sala.showModal();
+        if (ambito.estado === 'aprobado') return;
         // Mientras espera, cada 20 segundos se mira si ya la aprobaron
         if (!this.esperaSala && ambito.estado === 'pendiente') {
             this.esperaSala = setInterval(async () => {
@@ -597,8 +609,9 @@ class Responsable {
                     <button type="button" class="btn-secondary cuenta-respaldo" hidden>Respaldar el CRM en Drive ahora</button>
                 </div>
                 <div class="form-group">
-                    <label for="cuenta-telefono">Tu WhatsApp para los avisos del equipo (opcional)</label>
-                    <input id="cuenta-telefono" type="tel" autocomplete="tel" inputmode="tel" placeholder="809 555 1234" aria-describedby="cuenta-error">
+                    <label for="cuenta-telefono">Tu WhatsApp para los avisos del equipo</label>
+                    <input id="cuenta-telefono" type="tel" autocomplete="tel" inputmode="tel" placeholder="809 555 1234" required aria-describedby="cuenta-whatsapp cuenta-error">
+                    <p class="dialogo-nota" id="cuenta-whatsapp" aria-live="polite"></p>
                     <p class="form-error" id="cuenta-error" role="alert" hidden></p>
                 </div>
                 <div class="modal-actions">
@@ -661,7 +674,9 @@ class Responsable {
             }
             this.guardarSesion({ ...this.sesion, ...respuesta.usuario });
             dialogo.close();
-            if (window.equipo) window.equipo.mostrarAviso(respuesta.usuario.telefono ? 'Recibirás los avisos del equipo por WhatsApp.' : 'Ya no recibirás avisos por WhatsApp.');
+            if (window.equipo) window.equipo.mostrarAviso(respuesta.usuario.whatsappBienvenida && !respuesta.usuario.whatsappConfirmado
+                ? 'Número guardado. Borja te escribió por WhatsApp: toca «✅ Recibido» para confirmar.'
+                : 'Recibirás los avisos del equipo por WhatsApp.');
         });
     }
 
@@ -676,6 +691,9 @@ class Responsable {
             reconectar.hidden = Boolean(sesion.googleConectado);
             reconectar.textContent = sesion.tipoCuenta === 'personal' && !(sesion.permisos || []).length ? 'Conectar Gmail, Calendar y Drive' : 'Volver a conectar Google';
             d.querySelector('#cuenta-telefono').value = sesion.telefono || '';
+            d.querySelector('#cuenta-whatsapp').textContent = sesion.whatsappConfirmado
+                ? '✅ Confirmado: te llegan los WhatsApp del equipo.'
+                : sesion.whatsappBienvenida ? '⏳ Borja te escribió por WhatsApp: toca «✅ Recibido» (o contesta OK) para confirmar que te llegan.' : '';
             d.querySelector('#cuenta-resumen').checked = sesion.resumen !== false;
             d.querySelector('.cuenta-resumen').hidden = sesion.estado !== 'aprobado';
             d.querySelector('.cuenta-workspace').hidden = sesion.estado !== 'aprobado' || !sesion.googleConectado;

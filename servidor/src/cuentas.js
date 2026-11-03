@@ -162,6 +162,9 @@ export const publico = (usuario, config) => ({
     nombre: usuario.nombre,
     foto: usuario.foto,
     telefono: usuario.telefono,
+    // WhatsApp: la bienvenida de Borja salió y la persona contestó (los avisos le llegan de verdad)
+    whatsappBienvenida: Boolean(usuario.whatsapp_bienvenida),
+    whatsappConfirmado: Boolean(usuario.whatsapp_confirmado),
     admin: esAdmin(config, usuario.email),
     tipoCuenta: tipoCuenta(config, usuario.email),
     ...ambitoDe(usuario, config),

@@ -127,12 +127,16 @@ WhatsApp no deja que una empresa escriba a nadie con mensajes libres: los avisos
 
 Los mensajes salen de la cola `cola_avisos` cada 5 segundos. En `GET /api/salud` (`colaWhatsapp`) se ve cuántos hay pendientes, enviados y fallidos; los administradores ven además los últimos fallidos con su motivo (acción `equipo`, operación `listar`). En cPanel, Passenger puede dormir la app Node si nadie la usa: lo pendiente sale en cuanto vuelve a recibir una petición. Si quieres que salga aunque nadie use la app, crea en cPanel › **Cron Jobs** una tarea cada 5 minutos con `curl -s https://api.semillasdata.com/api/salud > /dev/null`.
 
-Cada persona escribe su WhatsApp en la app (menú › Cuenta). Los administradores también pueden añadir teléfonos con `npm run equipo -- agregar correo@… "Nombre" 8095551234`. Las alertas de "Notificar al equipo" llegan por Google Chat y por WhatsApp a todos. Meta cobra cada conversación iniciada por la empresa, según su tarifa por país.
+**Bienvenida de Borja (con confirmación).** El WhatsApp es **obligatorio**: sin él, la app no deja seguir. Al entrar al equipo (la primera aprobación, o cuando un Master deja su número), Borja, el asistente de Semences del Caribe, se presenta, le da la bienvenida y le pide que toque **«✅ Recibido»**. Su respuesta llega al webhook y queda confirmada: en *Equipo y accesos* se ve «✅ confirmado» o «⏳ sin confirmar», y en la auditoría. Borja contesta una vez para cerrar el saludo. Si cambia de número, se repite.
+1. En **WhatsApp Manager › Plantillas de mensajes** crea una plantilla de categoría **Utilidad**, idioma español, por ejemplo `bienvenida_borja`, con este cuerpo: *"👋 Hola {{1}}, soy Borja, de Semences del Caribe. ¡Bienvenido al equipo! Por este número te llegarán las alertas de la finca, tus tareas, las reuniones y los avisos de la app. Toca «✅ Recibido» para confirmar que te llegan."* y un **botón de respuesta rápida** con el texto `✅ Recibido`. Ponla en `WHATSAPP_PLANTILLA_BIENVENIDA`. Sin ella, el mismo texto va en la plantilla del equipo y se le pide que conteste OK.
+2. En la app de Meta › **WhatsApp › Configuración › Webhook**: URL `https://api.semillasdata.com/api/whatsapp/webhook`, token de verificación = `META_VERIFY_TOKEN`, y suscríbete al campo **messages**. La firma se comprueba con `META_APP_SECRET` (los mismos que Instagram).
+
+Cada persona escribe su WhatsApp en la app (al entrar, o en menú del logo › Cuenta). Los administradores también pueden añadir teléfonos con `npm run equipo -- agregar correo@… "Nombre" 8095551234`. Las alertas de "Notificar al equipo" llegan por Google Chat y por WhatsApp a todos. Meta cobra cada conversación iniciada por la empresa, según su tarifa por país.
 
 ## Sala de espera, cargos y ámbito
 
 - **Sala de espera:** toda cuenta nueva (aunque sea del dominio) entra, deja su WhatsApp y espera. A los Master (correos de `ADMINS`) les llega el aviso por WhatsApp y push. Los Master entran siempre, con todo.
-- **Equipo y accesos** (menú, solo Master): a cada persona se le asigna **cargo**, **países** (República Dominicana, Venezuela) y **casas comerciales** (Gautier Semences, Hexagon Seeds, Genome Seeds, Fitó). Al aprobarla le llega un WhatsApp. También se puede rechazar, quitar el acceso o devolver a la sala.
+- **Equipo y accesos** (menú, solo Master): a cada persona se le asigna **cargo**, **países** (República Dominicana, Venezuela) y **casas comerciales** (Gautier Semences, Hexagon Seeds, Genome Seeds, Fitó). Al aprobarla le llega la bienvenida de Borja por WhatsApp. También se puede rechazar, quitar el acceso o devolver a la sala.
 - **Qué ve cada cargo:**
 
   | Cargo | Módulos |

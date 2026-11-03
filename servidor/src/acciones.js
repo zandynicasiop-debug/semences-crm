@@ -17,6 +17,7 @@ import { encolar, estadoCola } from './cola.js';
 import { emitirEventosDeCambios } from './eventos.js';
 import { REGLAS } from './flujos.js';
 import { enZona } from './fechas.js';
+import { darBienvenida } from './bienvenida.js';
 import { sincronizarAgenda, respaldar, documentoValido, avisarPorCorreo, enSegundoPlano } from './workspace.js';
 import { avisarEnvio, actualizarEnvio } from './envios.js';
 import { accionInstagram } from './instagram.js';
@@ -417,12 +418,21 @@ export const ACCIONES = {
     },
 
     // Mi número de WhatsApp para recibir los avisos ('' para dejar de recibirlos)
-    async telefono(datos, { pool, usuario, config }) {
+    async telefono(datos, { pool, usuario, config, avisos }) {
         const texto = String(datos.telefono || '').trim();
         const telefono = texto ? normalizarTelefono(texto) : '';
+        // Obligatorio: por allí llegan las alertas del equipo y la bienvenida de Borja
+        if (!texto) throw errorApp('El WhatsApp es obligatorio: por allí te llegan las alertas del equipo.');
         if (texto && !telefono) throw errorApp('Teléfono no válido. Escríbelo con código de país, como 809, 829 u 849 + 7 cifras (RD) o como 0414 + 7 cifras (Venezuela).');
         await guardarTelefono(pool, usuario.id, telefono);
-        return { ok: true, usuario: publico({ ...usuario, telefono }, config) };
+        // Número nuevo: hay que confirmarlo otra vez. Si ya es del equipo, Borja le da la bienvenida a ese número
+        const ahora = { ...usuario, telefono };
+        if (telefono !== usuario.telefono) {
+            await pool.query('UPDATE usuarios SET whatsapp_bienvenida = NULL, whatsapp_confirmado = NULL WHERE id = ?', [usuario.id]);
+            Object.assign(ahora, { whatsapp_bienvenida: null, whatsapp_confirmado: null });
+        }
+        if (ambitoDe(ahora, config).estado === 'aprobado' && await darBienvenida({ pool, config, avisos }, ahora)) ahora.whatsapp_bienvenida = new Date();
+        return { ok: true, usuario: publico(ahora, config) };
     },
 
     // ----- Sala de espera: la persona deja su WhatsApp y espera a que un Master la apruebe -----
@@ -470,7 +480,8 @@ export const ACCIONES = {
             if (persona.estado !== 'aprobado') {
                 const { huellas, telefonos } = await destinosDe(pool, [persona.id]);
                 const texto = `✅ Acceso aprobado\nHola ${persona.nombre || ''}, ya puedes usar la app de Semences del Caribe. Ábrela de nuevo para entrar.`;
-                if (avisos.whatsappActivo) await encolar(pool, 'whatsapp', telefonos, texto);
+                // Por WhatsApp, la bienvenida de Borja (pide confirmar que le llega); si ya la tuvo, el aviso de siempre
+                if (!(await darBienvenida(contexto, persona)) && avisos.whatsappActivo) await encolar(pool, 'whatsapp', telefonos, texto);
                 if (avisos.pushActivo) await encolar(pool, 'push', huellas, texto);
                 enSegundoPlano(avisarPorCorreo(contexto, { para: persona.email, asunto: 'Tu acceso está aprobado',
                     texto: `Hola ${persona.nombre || ''}:\n\nYa puedes usar el CRM de Semences del Caribe como ${asignacion.cargo}, con ${asignacion.paises.map(p => NOMBRE_PAIS[p] || p).join(' y ')} y ${asignacion.casas.join(', ')}. Abre la app de nuevo para entrar.` }));
