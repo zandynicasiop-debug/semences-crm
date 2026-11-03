@@ -294,8 +294,9 @@ comprueba además que la hoja tenga las llaves equilibradas.
 | Tipografía | `--font-titulo` (Lora), `--font-cuerpo` (Raleway), `--font-dato` (JetBrains Mono); tamaños `--sdc-texto-xs…xl` y `--sdc-texto-cifra`; pesos `--sdc-peso-normal/medio/fuerte/extra` (400/600/700/800) | Mínimo 0,7 rem; los campos de formulario, 1 rem (evita el zoom del móvil) |
 | Espaciado | `--sdc-espacio-1…6` (4, 6, 8, 12, 16, 20 px) | Márgenes, rellenos y huecos. Solo los ajustes de 1–2 px van a mano |
 | Bordes y sombras | `--sdc-radio-barra/xs/sm/md/pildora` (4, 6, 10, 16, 999 px), `--sdc-sombra`, `--sdc-sombra-acento` | Los avatares usan `50%` |
-| Estados | `--sdc-transicion`, `--sdc-opacidad-apagado`, `--sdc-objetivo-tactil` (44 px) | Lo que se pulsa mide al menos 44 px; lo deshabilitado se apaga |
-| Diálogos | `--sdc-dialogo-sm/md/lg` (560, 640, 720 px) y `--sdc-velo-dialogo` | Ancho de cada diálogo según su contenido |
+| Estados | `--sdc-transicion`, `--sdc-opacidad-apagado`, `--sdc-objetivo-tactil` (44 px), `--sdc-objetivo-raton` (36 px) | Lo que se pulsa mide al menos 44 px. Lo compacto (botones de la cabecera, fichas de parcelas, lugares, plegar el panel, Meet del chat) puede medir 36 px con ratón y sube a 44 px en pantallas táctiles (`pointer: coarse`); lo deshabilitado se apaga |
+| Diálogos | `--sdc-dialogo-sm/md/lg/xl` (560, 640, 720, 960 px) y `--sdc-velo-dialogo` | Ancho de cada diálogo según su contenido (`xl`: listas anchas con filtros, como la auditoría) |
+| Alturas fijas | `--sdc-alto-barra-inferior` (60 px) | Lo que la barra de accesos del teléfono reserva abajo (cuerpo y paneles laterales) |
 | Capas | `--sdc-capa-*`: `emergente` 2, `escena-etiqueta` 4, `escena-control` 5, `escena-menu` 6, `escena-panel` 7, `paneles` 10, `navegacion` 20, `menu` 30, `lateral` 60, `aviso` 70 | Un elemento nuevo que flota usa una de estas capas, nunca un número suelto |
 
 **Componentes base:**
@@ -304,13 +305,16 @@ comprueba además que la hoja tenga las llaves equilibradas.
 |---|---|---|
 | Botón | `btn-primary` (acción principal), `btn-secondary` (alternativa), `btn-texto` (acción menor), `btn-peligro` (con `btn-texto`, para quitar o rechazar) | hover, foco (`--ui-foco`), deshabilitado. Mientras una acción se envía, el botón se deshabilita (`disabled`) |
 | Campo | `form-group` (etiqueta + campo + error) | foco común a todos los campos, error con `aria-invalid="true"` y `.form-error`, deshabilitado |
-| Diálogo | `dialogo` (+ `dialogo-tablero`, `dialogo-reporte`, `dialogo-indicadores` para el ancho), `dialogo-form`, `dialogo-subtitulo`, `dialogo-nota`, `modal-actions` | `<dialog>` nativo con `showModal()`: Escape cierra, salvo el reporte semanal bloqueado |
+| Diálogo | `dialogo` (+ `dialogo-tablero`, `dialogo-reporte`, `dialogo-indicadores`, `dialogo-auditoria` para el ancho), `dialogo-form`, `dialogo-subtitulo`, `dialogo-nota`, `modal-actions` | `<dialog>` nativo con `showModal()`: Escape cierra, salvo el reporte semanal bloqueado |
 | Aviso flotante | `aviso-flotante` (`data-tipo`: normal, `alerta`, `error`), con `window.equipo.mostrarAviso()` | — |
-| Etiqueta | `etiqueta` | — |
+| Etiqueta | `etiqueta` (pastilla llena) y `etiqueta-borde` con `data-tono` = `info`, `exito`, `aviso` o `peligro` (borde izquierdo de color, texto del tema: para listas largas) | El tono nunca va solo: la etiqueta siempre lleva su texto |
+| Tabla de datos | `tabla-datos` (envoltura con desplazamiento horizontal + `table`) | Cabeceras con `scope="col"`; la usan el panel de indicadores y la auditoría |
+| Pestañas | `role="tablist"` con botones `role="tab"` (`aria-selected`, `aria-controls`, `tabindex` 0/-1) y un panel `role="tabpanel"` | Flechas izquierda y derecha, Inicio y Fin mueven y activan. Para un sí/no de dos opciones, botones con `aria-pressed` (como Semana pasada / Esta semana del reporte) |
+| Idioma | `btn-idioma` (+ `btn-idioma-cabecera`, `btn-idioma-entrada`), lo crea `Idioma.crearBoton()` | Escribe el otro idioma en ese idioma (*English* / *Español*, *EN* / *ES* en pantallas estrechas) y va con `translate="no"` |
 | Ficha de cifra | `metric-card` (escena) e `indicadores-ficha` (panel) | `-aviso` con borde ámbar y ⚠️ |
 
 **Nombres de clases:** en español y con el prefijo de su pantalla (`chat-`, `tablero-`, `mapa-`, `ig-`,
-`indicadores-`, `reporte-`, `cotizador-`). `panel-` es solo del panel lateral de la escena. Lo heredado en inglés
+`indicadores-`, `reporte-`, `cotizador-`, `auditoria-`). Lo que usan dos pantallas lleva un nombre general (`tabla-datos`, `etiqueta-borde`), no el de una de ellas. `panel-` es solo del panel lateral de la escena. Lo heredado en inglés
 (`btn-primary`, `btn-secondary`, `modal-actions`, `metric-card`, `nav-tab`, `table-container`, `brand-*`) se
 mantiene por compatibilidad; lo nuevo, en español. Antes de crear una clase, búscala en `style.css`: dos
 pantallas con la misma clase se pisan los estilos.

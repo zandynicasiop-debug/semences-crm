@@ -98,6 +98,8 @@
 
     /* Accesibilidad: alto mínimo de lo que se toca o se pulsa */
     --sdc-objetivo-tactil: 44px;
+    --sdc-objetivo-raton: 36px;      /* Botones compactos de la cabecera con ratón; en pantallas táctiles suben a 44 px */
+    --sdc-alto-barra-inferior: 60px; /* Barra de accesos del teléfono: botón de 52 px + su relleno */
 }
 
 /*
@@ -334,7 +336,7 @@ summary {
     gap: var(--sdc-espacio-2);
     flex-shrink: 0;
     max-width: 180px;
-    min-height: 36px;
+    min-height: var(--sdc-objetivo-raton);
     padding: 0 var(--sdc-espacio-3) 0 var(--sdc-espacio-1);
     background: none;
     border: 1px solid var(--ui-borde);
@@ -383,7 +385,7 @@ summary {
     align-items: center;
     gap: var(--sdc-espacio-2);
     flex-shrink: 0;
-    min-height: 32px;
+    min-height: var(--sdc-objetivo-raton);
     padding: 0 var(--sdc-espacio-3);
     background: none;
     border: 1px solid var(--ui-borde);
@@ -423,7 +425,7 @@ summary {
     align-items: center;
     gap: var(--sdc-espacio-2);
     flex-shrink: 0;
-    min-height: 36px;
+    min-height: var(--sdc-objetivo-raton);
     padding: 0 var(--sdc-espacio-4);
     background: var(--ui-apagado);
     border: 1px solid var(--ui-borde);
@@ -1029,6 +1031,26 @@ summary {
     font-weight: var(--sdc-peso-fuerte);
     white-space: nowrap;
 }
+
+/* Variante con borde: el tono va en el borde izquierdo y el texto queda en el color del tema (listas largas,
+   donde una pastilla llena por fila pesaría demasiado). data-tono: info, exito, aviso, peligro */
+.etiqueta-borde {
+    display: inline-block;
+    justify-self: start;
+    padding: 2px var(--sdc-espacio-2);
+    border: 1px solid var(--ui-borde);
+    border-left: 4px solid var(--ui-texto-suave);
+    border-radius: var(--sdc-radio-xs);
+    color: var(--ui-texto);
+    font-size: var(--sdc-texto-xs);
+    font-weight: var(--sdc-peso-fuerte);
+    white-space: nowrap;
+}
+
+.etiqueta-borde[data-tono="info"] { border-left-color: var(--sdc-agua-claro); }
+.etiqueta-borde[data-tono="exito"] { border-left-color: var(--sdc-primario); }
+.etiqueta-borde[data-tono="aviso"] { border-left-color: var(--sdc-dorado); }
+.etiqueta-borde[data-tono="peligro"] { border-left-color: var(--sdc-peligro); }
 
 .tabla-vacia {
     padding: var(--sdc-espacio-6);
@@ -3013,25 +3035,25 @@ body.ventana-flotante {
     font-weight: var(--sdc-peso-medio);
 }
 
-.indicadores-tabla {
+.tabla-datos {
     overflow-x: auto;
 }
 
-.indicadores-tabla table {
+.tabla-datos table {
     width: 100%;
     border-collapse: collapse;
     font-size: var(--sdc-texto-sm);
 }
 
-.indicadores-tabla th,
-.indicadores-tabla td {
+.tabla-datos th,
+.tabla-datos td {
     padding: var(--sdc-espacio-2) var(--sdc-espacio-3);
     text-align: left;
     border-bottom: 1px solid var(--ui-borde);
     color: var(--ui-texto);
 }
 
-.indicadores-tabla th {
+.tabla-datos th {
     color: var(--ui-texto-suave);
     font-weight: var(--sdc-peso-medio);
 }
@@ -3251,12 +3273,12 @@ body.ventana-flotante {
     }
 
     body.con-barra-inferior {
-        padding-bottom: calc(60px + env(safe-area-inset-bottom));
+        padding-bottom: calc(var(--sdc-alto-barra-inferior) + env(safe-area-inset-bottom));
     }
 
     /* Los paneles laterales no quedan tapados por la barra */
     body.con-barra-inferior .panel-chat {
-        bottom: calc(60px + env(safe-area-inset-bottom));
+        bottom: calc(var(--sdc-alto-barra-inferior) + env(safe-area-inset-bottom));
     }
 }
 
@@ -3387,7 +3409,7 @@ body.ventana-flotante {
     flex-shrink: 0;
     width: 28px;
     text-align: center;
-    font-size: 1.15rem;
+    font-size: var(--sdc-texto-xl);
     line-height: 1.4;
 }
 
@@ -3755,7 +3777,7 @@ body.ventana-flotante {
     display: inline-flex;
     align-items: center;
     flex-shrink: 0;
-    min-height: 36px;
+    min-height: var(--sdc-objetivo-raton);
     padding: 0 var(--sdc-espacio-3);
     background: none;
     border: 1px solid var(--ui-borde);
@@ -3812,6 +3834,8 @@ body.ventana-flotante {
     border: none;
     border-bottom: 2px solid transparent;
     color: var(--ui-texto-suave);
+    font-family: inherit;
+    font-size: var(--sdc-texto-md);
     font-weight: var(--sdc-peso-medio);
     cursor: pointer;
 }
@@ -3834,6 +3858,11 @@ body.ventana-flotante {
 
 .auditoria-filtros .form-group[hidden] {
     display: none;
+}
+
+/* El buscador ocupa la fila entera: así se lee el ejemplo */
+.auditoria-buscar {
+    grid-column: 1 / -1;
 }
 
 .auditoria-barra {
@@ -3873,7 +3902,8 @@ body.ventana-flotante {
 
 .auditoria-entrada summary {
     display: grid;
-    grid-template-columns: 9.5rem auto minmax(6rem, 10rem) 1fr;
+    /* Mismos anchos en todas las filas: la columna de "qué" empieza siempre a la misma altura */
+    grid-template-columns: 10rem 8.5rem 9rem minmax(0, 1fr);
     align-items: center;
     gap: var(--sdc-espacio-3);
     min-height: var(--sdc-objetivo-tactil);
@@ -3908,22 +3938,7 @@ body.ventana-flotante {
     color: var(--ui-texto-suave);
 }
 
-/* Etiqueta de la acción: el color va en el borde izquierdo, el texto siempre en el color del tema */
-.auditoria-accion {
-    justify-self: start;
-    padding: 2px var(--sdc-espacio-2);
-    border: 1px solid var(--ui-borde);
-    border-left: 4px solid var(--ui-texto-suave);
-    border-radius: var(--sdc-radio-xs);
-    font-size: var(--sdc-texto-xs);
-    font-weight: var(--sdc-peso-fuerte);
-    white-space: nowrap;
-}
 
-.auditoria-sesion { border-left-color: var(--sdc-agua-claro); }
-.auditoria-crea { border-left-color: var(--sdc-primario); }
-.auditoria-cambia { border-left-color: var(--sdc-dorado); }
-.auditoria-borra { border-left-color: var(--sdc-peligro); }
 
 .auditoria-detalle {
     display: grid;
@@ -3940,6 +3955,10 @@ body.ventana-flotante {
     overflow-wrap: anywhere;
 }
 
+.auditoria-contenido {
+    display: grid;
+}
+
 .auditoria-mas {
     justify-self: center;
     margin-top: var(--sdc-espacio-3);
@@ -3952,7 +3971,7 @@ body.ventana-flotante {
     }
 
     .auditoria-entrada summary {
-        grid-template-columns: auto 1fr;
+        grid-template-columns: 8.5rem minmax(0, 1fr);
     }
 
     .auditoria-cuando {
@@ -3961,5 +3980,27 @@ body.ventana-flotante {
 
     .auditoria-que {
         grid-column: 1 / -1;
+    }
+}
+
+/* Pantallas táctiles: lo compacto (cabecera, fichas de parcelas, lugares, plegar el panel, Meet del chat)
+   crece hasta el objetivo táctil (44 px) */
+@media (pointer: coarse) {
+    .btn-responsable,
+    .estado-sync,
+    .btn-chat,
+    .btn-idioma,
+    .btn-modulos,
+    .ficha,
+    .menu-lugares button,
+    .panel-plegar,
+    .chat-meet {
+        min-height: var(--sdc-objetivo-tactil);
+    }
+
+    .btn-idioma-cabecera,
+    .estado-sync {
+        min-width: var(--sdc-objetivo-tactil);
+        justify-content: center;
     }
 }

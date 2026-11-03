@@ -13,8 +13,8 @@ const NOMBRE_ACCION_AUDITORIA = {
     correo: 'Correo', documento: 'Documento', reporte: 'Reporte', reunion: 'Reunión', calendario: 'Calendario', perfil: 'Perfil',
     alerta: 'Alerta', dispositivo: 'Dispositivo', denegado: 'Sin permiso'
 };
-// Color de cada clase de acción (style.css): lo que entra y sale, lo que crea, lo que cambia, lo que borra o se niega
-const TONO_ACCION_AUDITORIA = { ingreso: 'sesion', salida: 'sesion', crear: 'crea', modificar: 'cambia', eliminar: 'borra', ingreso_rechazado: 'borra', denegado: 'borra' };
+// Tono de la etiqueta (etiqueta-borde, style.css): entrar y salir, crear, cambiar, y borrar o lo que se niega
+const TONO_ACCION_AUDITORIA = { ingreso: 'info', salida: 'info', crear: 'exito', modificar: 'aviso', eliminar: 'peligro', ingreso_rechazado: 'peligro', denegado: 'peligro' };
 const MODULOS_AUDITORIA_EXTRA = { tareas: 'Tareas', reuniones: 'Reuniones' };
 // Nombres de los datos que no son campos del CRM (accesos, metas, correos…)
 const CAMPOS_AUDITORIA = {
@@ -99,9 +99,9 @@ class Auditoria {
                     </div>
                     <button type="button" class="btn-texto auditoria-cerrar">Cerrar</button>
                 </div>
-                <div class="auditoria-pestanas" role="tablist">
-                    <button type="button" role="tab" class="auditoria-pestana" data-vista="actividad" aria-selected="true">Actividad</button>
-                    <button type="button" role="tab" class="auditoria-pestana" data-vista="personas" aria-selected="false">Por persona</button>
+                <div class="auditoria-pestanas" role="tablist" aria-label="Vistas de la auditoría">
+                    <button type="button" role="tab" class="auditoria-pestana" id="auditoria-pestana-actividad" data-vista="actividad" aria-selected="true" aria-controls="auditoria-panel">Actividad</button>
+                    <button type="button" role="tab" class="auditoria-pestana" id="auditoria-pestana-personas" data-vista="personas" aria-selected="false" aria-controls="auditoria-panel" tabindex="-1">Por persona</button>
                 </div>
                 <form class="auditoria-filtros">
                     <div class="form-group"><label for="auditoria-persona">Persona</label><select id="auditoria-persona" name="email"><option value="">Todas</option></select></div>
@@ -117,11 +117,23 @@ class Auditoria {
                     <p class="dialogo-nota auditoria-integridad" aria-live="polite"></p>
                 </div>
                 <p class="form-error auditoria-error" role="alert" hidden></p>
-                <div class="auditoria-contenido"></div>
+                <div class="auditoria-contenido" id="auditoria-panel" role="tabpanel" aria-labelledby="auditoria-pestana-actividad"></div>
             </div>`;
         document.body.appendChild(d);
         d.querySelector('.auditoria-cerrar').addEventListener('click', () => d.close());
-        d.querySelectorAll('.auditoria-pestana').forEach(b => b.addEventListener('click', () => this.verVista(b.dataset.vista)));
+        const pestanas = [...d.querySelectorAll('.auditoria-pestana')];
+        pestanas.forEach((b, i) => {
+            b.addEventListener('click', () => this.verVista(b.dataset.vista));
+            // Teclado de pestañas: flechas, Inicio y Fin mueven y activan
+            b.addEventListener('keydown', (e) => {
+                const destino = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: pestanas.length - 1 }[e.key];
+                if (destino === undefined) return;
+                e.preventDefault();
+                const otra = pestanas[(destino + pestanas.length) % pestanas.length];
+                otra.focus();
+                this.verVista(otra.dataset.vista);
+            });
+        });
         const form = d.querySelector('.auditoria-filtros');
         form.addEventListener('submit', (e) => e.preventDefault());
         let espera = null;
@@ -141,7 +153,12 @@ class Auditoria {
 
     verVista(vista) {
         this.vista = vista;
-        this.dialogo.querySelectorAll('.auditoria-pestana').forEach(b => b.setAttribute('aria-selected', String(b.dataset.vista === vista)));
+        this.dialogo.querySelectorAll('.auditoria-pestana').forEach(b => {
+            const activa = b.dataset.vista === vista;
+            b.setAttribute('aria-selected', String(activa));
+            b.tabIndex = activa ? 0 : -1;
+            if (activa) this.dialogo.querySelector('#auditoria-panel').setAttribute('aria-labelledby', b.id);
+        });
         // Por persona solo filtra por fechas
         this.dialogo.querySelectorAll('.auditoria-filtros .form-group').forEach(g => {
             g.hidden = vista === 'personas' && !g.querySelector('input[type="date"]');
@@ -247,7 +264,8 @@ class Auditoria {
         cuando.dateTime = new Date(e.creado).toISOString();
         cuando.textContent = this.cuando(e.creado);
         const etiqueta = document.createElement('span');
-        etiqueta.className = `auditoria-accion auditoria-${TONO_ACCION_AUDITORIA[e.accion] || 'otra'}`;
+        etiqueta.className = 'etiqueta-borde';
+        if (TONO_ACCION_AUDITORIA[e.accion]) etiqueta.dataset.tono = TONO_ACCION_AUDITORIA[e.accion];
         etiqueta.textContent = NOMBRE_ACCION_AUDITORIA[e.accion] || e.accion;
         const quien = document.createElement('strong');
         quien.className = 'auditoria-quien';
@@ -296,7 +314,7 @@ class Auditoria {
             });
             tabla.appendChild(tbody);
             const envoltura = document.createElement('div');
-            envoltura.className = 'indicadores-tabla';
+            envoltura.className = 'tabla-datos';
             envoltura.appendChild(tabla);
             caja.appendChild(envoltura);
         }
@@ -316,7 +334,7 @@ class Auditoria {
             return;
         }
         const envoltura = document.createElement('div');
-        envoltura.className = 'indicadores-tabla';
+        envoltura.className = 'tabla-datos';
         const tabla = document.createElement('table');
         const cabeceras = ['Persona', 'Ingresos', 'Último ingreso', 'Creó', 'Cambió', 'Borró', 'Sin permiso', 'Última actividad'];
         tabla.innerHTML = `<thead><tr>${cabeceras.map(c => `<th scope="col">${escaparAuditoria(traducir(c))}</th>`).join('')}</tr></thead>`;

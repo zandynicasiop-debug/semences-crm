@@ -312,7 +312,7 @@ class PanelIndicadores {
 
     tabla(cabeceras, filas, pie = '') {
         const envoltura = document.createElement('div');
-        envoltura.className = 'indicadores-tabla';
+        envoltura.className = 'tabla-datos';
         const t = document.createElement('table');
         const thead = document.createElement('thead');
         const tr = document.createElement('tr');

@@ -778,6 +778,7 @@ window.TEXTOS_EN = {
     'Auditoría': 'Audit log',
     'Quién entró y qué creó, cambió o borró cada persona. Solo se añade: nada se puede cambiar ni borrar.': 'Who signed in and what each person created, changed or deleted. Entries are only ever added: nothing can be changed or deleted.',
     'Actividad': 'Activity',
+    'Vistas de la auditoría': 'Audit log views',
     'Por persona': 'By person',
     'Persona': 'Person',
     'Todas': 'All',
