@@ -1,25 +1,26 @@
 /* Páginas públicas de Política de Privacidad y Condiciones del Servicio (las pide Google para verificar la app).
-   Hojas sueltas, sin JavaScript: se leen igual sin conexión con el servidor. Colores y letras de la app */
+   Hojas sueltas, sin JavaScript: se leen igual sin conexión con el servidor. Colores y letras de la app:
+   cada valor es el del token de style.css que va al lado (si cambia allí, hay que cambiarlo aquí) */
 :root {
-    --fondo: #F0FDF4;
-    --hoja: #FFFFFF;
-    --texto: #14281C;
-    --suave: #4B6656;
+    --fondo: #F0FDF4;      /* --sdc-claro */
+    --hoja: #FFFFFF;       /* --sdc-blanco */
+    --texto: #14281C;      /* --sdc-tinta */
+    --suave: #4B6355;      /* --sdc-tinta-suave */
     --borde: #D1E7D8;
-    --enlace: #15803D;
-    --destacado: #DCFCE7;
+    --enlace: #15803D;     /* --sdc-primario-oscuro */
+    --destacado: #DCFCE7;  /* --sdc-menta-claro */
     --titulo: 'Lora', Georgia, 'Times New Roman', serif;
     --cuerpo: 'Raleway', 'Segoe UI', system-ui, -apple-system, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
     :root {
-        --fondo: #0B1F14;
-        --hoja: #10291B;
-        --texto: #E3F5E8;
-        --suave: #9DBBA8;
+        --fondo: #0B1F14;      /* --sdc-fondo */
+        --hoja: #12291B;       /* --sdc-tarjeta */
+        --texto: #E7F6EC;      /* --sdc-texto */
+        --suave: #A7C4B2;      /* --sdc-texto-suave */
         --borde: #24452F;
-        --enlace: #4ADE80;
+        --enlace: #4ADE80;     /* --sdc-brote */
         --destacado: #143D24;
         color-scheme: dark;
     }

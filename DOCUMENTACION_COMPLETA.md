@@ -287,11 +287,12 @@ comprueba además que la hoja tenga las llaves equilibradas.
 
 | Familia | Tokens | Para qué |
 |---|---|---|
-| Marca (`--sdc-*`) | `fondo`, `tarjeta`, `primario`, `brote`, `menta`, `dorado`, `peligro`, `agua`… | Colores fijos de la marca; los lee también la escena 3D (`app.js`) |
-| Tema (`--ui-*`) | `fondo`, `tarjeta`, `apagado`, `borde`, `texto`, `texto-suave`, `titulo`, `enlace`, `error`, `aviso`, `foco`, `grafico`, `aviso-grafico` | Cambian entre oscuro y claro (tres bloques: oscuro por defecto, `prefers-color-scheme: light` y `data-tema="claro"`). **Un color nuevo de la interfaz va aquí, con su valor en los tres bloques** |
+| Marca (`--sdc-*`) | `fondo`, `tarjeta`, `primario`, `brote`, `menta`, `dorado`, `peligro`, `agua-claro`…; para el tema claro `tinta`, `tinta-suave`, `hoja-oscura`, `cielo`, `cielo-oscuro`, `oro-oscuro`, `violeta`, `naranja` | La paleta: los únicos colores escritos con su valor. Los lee también la escena 3D (`app.js`) |
+| Tema (`--ui-*`) | `fondo`, `tarjeta`, `apagado`, `borde`, `texto`, `texto-suave`, `titulo`, `enlace`, `error`, `aviso`, `foco`, `grafico`, `aviso-grafico` | Cambian entre oscuro y claro (tres bloques: oscuro por defecto, `prefers-color-scheme: light` y `data-tema="claro"`). Siempre apuntan a la paleta (`var(--sdc-…)`), nunca a un color escrito. **Un color nuevo de la interfaz va aquí, en los tres bloques** |
 | Gráficos | `--ui-grafico` (barras, azul) y `--ui-aviso-grafico` (bajo el mínimo, ámbar) | Comprobados para daltonismo. `--ui-aviso` es para texto y bordes; `--ui-aviso-grafico`, para rellenos. Un aviso nunca va solo con color: lleva ⚠️ y texto |
-| Tipografía | `--font-titulo` (Lora), `--font-cuerpo` (Raleway), `--font-dato` (JetBrains Mono); tamaños `--sdc-texto-xs…xl` y `--sdc-texto-cifra`; pesos `--sdc-peso-normal/medio/fuerte/extra` (400/600/700/800) | Mínimo 0,7 rem; los campos de formulario, 1 rem (evita el zoom del móvil) |
-| Espaciado | `--sdc-espacio-1…6` (4, 6, 8, 12, 16, 20 px) | Márgenes, rellenos y huecos. Solo los ajustes de 1–2 px van a mano |
+| Tipografía | `--font-titulo` (Lora), `--font-cuerpo` (Raleway), `--font-dato` (JetBrains Mono); tamaños `--sdc-texto-xs…xl` y `--sdc-texto-cifra`; pesos `--sdc-peso-medio/fuerte/extra` (600/700/800) | Mínimo 0,7 rem; los campos de formulario, 1 rem (evita el zoom del móvil) |
+| Espaciado | `--sdc-espacio-0…6` (2, 4, 6, 8, 12, 16, 20 px) | Márgenes, rellenos y huecos. Solo los bordes de 1 px van a mano |
+| Iconos | `--sdc-icono-xs/sm/md/lg` (16, 18, 20, 22 px) | Los SVG de `iconos.js`, el logo y las flechas de los menús |
 | Bordes y sombras | `--sdc-radio-barra/xs/sm/md/pildora` (4, 6, 10, 16, 999 px), `--sdc-sombra`, `--sdc-sombra-acento` | Los avatares usan `50%` |
 | Estados | `--sdc-transicion`, `--sdc-opacidad-apagado`, `--sdc-objetivo-tactil` (44 px), `--sdc-objetivo-raton` (36 px) | Lo que se pulsa mide al menos 44 px. Lo compacto (botones de la cabecera, fichas de parcelas, lugares, plegar el panel, Meet del chat) puede medir 36 px con ratón y sube a 44 px en pantallas táctiles (`pointer: coarse`); lo deshabilitado se apaga |
 | Diálogos | `--sdc-dialogo-sm/md/lg/xl` (560, 640, 720, 960 px) y `--sdc-velo-dialogo` | Ancho de cada diálogo según su contenido (`xl`: listas anchas con filtros, como la auditoría) |
@@ -302,21 +303,24 @@ comprueba además que la hoja tenga las llaves equilibradas.
 
 | Componente | Clases | Estados |
 |---|---|---|
-| Botón | `btn-primary` (acción principal), `btn-secondary` (alternativa), `btn-texto` (acción menor), `btn-peligro` (con `btn-texto`, para quitar o rechazar) | hover, foco (`--ui-foco`), deshabilitado. Mientras una acción se envía, el botón se deshabilita (`disabled`) |
-| Campo | `form-group` (etiqueta + campo + error) | foco común a todos los campos, error con `aria-invalid="true"` y `.form-error`, deshabilitado |
+| Botón | `btn-primary` (acción principal), `btn-secondary` (alternativa), `btn-texto` (acción menor), `btn-peligro` (con `btn-texto`, para quitar o rechazar) | hover, foco (`--ui-foco`), pulsado (se hunde 1 px), deshabilitado y **cargando**: mientras espera al servidor se usa `botonOcupado(boton, true, 'Enviando…')` (`tema.js`), que lo bloquea, pone `aria-busy` y un círculo que gira; `botonOcupado(boton, false)` lo devuelve como estaba |
+| Campo | `form-group` (etiqueta + campo + error); las líneas de la cotización (`cotizacion-filas`) usan el mismo campo, más compacto con ratón | foco común a todos los campos, error con `aria-invalid="true"` y `.form-error`, deshabilitado |
 | Diálogo | `dialogo` (+ `dialogo-tablero`, `dialogo-reporte`, `dialogo-indicadores`, `dialogo-auditoria` para el ancho), `dialogo-form`, `dialogo-subtitulo`, `dialogo-nota`, `modal-actions` | `<dialog>` nativo con `showModal()`: Escape cierra, salvo el reporte semanal bloqueado |
 | Aviso flotante | `aviso-flotante` (`data-tipo`: normal, `alerta`, `error`), con `window.equipo.mostrarAviso()` | — |
 | Etiqueta | `etiqueta` (pastilla llena) y `etiqueta-borde` con `data-tono` = `info`, `exito`, `aviso` o `peligro` (borde izquierdo de color, texto del tema: para listas largas) | El tono nunca va solo: la etiqueta siempre lleva su texto |
 | Tabla de datos | `tabla-datos` (envoltura con desplazamiento horizontal + `table`) | Cabeceras con `scope="col"`; la usan el panel de indicadores y la auditoría |
 | Pestañas | `role="tablist"` con botones `role="tab"` (`aria-selected`, `aria-controls`, `tabindex` 0/-1) y un panel `role="tabpanel"` | Flechas izquierda y derecha, Inicio y Fin mueven y activan. Para un sí/no de dos opciones, botones con `aria-pressed` (como Semana pasada / Esta semana del reporte) |
 | Idioma | `btn-idioma` (+ `btn-idioma-cabecera`, `btn-idioma-entrada`), lo crea `Idioma.crearBoton()` | Escribe el otro idioma en ese idioma (*English* / *Español*, *EN* / *ES* en pantallas estrechas) y va con `translate="no"` |
+| Menú desplegable | `menu-desplegable` (la lista) para el menú de módulos (`#lista-modulos`, el botón verde) y el del logo (`#lista-app` + `lista-app`, cuenta, equipo, tema…) | Flechas, Inicio, Fin y Escape; se cierra al pulsar fuera; abrir uno cierra el otro. Lo que no es un módulo va en el del logo |
 | Ficha de cifra | `metric-card` (escena) e `indicadores-ficha` (panel) | `-aviso` con borde ámbar y ⚠️ |
 
 **Nombres de clases:** en español y con el prefijo de su pantalla (`chat-`, `tablero-`, `mapa-`, `ig-`,
-`indicadores-`, `reporte-`, `cotizador-`, `auditoria-`). Lo que usan dos pantallas lleva un nombre general (`tabla-datos`, `etiqueta-borde`), no el de una de ellas. `panel-` es solo del panel lateral de la escena. Lo heredado en inglés
+`indicadores-`, `reporte-`, `cotizacion-`, `auditoria-`). Lo que usan dos pantallas lleva un nombre general (`tabla-datos`, `etiqueta-borde`), no el de una de ellas. `panel-` es solo del panel lateral de la escena. Lo heredado en inglés
 (`btn-primary`, `btn-secondary`, `modal-actions`, `metric-card`, `nav-tab`, `table-container`, `brand-*`) se
 mantiene por compatibilidad; lo nuevo, en español. Antes de crear una clase, búscala en `style.css`: dos
 pantallas con la misma clase se pisan los estilos.
+
+**Puntos de corte** (en `@media` no se pueden usar tokens): 1360 y 1100 px (escena y paneles anchos), 768 px (tableta), 600 px (móvil: tablas en tarjetas, menús a todo el ancho) y 520 px (móvil estrecho). Uno nuevo usa uno de estos.
 
 **Accesibilidad:** contraste mínimo 4,5:1 en el tema claro (pensado para leer a pleno sol), foco visible en todo lo
 que se pulsa, `prefers-reduced-motion` respetado y alto contraste de Windows (`forced-colors`) en barras, botón

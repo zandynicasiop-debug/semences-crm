@@ -55,3 +55,23 @@ window.addEventListener('load', () => setTimeout(() => {
     }
     aplicarTema(temaGuardado());
 }));
+
+/**
+ * Botón ocupado mientras algo tarda (enviar, consultar, generar…): indicador giratorio (aria-busy, con su
+ * estilo en style.css), no se puede pulsar otra vez y, si se da, un texto como "Enviando…". Al terminar
+ * vuelve el texto de antes. Lo usan todos los botones que esperan al servidor, para que se vean igual.
+ */
+function botonOcupado(boton, ocupado, texto = '') {
+    if (!boton) return;
+    if (ocupado) {
+        if (boton.dataset.textoOriginal === undefined) boton.dataset.textoOriginal = boton.textContent;
+        if (texto) boton.textContent = texto;
+        boton.setAttribute('aria-busy', 'true');
+        boton.disabled = true;
+    } else {
+        if (boton.dataset.textoOriginal !== undefined) boton.textContent = boton.dataset.textoOriginal;
+        delete boton.dataset.textoOriginal;
+        boton.removeAttribute('aria-busy');
+        boton.disabled = false;
+    }
+}

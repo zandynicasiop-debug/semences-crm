@@ -444,10 +444,10 @@ class Responsable {
             const input = dialogo.querySelector('#sala-telefono');
             const error = dialogo.querySelector('#sala-error');
             const boton = dialogo.querySelector('.sala-enviar');
-            boton.disabled = true;
+            botonOcupado(boton, true);
             const aprobado = (this.ambito || {}).estado === 'aprobado';
             const respuesta = await this.conector.backend('/api/accion', { accion: aprobado ? 'telefono' : 'sala', telefono: input.value });
-            boton.disabled = false;
+            botonOcupado(boton, false);
             if (!respuesta || !respuesta.ok) {
                 error.textContent = (respuesta && respuesta.error) || 'No se pudo enviar. Revisa la conexión.';
                 error.hidden = false;
@@ -631,12 +631,9 @@ class Responsable {
         const accionWorkspace = (selector, accion, exito) => {
             const boton = dialogo.querySelector(selector);
             boton.addEventListener('click', async () => {
-                const texto = boton.textContent;
-                boton.disabled = true;
-                boton.textContent = 'Un momento…';
+                botonOcupado(boton, true, 'Un momento…');
                 const respuesta = this.conector ? await this.conector.backend('/api/accion', { accion }) : null;
-                boton.disabled = false;
-                boton.textContent = texto;
+                botonOcupado(boton, false);
                 if (window.equipo) window.equipo.mostrarAviso(respuesta && respuesta.ok ? exito(respuesta) : ((respuesta && respuesta.error) || 'No se pudo. Revisa la conexión.'), respuesta && respuesta.ok ? undefined : 'error');
             });
         };

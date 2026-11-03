@@ -836,11 +836,9 @@ class CRM {
 
     async rastrearEnvio(registro, boton) {
         const aviso = (texto, tipo) => { if (window.equipo) window.equipo.mostrarAviso(texto, tipo); };
-        boton.disabled = true;
-        boton.textContent = 'Consultando…';
+        botonOcupado(boton, true, 'Consultando…');
         const respuesta = await this.google.enviar('rastrear', { id: registro.id }, true);
-        boton.disabled = false;
-        boton.textContent = 'Rastrear';
+        botonOcupado(boton, false);
         if (!respuesta || !respuesta.ok) {
             aviso((respuesta && respuesta.error) || 'No se pudo consultar la guía. Revisa la conexión.', 'alerta');
             return;
@@ -1041,11 +1039,9 @@ class CRM {
             rendimientos: lineas(rendimientos, r => `${formatearFecha(r.fecha)} · ${r.lote}: ${r.unidades} unidades${r.canastos ? `, ${r.canastos} canastos` : ''}`)
         };
         const aviso = (texto, tipo) => { if (window.equipo) window.equipo.mostrarAviso(texto, tipo); };
-        boton.disabled = true;
-        boton.textContent = 'Generando reporte…';
+        botonOcupado(boton, true, 'Generando reporte…');
         const respuesta = await this.google.crearReporte(`Reporte ${cliente.nombre} ${hoyISO()}`, campos, { id: cliente.id, nombre: cliente.nombre });
-        boton.disabled = false;
-        boton.textContent = 'Reporte PDF en Drive';
+        botonOcupado(boton, false);
         if (!respuesta || !respuesta.ok) return aviso((respuesta && respuesta.error) || 'No se pudo generar el reporte. Revisa la conexión.', 'error');
         aviso('Reporte guardado en Google Drive.');
         // Enlace junto al botón (abrir una pestaña tras esperar al servidor lo bloquean los navegadores)
@@ -1149,8 +1145,7 @@ class CRM {
                 return;
             }
             const boton = form.querySelector('button[type="submit"]');
-            boton.disabled = true;
-            boton.textContent = 'Agendando…';
+            botonOcupado(boton, true, 'Agendando…');
             const conInvitacion = invitar.checked && cliente.correo;
             const respuesta = await this.google.enviar('calendar', {
                 titulo: `Reunión · ${cliente.nombre} · Semences del Caribe`,
@@ -1161,8 +1156,7 @@ class CRM {
                 invitados: conInvitacion ? [cliente.correo] : [],
                 whatsapp: conInvitacion ? cliente.whatsapp : ''
             }, true);
-            boton.disabled = false;
-            boton.textContent = 'Agendar reunión';
+            botonOcupado(boton, false);
             if (!respuesta || !respuesta.ok) {
                 error.textContent = (respuesta && respuesta.error) || 'No se pudo agendar. Revisa la conexión.';
                 error.hidden = false;

@@ -195,6 +195,7 @@ class Cotizador {
             input.addEventListener('input', () => {
                 alCambiar(input.value);
                 errorLineas.hidden = true;
+                input.closest('li').querySelectorAll('[aria-invalid]').forEach(c => c.removeAttribute('aria-invalid'));
                 recalcular();
             });
             return input;
@@ -304,7 +305,13 @@ class Cotizador {
                 ? 'Añade al menos un producto con su cantidad y su precio.'
                 : `Revisa el producto ${mal + 1}: necesita nombre, una cantidad mayor que 0 y el precio (0 si va sin cargo).`;
             errorLineas.hidden = false;
-            form.querySelectorAll('.cotizacion-producto')[Math.max(mal, 0)].focus();
+            // La línea que falla, en rojo y unida al mensaje (el lector de pantalla lo lee al llegar)
+            const fila = form.querySelectorAll('.cotizacion-filas li')[Math.max(mal, 0)];
+            fila.querySelectorAll('input').forEach(c => {
+                c.setAttribute('aria-invalid', 'true');
+                c.setAttribute('aria-describedby', 'cot-lineas-error');
+            });
+            fila.querySelector('.cotizacion-producto').focus();
             return;
         }
         let motivo = '';
@@ -369,8 +376,7 @@ class Cotizador {
         const para = window.prompt(`¿A qué correo envías la cotización de ${pdf.cliente}? (varios, separados por comas)`, (ficha && ficha.correo) || this.ultimoCorreo || '');
         if (!para || !para.trim()) return;
         this.ultimoCorreo = para.trim();
-        boton.disabled = true;
-        boton.textContent = 'Enviando…';
+        botonOcupado(boton, true, 'Enviando…');
         const preparo = window.responsable ? window.responsable.nombre : '';
         const respuesta = await this.conector.enviarCorreo({
             para: this.ultimoCorreo,
@@ -379,8 +385,7 @@ class Cotizador {
             adjunto: { nombre: pdf.archivo, tipo: 'application/pdf', base64: pdf.doc.output('datauristring').split(',')[1] },
             whatsapp: (ficha && ficha.whatsapp) || ''
         });
-        boton.disabled = false;
-        boton.textContent = 'Enviar por correo';
+        botonOcupado(boton, false);
         if (respuesta && respuesta.ok) this.aviso(`Cotización enviada a ${this.ultimoCorreo}${respuesta.avisoWhatsapp ? '; se le avisa por WhatsApp' : ''}.`);
         else this.aviso((respuesta && respuesta.error) || 'No se pudo enviar el correo. Revisa la conexión.', 'error');
     }

@@ -394,12 +394,10 @@ class ReporteSemanal {
             boton.className = 'btn-secondary';
             boton.textContent = 'Hacer el resumen del equipo';
             boton.addEventListener('click', async () => {
-                boton.disabled = true;
-                boton.textContent = 'Leyendo los reportes…';
+                botonOcupado(boton, true, 'Leyendo los reportes…');
                 const respuesta = await this.google.enviar('reporteSemanal', { operacion: 'resumenEquipo', semana: r.semana }, true);
                 if (!respuesta || !respuesta.ok) {
-                    boton.disabled = false;
-                    boton.textContent = 'Hacer el resumen del equipo';
+                    botonOcupado(boton, false);
                     this.aviso((respuesta && respuesta.error) || 'No se pudo hacer el resumen. Revisa la conexión.', 'error');
                     return;
                 }

@@ -216,14 +216,12 @@ class ReunionesMetas {
             if (!participantes.length) return this.errorEn(form, 'Elige al menos una persona.');
             const fin = new Date(inicio.getTime() + Number(form.querySelector('#re-duracion').value) * 60000);
             const boton = form.querySelector('button[type="submit"]');
-            boton.disabled = true;
-            boton.textContent = 'Creando…';
+            botonOcupado(boton, true, 'Creando…');
             const r = await this.google.enviar('reunion', {
                 operacion: 'crear', titulo, participantes, inicio: inicio.toISOString(), fin: fin.toISOString(),
                 descripcion: form.querySelector('#re-descripcion').value
             }, true);
-            boton.disabled = false;
-            boton.textContent = 'Crear e invitar';
+            botonOcupado(boton, false);
             if (!r || !r.ok) return this.errorEn(form, (r && r.error) || 'No se pudo crear. Revisa la conexión.');
             this.aviso(`Reunión creada con Meet; se invitó a ${participantes.length} persona${participantes.length === 1 ? '' : 's'}.`);
             if (window.baseDatos) await window.baseDatos.sincronizar();

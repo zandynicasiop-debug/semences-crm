@@ -34,9 +34,16 @@
     --sdc-peligro: #DC2626;
     --sdc-peligro-oscuro: #B91C1C;
     --sdc-peligro-claro: #FCA5A5;  /* Errores de formulario: el rojo de peligro no se lee sobre fondo oscuro */
-    --sdc-agua: #0C4A6E;
     --sdc-agua-claro: #38BDF8;
-    --sdc-agua-palido: #BAE6FD;
+    /* Tema claro: tinta y tonos más oscuros para leer sobre fondo claro (los usan los --ui-* del tema) */
+    --sdc-tinta: #14281C;
+    --sdc-tinta-suave: #4B6355;
+    --sdc-hoja-oscura: #166534;
+    --sdc-cielo: #0B95D6;          /* Gráficos y seguimientos de la agenda */
+    --sdc-cielo-oscuro: #0369A1;
+    --sdc-oro-oscuro: #B97D04;     /* Avisos de los gráficos */
+    --sdc-violeta: #8B5CF6;        /* Reuniones de la agenda */
+    --sdc-naranja: #E07A2E;        /* Envíos de la agenda */
 
     /* Tipografía: familias y escala (mínimo 0.7rem = 11px) */
     --font-titulo: 'Lora', Georgia, serif;
@@ -48,12 +55,12 @@
     --sdc-texto-lg: 1rem;
     --sdc-texto-xl: 1.25rem;
     --sdc-texto-cifra: 1.6rem;  /* Cifras grandes de las fichas (panel de indicadores) */
-    --sdc-peso-normal: 400;
     --sdc-peso-medio: 600;
     --sdc-peso-fuerte: 700;
     --sdc-peso-extra: 800;
 
     /* Espaciado */
+    --sdc-espacio-0: 2px;            /* Huecos mínimos: entre opciones de un menú, dentro de una pastilla */
     --sdc-espacio-1: 4px;
     --sdc-espacio-2: 6px;
     --sdc-espacio-3: 8px;
@@ -99,6 +106,11 @@
     /* Accesibilidad: alto mínimo de lo que se toca o se pulsa */
     --sdc-objetivo-tactil: 44px;
     --sdc-objetivo-raton: 36px;      /* Botones compactos de la cabecera con ratón; en pantallas táctiles suben a 44 px */
+    /* Iconos: los SVG de la app (iconos.js), el logo y las flechas de los menús */
+    --sdc-icono-xs: 16px;            /* Dentro de un texto o de una fila */
+    --sdc-icono-sm: 18px;            /* En botones y títulos */
+    --sdc-icono-md: 20px;            /* Botones solo con icono */
+    --sdc-icono-lg: 22px;            /* Barra inferior del móvil y logo compacto */
     --sdc-alto-barra-inferior: 60px; /* Barra de accesos del teléfono: botón de 52 px + su relleno */
 }
 
@@ -125,8 +137,8 @@
     --ui-foco: var(--sdc-blanco);
     /* Gráficos: relleno de barras y relleno de "bajo el mínimo". --ui-aviso es para texto y bordes (más
        claro); estos son rellenos, más oscuros para que barras y fondo se distingan también con daltonismo */
-    --ui-grafico: #0B95D6;
-    --ui-aviso-grafico: #B97D04;
+    --ui-grafico: var(--sdc-cielo);
+    --ui-aviso-grafico: var(--sdc-oro-oscuro);
 }
 
 /* Claro: texto oscuro sobre verde muy pálido, para leer a pleno sol (contraste mínimo 4.5:1) */
@@ -134,21 +146,21 @@
     :root:not([data-tema="oscuro"]) {
         color-scheme: light;
         --ui-fondo: var(--sdc-claro);
-        --ui-tarjeta: #FFFFFF;
+        --ui-tarjeta: var(--sdc-blanco);
         --ui-apagado: var(--sdc-menta-claro);
         --ui-velo: rgba(240, 253, 244, 0.92);
         --ui-velo-suave: rgba(240, 253, 244, 0.8);
         --ui-borde: rgba(20, 83, 45, 0.18);
-        --ui-texto: #14281C;
-        --ui-texto-suave: #4B6355;
+        --ui-texto: var(--sdc-tinta);
+        --ui-texto-suave: var(--sdc-tinta-suave);
         --ui-titulo: var(--sdc-fondo);
         --ui-enlace: var(--sdc-primario-oscuro);
-        --ui-menta-texto: #166534;
+        --ui-menta-texto: var(--sdc-hoja-oscura);
         --ui-error: var(--sdc-peligro-oscuro);
         --ui-aviso: var(--sdc-acento);
         --ui-foco: var(--sdc-verde-profundo);
         --sdc-sombra: 0 4px 12px rgba(20, 83, 45, 0.15);
-        --ui-grafico: #0369A1;
+        --ui-grafico: var(--sdc-cielo-oscuro);
         --ui-aviso-grafico: var(--ui-aviso);
     }
 }
@@ -156,21 +168,21 @@
 :root[data-tema="claro"] {
     color-scheme: light;
     --ui-fondo: var(--sdc-claro);
-    --ui-tarjeta: #FFFFFF;
+    --ui-tarjeta: var(--sdc-blanco);
     --ui-apagado: var(--sdc-menta-claro);
     --ui-velo: rgba(240, 253, 244, 0.92);
     --ui-velo-suave: rgba(240, 253, 244, 0.8);
     --ui-borde: rgba(20, 83, 45, 0.18);
-    --ui-texto: #14281C;
-    --ui-texto-suave: #4B6355;
+    --ui-texto: var(--sdc-tinta);
+    --ui-texto-suave: var(--sdc-tinta-suave);
     --ui-titulo: var(--sdc-fondo);
     --ui-enlace: var(--sdc-primario-oscuro);
-    --ui-menta-texto: #166534;
+    --ui-menta-texto: var(--sdc-hoja-oscura);
     --ui-error: var(--sdc-peligro-oscuro);
     --ui-aviso: var(--sdc-acento);
     --ui-foco: var(--sdc-verde-profundo);
     --sdc-sombra: 0 4px 12px rgba(20, 83, 45, 0.15);
-    --ui-grafico: #0369A1;
+    --ui-grafico: var(--sdc-cielo-oscuro);
     --ui-aviso-grafico: var(--ui-aviso);
 }
 
@@ -244,7 +256,8 @@ summary {
     min-width: 0;
 }
 
-/* Menú de módulos: botón con el módulo actual y lista desplegable */
+/* Menú de módulos: botón con el módulo actual y lista desplegable. La lista (.menu-desplegable) es la misma
+   para el menú del logo (.lista-app, que se abre hacia la derecha) */
 .menu-modulos {
     position: relative;
     flex-shrink: 0;
@@ -267,8 +280,8 @@ summary {
 }
 
 .btn-modulos svg {
-    width: 18px;
-    height: 18px;
+    width: var(--sdc-icono-sm);
+    height: var(--sdc-icono-sm);
     flex-shrink: 0;
 }
 
@@ -285,19 +298,24 @@ summary {
     transform: rotate(180deg);
 }
 
+/* Al pasar por encima se oscurece (aclararlo dejaría el texto blanco sin contraste) */
+.btn-modulos:hover {
+    background: var(--sdc-verde-profundo);
+}
+
 .btn-modulos:focus-visible {
     outline: 2px solid var(--ui-foco);
     outline-offset: 2px;
 }
 
-.lista-modulos {
+.menu-desplegable {
     position: absolute;
     top: calc(100% + var(--sdc-espacio-2));
     right: 0;
     z-index: var(--sdc-capa-menu);
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--sdc-espacio-0);
     min-width: 240px;
     padding: var(--sdc-espacio-2);
     background: var(--ui-tarjeta);
@@ -306,7 +324,7 @@ summary {
     box-shadow: var(--sdc-sombra);
 }
 
-.lista-modulos[hidden] {
+.menu-desplegable[hidden] {
     display: none;
 }
 
@@ -505,15 +523,15 @@ summary {
     display: inline-flex;
     align-items: center;
     gap: var(--sdc-espacio-1);
-    min-height: 36px;
+    min-height: var(--sdc-objetivo-raton);
     padding: 0 var(--sdc-espacio-3);
     font-size: var(--sdc-texto-sm);
 }
 
 .chat-meet .icono,
 .chat-meet-enlace .icono {
-    width: 18px;
-    height: 18px;
+    width: var(--sdc-icono-sm);
+    height: var(--sdc-icono-sm);
     flex-shrink: 0;
 }
 
@@ -760,7 +778,7 @@ summary {
     display: flex;
     align-items: baseline;
     gap: var(--sdc-espacio-3);
-    margin-bottom: 2px;
+    margin-bottom: var(--sdc-espacio-0);
     font-size: var(--sdc-texto-xs);
 }
 
@@ -1028,7 +1046,7 @@ summary {
 
 .etiqueta {
     display: inline-block;
-    padding: 2px var(--sdc-espacio-3);
+    padding: var(--sdc-espacio-0) var(--sdc-espacio-3);
     border-radius: var(--sdc-radio-pildora);
     background: var(--sdc-verde-profundo);
     color: var(--sdc-menta);
@@ -1042,7 +1060,7 @@ summary {
 .etiqueta-borde {
     display: inline-block;
     justify-self: start;
-    padding: 2px var(--sdc-espacio-2);
+    padding: var(--sdc-espacio-0) var(--sdc-espacio-2);
     border: 1px solid var(--ui-borde);
     border-left: 4px solid var(--ui-texto-suave);
     border-radius: var(--sdc-radio-xs);
@@ -1110,7 +1128,7 @@ summary {
 
 .grupo-cliente-meta {
     display: block;
-    margin-top: 2px;
+    margin-top: var(--sdc-espacio-0);
     font-size: var(--sdc-texto-sm);
     color: var(--ui-texto-suave);
 }
@@ -1273,6 +1291,44 @@ summary {
     color: var(--ui-texto);
 }
 
+/* Pulsado: se hunde un poco, para que en el móvil se note que el toque llegó */
+.btn-primary:active:not(:disabled),
+.btn-secondary:active:not(:disabled),
+.btn-texto:active:not(:disabled),
+.menu-extra:active,
+.btn-app:active,
+.btn-modulos:active {
+    transform: translateY(1px);
+}
+
+/* Cargando (botonOcupado en tema.js): un círculo que gira delante del texto, en el color del botón */
+:is(.btn-primary, .btn-secondary, .btn-texto)[aria-busy="true"] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sdc-espacio-2);
+    cursor: progress;
+}
+
+:is(.btn-primary, .btn-secondary, .btn-texto)[aria-busy="true"]::before {
+    content: '';
+    width: 1em;
+    height: 1em;
+    flex-shrink: 0;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: girar 0.7s linear infinite;
+}
+
+:is(.btn-primary, .btn-secondary, .btn-texto)[aria-busy="true"]:disabled {
+    opacity: 1; /* Cargando no es "no disponible": se ve entero, con su círculo */
+}
+
+@keyframes girar {
+    to { transform: rotate(360deg); }
+}
+
 .btn-peligro:hover {
     color: var(--sdc-blanco);
     background: var(--sdc-peligro);
@@ -1409,7 +1465,8 @@ summary {
 .form-group select,
 .form-group textarea,
 .meta-form :is(input, select),
-.agenda-barra input {
+.agenda-barra input,
+.cotizacion-filas input {
     min-height: var(--sdc-objetivo-tactil);
     padding: var(--sdc-espacio-3) var(--sdc-espacio-4);
     background: var(--ui-fondo);
@@ -1430,7 +1487,8 @@ summary {
     outline-offset: 1px;
 }
 
-.form-group [aria-invalid="true"] {
+.form-group [aria-invalid="true"],
+.cotizacion-filas [aria-invalid="true"] {
     border-color: var(--sdc-peligro);
 }
 
@@ -1532,8 +1590,8 @@ summary {
 }
 
 .btn-app-flecha {
-    width: 18px;
-    height: 18px;
+    width: var(--sdc-icono-sm);
+    height: var(--sdc-icono-sm);
     flex-shrink: 0;
     color: var(--ui-texto-suave);
     transition: transform var(--sdc-transicion);
@@ -1712,7 +1770,7 @@ summary {
 
 .menu-lugares button {
     width: 100%;
-    min-height: 36px;
+    min-height: var(--sdc-objetivo-raton);
     padding: var(--sdc-espacio-2) var(--sdc-espacio-3);
     background: none;
     border: none;
@@ -1770,7 +1828,7 @@ summary {
 
 .mapa-panel-estado {
     align-self: flex-start;
-    padding: 2px var(--sdc-espacio-3);
+    padding: var(--sdc-espacio-0) var(--sdc-espacio-3);
     border-radius: var(--sdc-radio-pildora);
     background: var(--sdc-verde-profundo);
     color: var(--sdc-menta);
@@ -1879,17 +1937,21 @@ summary {
     list-style: none;
 }
 
+/* Los campos de cada línea son los de siempre (.form-group input), más compactos con ratón; en pantallas
+   táctiles vuelven a 44 px y a 16 px de letra (con menos, el iPhone se acerca al escribir) */
 .cotizacion-filas input {
     width: 100%;
     min-width: 0;
     min-height: var(--sdc-objetivo-raton);
     padding: 0 var(--sdc-espacio-3);
-    background: var(--ui-fondo);
-    color: var(--ui-texto);
-    border: 1px solid var(--ui-borde);
-    border-radius: var(--sdc-radio-sm);
-    font: inherit;
-    font-size: var(--sdc-texto-sm);
+    font-size: var(--sdc-texto-md);
+}
+
+@media (pointer: coarse) {
+    .cotizacion-filas input {
+        min-height: var(--sdc-objetivo-tactil);
+        font-size: var(--sdc-texto-lg);
+    }
 }
 
 .cotizacion-subtotal,
@@ -2033,7 +2095,7 @@ summary {
     padding: var(--sdc-espacio-3);
     background: var(--sdc-blanco);
     border: 1px solid var(--sdc-borde-sobre-blanco);
-    border-bottom: 4px solid var(--marca);
+    border-bottom: 4px solid var(--marca, var(--ui-borde));
     border-radius: var(--sdc-radio-sm);
 }
 
@@ -2061,8 +2123,8 @@ summary {
 }
 
 .icono {
-    width: 16px;
-    height: 16px;
+    width: var(--sdc-icono-xs);
+    height: var(--sdc-icono-xs);
     flex-shrink: 0;
 }
 
@@ -2174,7 +2236,7 @@ summary {
     display: inline-flex;
     align-items: center;
     gap: var(--sdc-espacio-2);
-    min-height: 36px;
+    min-height: var(--sdc-objetivo-raton);
     padding: var(--sdc-espacio-1) var(--sdc-espacio-4) var(--sdc-espacio-1) var(--sdc-espacio-1);
     background: var(--ui-tarjeta);
     border: 1px solid var(--ui-borde);
@@ -2278,7 +2340,7 @@ summary {
 
     /* En el móvil el chat y el responsable quedan solo con su icono e inicial */
     .btn-chat {
-        min-height: 36px;
+        min-height: var(--sdc-objetivo-raton);
         padding: 0 var(--sdc-espacio-3);
     }
 
@@ -2395,8 +2457,8 @@ summary {
     }
 
     .brand-logo {
-        width: 22px;
-        height: 22px;
+        width: var(--sdc-icono-lg);
+        height: var(--sdc-icono-lg);
     }
 
     .brand-texto {
@@ -2462,8 +2524,8 @@ summary {
     }
 
     .panel-grupo-titulo .icono {
-        width: 18px;
-        height: 18px;
+        width: var(--sdc-icono-sm);
+        height: var(--sdc-icono-sm);
     }
 
     .grupo-texto {
@@ -2477,7 +2539,7 @@ summary {
     }
 
     .panel-plegar {
-        min-height: 36px;
+        min-height: var(--sdc-objetivo-raton);
     }
 
     .panel-fichas {
@@ -2561,7 +2623,7 @@ summary {
     }
 
     /* El menú desplegado ocupa el ancho de la pantalla, bajo la barra */
-    .lista-modulos {
+    .menu-desplegable {
         position: fixed;
         top: calc(env(safe-area-inset-top) + 58px);
         left: var(--sdc-espacio-3);
@@ -2600,6 +2662,15 @@ summary {
     *, *::before, *::after {
         transition: none !important;
         scroll-behavior: auto !important;
+    }
+
+    /* El indicador de carga sigue (dice que algo pasa), pero lento y sin el hundido al pulsar */
+    :is(.btn-primary, .btn-secondary, .btn-texto)[aria-busy="true"]::before {
+        animation-duration: 2s;
+    }
+
+    :is(.btn-primary, .btn-secondary, .btn-texto, .menu-extra, .btn-app, .btn-modulos):active {
+        transform: none;
     }
 
     #btn-toggle-clima:hover {
@@ -2666,7 +2737,7 @@ body.ventana-flotante {
 .casilla input {
     width: 20px;
     height: 20px;
-    margin-top: 2px;
+    margin-top: var(--sdc-espacio-0);
     flex-shrink: 0;
     accent-color: var(--sdc-primario);
 }
@@ -2776,7 +2847,7 @@ body.ventana-flotante {
 
 .tablero-persona-textos {
     display: grid;
-    gap: 2px;
+    gap: var(--sdc-espacio-0);
     font-size: var(--sdc-texto-sm);
     color: var(--ui-texto-suave);
 }
@@ -2855,7 +2926,7 @@ body.ventana-flotante {
 
 .acceso-cabecera div {
     display: grid;
-    gap: 2px;
+    gap: var(--sdc-espacio-0);
 }
 
 .acceso-cabecera strong {
@@ -3120,7 +3191,7 @@ body.ventana-flotante {
     align-items: center;
     gap: var(--sdc-espacio-3);
     min-height: 28px;
-    padding: 2px var(--sdc-espacio-2);
+    padding: var(--sdc-espacio-0) var(--sdc-espacio-2);
     border-radius: var(--sdc-radio-xs);
     font-size: var(--sdc-texto-sm);
     color: var(--ui-texto);
@@ -3349,10 +3420,10 @@ body.ventana-flotante {
 
 /* ----- Barra de accesos y sus paneles (accesos.js, agenda.js, reunionesMetas.js) ----- */
 :root {
-    --ui-agenda-seguimiento: #0B95D6;
-    --ui-agenda-reunion: #8B5CF6;
+    --ui-agenda-seguimiento: var(--sdc-cielo);
+    --ui-agenda-reunion: var(--sdc-violeta);
     --ui-agenda-tarea: var(--sdc-dorado);
-    --ui-agenda-envio: #E07A2E;
+    --ui-agenda-envio: var(--sdc-naranja);
     --ui-agenda-germinador: var(--sdc-primario);
     --ui-agenda-google: var(--ui-texto-suave);
 }
@@ -3430,7 +3501,7 @@ body.ventana-flotante {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 2px;
+    gap: var(--sdc-espacio-0);
     min-width: 56px;
     min-height: 52px;
     padding: var(--sdc-espacio-1);
@@ -3450,8 +3521,8 @@ body.ventana-flotante {
 
 .barra-boton .icono,
 .hoja-mas-boton .icono {
-    width: 22px;
-    height: 22px;
+    width: var(--sdc-icono-lg);
+    height: var(--sdc-icono-lg);
 }
 
 .barra-boton:focus-visible,
@@ -3570,7 +3641,7 @@ body.ventana-flotante {
 .fila-textos {
     min-width: 0;
     display: grid;
-    gap: 2px;
+    gap: var(--sdc-espacio-0);
 }
 
 .fila-texto {
@@ -3600,7 +3671,7 @@ body.ventana-flotante {
     justify-self: start;
     max-width: 85%;
     display: grid;
-    gap: 2px;
+    gap: var(--sdc-espacio-0);
     padding: var(--sdc-espacio-2) var(--sdc-espacio-3);
     background: var(--ui-apagado);
     border: 1px solid var(--ui-borde);
@@ -3633,8 +3704,8 @@ body.ventana-flotante {
 }
 
 .hilo-form button .icono {
-    width: 20px;
-    height: 20px;
+    width: var(--sdc-icono-md);
+    height: var(--sdc-icono-md);
 }
 
 /* Agenda */
