@@ -198,6 +198,13 @@ export function crearGoogle(config) {
             return archivoDeDrive(r.data);
         },
 
+        // Carpeta de un cliente dentro de carpetaId (se crea la primera vez): { id, enlace }
+        async carpetaCliente(tokenRefresco, alRenovar, { carpetaId, carpetaCliente }) {
+            const unidad = drive({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });
+            const id = await carpetaDelCliente(unidad, carpetaId, carpetaCliente);
+            return { id, enlace: `https://drive.google.com/drive/folders/${id}` };
+        },
+
         // Archivos de la carpeta de un cliente (los más nuevos primero); [] si todavía no tiene carpeta
         async archivosDelCliente(tokenRefresco, alRenovar, { carpetaId, carpetaCliente }) {
             const unidad = drive({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });

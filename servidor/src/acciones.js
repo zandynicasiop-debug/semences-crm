@@ -14,6 +14,9 @@ import { pestanasDe } from './exportar.js';
 import { normalizarTelefono, suscripcionValida } from './avisos.js';
 import { errorApp, conGoogle } from './llamadasGoogle.js';
 import { encolar, estadoCola } from './cola.js';
+import { emitirEventosDeCambios } from './eventos.js';
+import { REGLAS } from './flujos.js';
+import { enZona } from './fechas.js';
 import { sincronizarAgenda, respaldar, documentoValido, avisarPorCorreo, enSegundoPlano } from './workspace.js';
 import { avisarEnvio, actualizarEnvio } from './envios.js';
 import { accionInstagram } from './instagram.js';
@@ -134,6 +137,11 @@ function comprobarCambios(lista, nombre) {
     return lista;
 }
 
+// Disparadores (flujos.js): los eventos se guardan en la misma transacción que los cambios (outbox)
+const conEventos = ({ usuario, config }) => ({
+    alConfirmar: (conexion, guardados) => emitirEventosDeCambios(conexion, REGLAS, guardados, { usuario, hoy: enZona(new Date(), config.zonaHoraria).fecha })
+});
+
 export const ACCIONES = {
     // Base de datos compartida: aplica los cambios de la app y devuelve los datos que la persona puede ver
     // (según su cargo, países y casas comerciales). Lo que no puede escribir se rechaza entero
@@ -144,7 +152,7 @@ export const ACCIONES = {
         for (const op of guardar) {
             if (JSON.stringify(op && op.registro || {}).length > MAX_REGISTRO) throw errorApp('Un registro es demasiado grande');
         }
-        const { datos: todo, guardados } = await db.sincronizar(pool, { guardar, eliminar }, usuario, (modulo, registro) => puedeEscribir(ambito, modulo, registro));
+        const { datos: todo, guardados } = await db.sincronizar(pool, { guardar, eliminar }, usuario, (modulo, registro) => puedeEscribir(ambito, modulo, registro), conEventos(contexto));
         await avisarGerminacionBaja(contexto, guardados);
         await avisarEnvios(contexto, guardados);
         return { ok: true, datos: filtrarDatos(todo, ambito), hora: new Date().toISOString() };
@@ -153,7 +161,7 @@ export const ACCIONES = {
     async crm(datos, contexto) {
         const { pool, usuario, ambito } = contexto;
         if (JSON.stringify(datos.registro || {}).length > MAX_REGISTRO) throw errorApp('El registro es demasiado grande');
-        const { guardados } = await db.sincronizar(pool, { guardar: [{ modulo: datos.modulo, registro: datos.registro }] }, usuario, (m, r) => puedeEscribir(ambito, m, r));
+        const { guardados } = await db.sincronizar(pool, { guardar: [{ modulo: datos.modulo, registro: datos.registro }] }, usuario, (m, r) => puedeEscribir(ambito, m, r), conEventos(contexto));
         await avisarGerminacionBaja(contexto, guardados);
         await avisarEnvios(contexto, guardados);
         return { ok: true };

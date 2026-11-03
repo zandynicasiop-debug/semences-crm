@@ -13,6 +13,7 @@
     "test": "node --test --test-concurrency=1 pruebas/*.test.js",
     "equipo": "node herramientas/equipo.js",
     "clave": "node herramientas/clave.js",
+    "rotar-clave": "node herramientas/rotar-clave.js",
     "vapid": "node herramientas/vapid.js"
   },
   "dependencies": {

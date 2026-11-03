@@ -56,6 +56,8 @@ export function leerConfig(entorno = process.env) {
 
         // 32 bytes en hexadecimal (64 caracteres): cifra los tokens de Google guardados en la base
         claveCifrado: entorno.CLAVE_CIFRADO || '',
+        // Solo mientras se cambia la clave (npm run rotar-clave): la de antes, para leer lo que aún está cifrado con ella
+        claveCifradoAnterior: entorno.CLAVE_CIFRADO_ANTERIOR || '',
         diasSesion: Number(entorno.DIAS_SESION) || 30,
         // Intentos de entrada por minuto y por IP (frena a quien pruebe códigos al azar)
         entradasPorMinuto: Number(entorno.ENTRADAS_POR_MINUTO) || 20,
@@ -174,6 +176,8 @@ export function validarEntorno(e = {}) {
         try { new Intl.DateTimeFormat('es', { timeZone: valor('ZONA_HORARIA') }); } catch (err) { errores.push(`ZONA_HORARIA: "${valor('ZONA_HORARIA')}" no es una zona horaria (p. ej. America/Santo_Domingo o America/Caracas)`); }
     }
     if (valor('CUENTA_GOOGLE_SISTEMA') && !CORREO.test(valor('CUENTA_GOOGLE_SISTEMA'))) errores.push('CUENTA_GOOGLE_SISTEMA debe ser un correo');
+    if (valor('CLAVE_CIFRADO_ANTERIOR') && !/^[0-9a-fA-F]{64}$/.test(valor('CLAVE_CIFRADO_ANTERIOR'))) errores.push('CLAVE_CIFRADO_ANTERIOR debe tener 64 caracteres hexadecimales (la CLAVE_CIFRADO de antes)');
+    if (valor('CLAVE_CIFRADO_ANTERIOR') && valor('CLAVE_CIFRADO_ANTERIOR').toLowerCase() === valor('CLAVE_CIFRADO').toLowerCase()) avisos.push('CLAVE_CIFRADO_ANTERIOR es igual a CLAVE_CIFRADO: no hay nada que rotar');
 
     entero('MYSQL_PUERTO', 1, 65535);
     entero('DIAS_SESION', 1, 365);

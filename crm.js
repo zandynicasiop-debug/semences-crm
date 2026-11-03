@@ -27,6 +27,8 @@ const FASE_CONTEO_GERMINACION = 'Fin de germinación';
 const MARCAS = ['Gautier Semences', 'Hexagon Seeds', 'Genome Seeds', 'Fitó', 'Varias marcas'];
 
 // Envíos de semilla (solo administración los registra; vendedores y plantuladores los ven)
+// Embudo comercial de los clientes (las mismas que servidor/src/flujos.js › ETAPAS_CLIENTE)
+const ETAPAS_CLIENTE = ['Prospecto', 'Contactado', 'Reunión', 'Propuesta', 'Cliente', 'Perdido'];
 const ESTADOS_ENVIO = ['Registrado', 'En tránsito', 'Retenido en aduana', 'En reparto', 'Entregado', 'Incidencia'];
 const TRANSPORTISTAS = ['DHL', 'FedEx', 'Otro'];
 // Página pública de rastreo de cada transportista
@@ -90,6 +92,8 @@ const MODULOS_CRM = {
             { id: 'ubicacion', etiqueta: 'Ubicación', tipo: 'text', ejemplo: 'Constanza, La Vega' },
             { id: 'marca', etiqueta: 'Marca que compra', tipo: 'select', opciones: MARCAS, vacia: 'Sin indicar' },
             { id: 'origen', etiqueta: 'Cómo llegó', tipo: 'text', ejemplo: 'Instagram, feria, referido' },
+            // Embudo comercial. Al pasar a "Reunión", el servidor prepara carpeta, expediente y hueco libre (flujos.js)
+            { id: 'etapa', etiqueta: 'Etapa', tipo: 'select', opciones: ETAPAS_CLIENTE, vacia: 'Sin indicar' },
             { id: 'seguimiento', etiqueta: 'Próximo seguimiento', tipo: 'date' }
         ],
         columnas: [
@@ -99,6 +103,7 @@ const MODULOS_CRM = {
             { titulo: 'Correo', valor: r => r.correo, enlace: r => r.correo && `mailto:${r.correo}` },
             { titulo: 'Ubicación', valor: r => r.ubicacion },
             { titulo: 'Marca', valor: r => r.marca },
+            { titulo: 'Etapa', valor: r => r.etapa },
             { titulo: 'Próx. seguimiento', valor: r => formatearFecha(r.seguimiento), orden: r => r.seguimiento },
             ...COLUMNAS_AMBITO,
             { titulo: 'Asignado a', valor: r => r.asignadoNombre, soloAmbito: true },

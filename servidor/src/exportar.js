@@ -4,7 +4,7 @@
  * al final con su nombre. No se exportan los campos internos (los que empiezan por "_" ni clienteId).
  */
 export const PESTANAS = [
-    ['clientes', 'Clientes', { nombre: 'Nombre', correo: 'Correo', telefono: 'Teléfono', whatsapp: 'WhatsApp', ubicacion: 'Ubicación', marca: 'Marca', seguimiento: 'Próximo seguimiento', proximaReunion: 'Próxima reunión', reunionMeet: 'Enlace de Meet', pais: 'País', casa: 'Casa comercial', asignadoNombre: 'Asignado a' }],
+    ['clientes', 'Clientes', { nombre: 'Nombre', correo: 'Correo', telefono: 'Teléfono', whatsapp: 'WhatsApp', ubicacion: 'Ubicación', marca: 'Marca', etapa: 'Etapa', seguimiento: 'Próximo seguimiento', proximaReunion: 'Próxima reunión', reunionMeet: 'Enlace de Meet', pais: 'País', casa: 'Casa comercial', asignadoNombre: 'Asignado a' }],
     ['visitas', 'Visitas', { fecha: 'Fecha', cliente: 'Cliente', ubicacion: 'Ubicación', estado: 'Estado del cultivo', comentarios: 'Comentarios' }],
     ['agronomia', 'Procesos agronómicos', { cliente: 'Cliente', lote: 'Lote', variedad: 'Variedad', proceso: 'Fase', fechaInicio: 'Inicio', fechaFin: 'Fin', germinacion: 'Germinación (%)', comentarios: 'Comentarios' }],
     ['rendimiento', 'Rendimiento', { cliente: 'Cliente', lote: 'Lote', fecha: 'Fecha', rendimientoPlanta: 'Rendimiento por planta', canastos: 'Canastos', unidades: 'Unidades', detalles: 'Detalles' }],

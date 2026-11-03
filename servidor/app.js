@@ -10,6 +10,8 @@ import { crearApp } from './src/aplicacion.js';
 import { iniciarCola } from './src/cola.js';
 import { iniciarResumenes } from './src/resumen.js';
 import { iniciarWorkspace } from './src/workspace.js';
+import { iniciarEventos } from './src/eventos.js';
+import { MANEJADORES } from './src/flujos.js';
 import { crearTransportistas, iniciarRastreo } from './src/envios.js';
 import { crearInstagram } from './src/instagram.js';
 import { iniciarRecordatorios } from './src/reportes.js';
@@ -35,6 +37,7 @@ const app = crearApp({ config, pool, google, avisos, transportistas, instagram: 
 iniciarCola(pool, avisos); // Envía los avisos pendientes (WhatsApp y push) cada 5 segundos
 iniciarResumenes({ pool, config, google, avisos }); // "Borja": el resumen de la mañana de cada persona
 iniciarWorkspace({ pool, config, google, avisos }); // Respaldo diario en Drive y agenda del CRM en Google Calendar
+iniciarEventos({ pool, config, google, avisos }, MANEJADORES); // Flujos automáticos (p. ej. cliente en Reunión), cada 3 s
 iniciarRastreo({ pool, config, avisos, transportistas }); // Guías de DHL y FedEx (si están sus claves)
 iniciarRecordatorios({ pool, config, avisos, ia }); // Reporte semanal: recordatorio del viernes; con IA, revisiones y resumen del lunes
 app.listen(config.puerto, () => console.log(`Backend de Semences escuchando en el puerto ${config.puerto}`));
