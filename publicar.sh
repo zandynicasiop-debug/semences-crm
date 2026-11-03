@@ -41,16 +41,12 @@ AddType application/vnd.android.package-archive .apk
 HTACCESS
 
 if [ -n "$URL" ]; then
-    # WhatsApp y Facebook necesitan la dirección completa de la imagen
-    python3 - "$URL" <<'PY'
-import sys
-url = sys.argv[1]
-ruta = 'publicar/index.html'
-html = open(ruta, encoding='utf-8').read()
-html = html.replace('content="iconos/compartir.jpg"', f'content="{url}/iconos/compartir.jpg"')
-html = html.replace('<meta property="og:type" content="website">', f'<meta property="og:type" content="website">\n    <meta property="og:url" content="{url}/">')
-open(ruta, 'w', encoding='utf-8').write(html)
-PY
+    # WhatsApp y Facebook necesitan la dirección completa de la imagen. Con sed (sin Python): así también
+    # funciona en el servidor de cPanel (herramientas/desplegar-cpanel.sh)
+    sed -e "s#content=\"iconos/compartir.jpg\"#content=\"$URL/iconos/compartir.jpg\"#" \
+        -e "s#<meta property=\"og:type\" content=\"website\">#<meta property=\"og:type\" content=\"website\">\n    <meta property=\"og:url\" content=\"$URL/\">#" \
+        publicar/index.html > publicar/index.html.tmp
+    mv publicar/index.html.tmp publicar/index.html
 fi
 
 # Comprobación: en publicar/ no puede haber nada de la firma ni de Android

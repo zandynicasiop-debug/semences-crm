@@ -75,6 +75,15 @@ cPanel › **Dominios** › crea `api.semillasdata.com` (con su carpeta, p. ej. 
 
 Si la app no arranca, el motivo está en el archivo de registro de la aplicación (cPanel › Setup Node.js App, o `stderr.log` en la carpeta). Si falta algo de la configuración, el servidor lo dice al arrancar.
 
+### Actualizar desde GitHub (sin subir archivos)
+
+El antivirus del cPanel de FastComet rechaza los `.zip` y `.tar.gz` con archivos `.js` (`Sanesecurity.Foxhole.JS_Zip`, un falso positivo). Para no depender de las subidas:
+
+1. cPanel › **Git Version Control** › **Create** › *Clone URL* `https://github.com/zandynicasiop-debug/semences-crm.git`, *Repository Path* `repositorios/semences-crm` › **Create**.
+2. **Manage** › **Pull or Deploy** › **Update from Remote** (trae lo último de `main`) y **Deploy HEAD Commit**.
+
+`.cpanel.yml` lanza `herramientas/desplegar-cpanel.sh`: copia la web, ya conectada a `https://api.semillasdata.com`, a `public_html` (sin borrar `.well-known` ni `cgi-bin`), y el código del backend a `~/semences-servidor` (sin tocar su `.env` ni `node_modules`) y pide reiniciarlo. Cada actualización posterior son esos dos botones. Si cambian las dependencias, además **Run NPM Install**.
+
 ### 5. Conectar la app
 
 En GitHub › Settings › Secrets and variables › Actions, crea el secreto `SEMENCES_API` = `https://api.semillasdata.com` y vuelve a ejecutar el flujo "Compilar APK y publicar la app". La web y el APK nuevos salen conectados. Desde la carpeta del proyecto:

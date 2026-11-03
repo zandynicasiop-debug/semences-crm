@@ -1,0 +1,6 @@
+---
+# cPanel › Git Version Control › Pull or Deploy › "Deploy HEAD Commit": copia la web a public_html y el
+# backend a ~/semences-servidor (ver herramientas/desplegar-cpanel.sh)
+deployment:
+  tasks:
+    - /bin/bash herramientas/desplegar-cpanel.sh
