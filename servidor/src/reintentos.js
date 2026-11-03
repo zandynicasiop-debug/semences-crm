@@ -14,8 +14,20 @@ const RED_PASAJERA = [
     'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_SOCKET'
 ];
 
+/**
+ * Fallos pasajeros de la base (mysql2): la conexión se cortó, el servidor se reinició, un bloqueo mutuo
+ * (deadlock) o una espera de bloqueo agotada, y el tope de conexiones del hosting compartido (FastComet
+ * limita las conexiones por usuario de MySQL). Si un flujo en segundo plano tropieza con uno de estos, el
+ * evento se reintenta más tarde en vez de quedar "fallido" para siempre.
+ */
+const BASE_PASAJERA = [
+    'PROTOCOL_CONNECTION_LOST', 'ER_LOCK_DEADLOCK', 'ER_LOCK_WAIT_TIMEOUT', 'ER_CON_COUNT_ERROR',
+    'ER_TOO_MANY_USER_CONNECTIONS', 'ER_SERVER_SHUTDOWN'
+];
+
 export function esPasajero(error) {
     if (!error) return false;
+    if (BASE_PASAJERA.includes(error.code)) return true;
     // Tiempo agotado de AbortSignal.timeout() (avisos.js): es un DOMException cuyo .code (23) no es HTTP.
     // Las librerías de Google (gaxios) lo dejan como error.code = 'TimeoutError'
     if (error.name === 'TimeoutError' || error.code === 'TimeoutError') return true;

@@ -1315,6 +1315,13 @@ for (const base of BASES) {
             assert.deepEqual(muertos, { hechos: 0, reintentar: 0, fallidos: 2 });
             assert.match((await pool.query("SELECT error FROM eventos WHERE clave = 'prueba:no-existe'"))[0][0].error, /ya no existe/);
 
+            // Un tropiezo pasajero de la base dentro del flujo (deadlock, conexión perdida, tope de conexiones)
+            // se reintenta más tarde: antes dejaba el evento "fallido" para siempre
+            await emitirEvento(pool, { tipo: 'PRUEBA_BASE', clave: 'prueba:deadlock' });
+            const conDeadlock = { PRUEBA_BASE: async () => { throw Object.assign(new Error('Deadlock found when trying to get lock'), { code: 'ER_LOCK_DEADLOCK', errno: 1213 }); } };
+            assert.deepEqual(await procesarEventos({ pool, config, google, avisos }, conDeadlock, { registrar: { error: () => {} } }), { hechos: 0, reintentar: 1, fallidos: 0 });
+            assert.equal((await pool.query("SELECT estado FROM eventos WHERE clave = 'prueba:deadlock'"))[0][0].estado, 'pendiente');
+
             // Tiempo de visibilidad: lo que quedó 'procesando' (proceso caído) se vuelve a reclamar
             const [[ana]] = await pool.query("SELECT id FROM usuarios WHERE email = 'ana@semillasdata.com'");
             await emitirEvento(pool, { tipo: 'CLIENTE_EN_REUNION', clave: 'prueba:atascado', usuarioId: ana.id, carga: { clienteId: 'cli-reu' } });

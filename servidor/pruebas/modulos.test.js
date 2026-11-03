@@ -406,6 +406,14 @@ describe('reintentos: qué fallos son pasajeros', () => {
         assert.ok(!esPasajero(null));
     });
 
+    test('fallos pasajeros de la base (conexión perdida, deadlock, tope de conexiones del hosting) sí; los de datos no', () => {
+        for (const code of ['PROTOCOL_CONNECTION_LOST', 'ER_LOCK_DEADLOCK', 'ER_LOCK_WAIT_TIMEOUT', 'ER_CON_COUNT_ERROR', 'ER_TOO_MANY_USER_CONNECTIONS']) {
+            assert.ok(esPasajero(Object.assign(new Error(code), { code })), code);
+        }
+        assert.ok(!esPasajero({ code: 'ER_DUP_ENTRY' }), 'un duplicado no se arregla reintentando');
+        assert.ok(!esPasajero({ code: 'ER_BAD_FIELD_ERROR' }), 'una columna que no existe tampoco');
+    });
+
     test('tiempo agotado de fetch (AbortSignal.timeout): antes se daba por fallo definitivo', () => {
         assert.ok(esPasajero(new DOMException('The operation was aborted due to timeout', 'TimeoutError')));
         assert.ok(esPasajero({ code: 'TimeoutError' }), 'así lo deja gaxios (librerías de Google)');
