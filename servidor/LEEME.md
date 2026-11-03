@@ -248,6 +248,18 @@ En la cabecera (y en el móvil, en la barra inferior con "Más"):
   - **Clientes nuevos**, **visitas** y **ensayos de validación por variedad** (cliente + lote + variedad) del mes.
   - **Actividades cumplidas:** % de actividades completadas en sus reportes semanales del mes.
 
+## Entrar con correo y contraseña (sin Google)
+
+Con `ENTRADA_CLAVE=si` (por defecto), la pantalla de entrada tiene un formulario de correo y contraseña. Sirve para arrancar sin conectar Google (deja `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` vacías: no sale el botón de Google) y también dentro de las apps, donde Google no deja entrar.
+
+- **La primera vez**, cada persona pulsa «¿Primera vez? Crea tu cuenta», con su nombre, su correo y una contraseña de al menos 10 caracteres. Queda en la **sala de espera** hasta que un Master la aprueba, igual que una cuenta personal de Google. Nadie comprueba que el correo sea suyo: en *Equipo y accesos* sale como «correo y contraseña (correo sin verificar)», y el Master lo confirma con la persona antes de aprobarla.
+- **Los Master** (los correos de `ADMINS`) crean su cuenta igual, pero con el **código de alta**: la variable `CODIGO_ALTA` (al menos 12 caracteres). Sin Google es obligatoria: evita que otra persona cree antes una cuenta con el correo de un Master.
+- **Seguridad:** la contraseña se guarda solo como huella scrypt con su propia sal; 5 fallos seguidos bloquean esa cuenta 15 minutos; el mensaje de error es el mismo exista o no la cuenta; cambiarla (menú › *Cuenta*) cierra las demás sesiones abiertas. Los ingresos, los rechazos y los cambios de contraseña quedan en la auditoría, nunca la contraseña.
+- **Olvidé mi contraseña:** un Master, en *Equipo y accesos*, pulsa **Contraseña temporal** en esa persona y se la da en persona o por teléfono (se ve una sola vez). Sus sesiones se cierran y, al entrar, la cambia en *Cuenta*.
+- Una cuenta que ya entra con Google no se puede «tomar» registrándose con contraseña; quien entra con Google puede añadirse una contraseña desde *Cuenta*.
+
+Cuando conectes Google más adelante, las cuentas siguen siendo las mismas (van por correo): solo aparece también el botón de Google.
+
 ## Auditoría (solo Master)
 
 Menú › **Auditoría**: quién entró (y quién lo intentó sin estar autorizado), quién salió y qué creó, cambió o borró cada persona, campo a campo con el antes y el después, con fecha, IP y navegador. También los cambios de accesos, equipo, metas, cuentas de Instagram, reuniones y reportes, las exportaciones, los respaldos, los correos enviados y los intentos de hacer algo sin permiso. Se filtra por persona, tipo, módulo, fechas o texto, se ve el resumen por persona y se exporta a CSV.

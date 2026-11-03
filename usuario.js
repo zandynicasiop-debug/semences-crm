@@ -331,7 +331,7 @@ class Responsable {
             personal.hidden = true;
             personal.addEventListener('click', () => this.irAGoogle('personal'));
             this.contenedorBoton.append(boton, personal);
-            this.mostrarOpcionPersonal(dialogo, boton, personal);
+            this.botonesGoogle = [boton, personal];
         } else if (window.AppNativa) {
             this.contenedorBoton.innerHTML = `<p class="dialogo-nota">Dentro de la app Android no se puede entrar con Google. Abre la dirección de la app en Chrome e instálala desde el menú de módulos › <b>Instalar la app en este dispositivo</b>.</p>`;
         } else if (navegadorIntegrado()) {
@@ -351,19 +351,98 @@ class Responsable {
                 }
             });
         }
+        // Con el backend también se entra con correo y contraseña (sirve aunque Google no esté conectado y dentro
+        // de las apps): el servidor dice qué formas de entrar hay
+        if (this.conBackend) {
+            this.crearFormularioClave(dialogo);
+            this.ajustarEntrada(dialogo);
+        }
         // Sin sesión no se entra: Escape no cierra (y si el navegador lo cierra igual, se vuelve a abrir)
         dialogo.addEventListener('cancel', (e) => e.preventDefault());
         dialogo.addEventListener('close', () => { if (!this.sesion) setTimeout(() => this.mostrarEntrada(this.errorGoogle.textContent)); });
     }
 
-    // El servidor dice si admite cuentas personales y cuál es el dominio de la empresa (para el texto del botón)
-    async mostrarOpcionPersonal(dialogo, boton, personal) {
+    /**
+     * El servidor dice cómo se entra: con Google (dominio de la empresa, cuentas personales) y/o con correo y
+     * contraseña. Sin Google conectado, la pantalla solo muestra el formulario.
+     */
+    async ajustarEntrada(dialogo) {
         const salud = this.conector ? await this.conector.backend('/api/salud', null, 'GET') : null;
         const acceso = (salud && salud.acceso) || {};
-        if (acceso.dominio) boton.textContent = `Entrar con tu cuenta @${acceso.dominio}`;
-        if (!acceso.cuentasPersonales) return;
-        personal.hidden = false;
-        dialogo.querySelector('.entrada-texto').textContent = `Usa preferiblemente tu cuenta de la empresa${acceso.dominio ? ` (@${acceso.dominio})` : ''}. Si no tienes, entra con tu cuenta personal de Google: un Master revisará tu solicitud antes de que veas los datos. Tu nombre y tu correo quedan en lo que registres, en el chat y en las cotizaciones.`;
+        this.accesoServidor = acceso; // También lo usa Tu cuenta (Google conectado o no, contraseña)
+        const conGoogle = acceso.google !== false;
+        const [boton, personal] = this.botonesGoogle || [];
+        if (!conGoogle) {
+            this.contenedorBoton.hidden = true;
+            dialogo.querySelector('#google-titulo').textContent = 'Entra en la app';
+            dialogo.querySelector('.entrada-texto').textContent = 'Entra con tu correo y tu contraseña. La primera vez, crea tu cuenta: un Master revisará tu solicitud antes de que veas los datos.';
+        } else if (boton) {
+            if (acceso.dominio) boton.textContent = `Entrar con tu cuenta @${acceso.dominio}`;
+            if (acceso.cuentasPersonales) {
+                personal.hidden = false;
+                dialogo.querySelector('.entrada-texto').textContent = `Usa preferiblemente tu cuenta de la empresa${acceso.dominio ? ` (@${acceso.dominio})` : ''}. Si no tienes, entra con tu cuenta personal de Google: un Master revisará tu solicitud antes de que veas los datos. Tu nombre y tu correo quedan en lo que registres, en el chat y en las cotizaciones.`;
+            }
+        }
+        if (acceso.clave && this.formClave) {
+            this.formClave.hidden = false;
+            this.formClave.querySelector('.entrada-separador').hidden = !conGoogle;
+        }
+    }
+
+    // Formulario de correo y contraseña: entrar o, la primera vez, crear la cuenta
+    crearFormularioClave(dialogo) {
+        const form = document.createElement('form');
+        form.className = 'entrada-clave';
+        form.hidden = true;
+        form.noValidate = true;
+        form.innerHTML = `
+            <p class="entrada-separador dialogo-nota">o con tu correo y contraseña</p>
+            <div class="form-group entrada-campo-nombre" hidden><label for="entrada-nombre">Tu nombre</label><input id="entrada-nombre" type="text" autocomplete="name" maxlength="200"></div>
+            <div class="form-group"><label for="entrada-email">Correo</label><input id="entrada-email" type="email" autocomplete="username" inputmode="email" required></div>
+            <div class="form-group"><label for="entrada-clave">Contraseña</label><input id="entrada-clave" type="password" autocomplete="current-password" required minlength="10"></div>
+            <p class="dialogo-nota entrada-ayuda-clave" hidden>Al menos 10 caracteres. Mejor una frase que solo tú recuerdes.</p>
+            <div class="form-group entrada-campo-codigo" hidden><label for="entrada-codigo">Código de alta (solo los Master)</label><input id="entrada-codigo" type="password" autocomplete="off"></div>
+            <p class="form-error entrada-clave-error" role="alert" hidden></p>
+            <button type="submit" class="btn-primary entrada-clave-enviar">Entrar</button>
+            <button type="button" class="btn-texto entrada-clave-modo">¿Primera vez? Crea tu cuenta</button>`;
+        dialogo.querySelector('.entrada-google').insertBefore(form, this.errorGoogle);
+        this.formClave = form;
+        let registro = false;
+        const campo = (sel) => form.querySelector(sel);
+        const error = campo('.entrada-clave-error');
+        const mostrar = (texto) => { error.textContent = texto; error.hidden = !texto; };
+        const cambiarModo = () => {
+            registro = !registro;
+            campo('.entrada-campo-nombre').hidden = !registro;
+            campo('.entrada-campo-codigo').hidden = !registro;
+            campo('.entrada-ayuda-clave').hidden = !registro;
+            campo('#entrada-clave').autocomplete = registro ? 'new-password' : 'current-password';
+            campo('.entrada-clave-enviar').textContent = registro ? 'Crear mi cuenta' : 'Entrar';
+            campo('.entrada-clave-modo').textContent = registro ? '¿Ya tienes cuenta? Entra' : '¿Primera vez? Crea tu cuenta';
+            mostrar('');
+            (registro ? campo('#entrada-nombre') : campo('#entrada-email')).focus();
+        };
+        campo('.entrada-clave-modo').addEventListener('click', cambiarModo);
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = campo('#entrada-email').value.trim();
+            const clave = campo('#entrada-clave').value;
+            const nombre = campo('#entrada-nombre').value.trim();
+            if (registro && nombre.length < 2) return mostrar('Escribe tu nombre.');
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return mostrar('Escribe un correo válido.');
+            if (clave.length < 10) return mostrar('La contraseña necesita al menos 10 caracteres.');
+            const enviar = campo('.entrada-clave-enviar');
+            enviar.disabled = true;
+            mostrar('');
+            const datos = registro ? { email, clave, nombre, codigoAlta: campo('#entrada-codigo').value.trim() || undefined } : { email, clave };
+            const respuesta = this.conector ? await this.conector.backend(registro ? '/api/auth/registro' : '/api/auth/entrar', datos) : null;
+            enviar.disabled = false;
+            if (!respuesta) return mostrar('No se pudo conectar con el servidor. Revisa la conexión e inténtalo de nuevo.');
+            if (!respuesta.ok) return mostrar(respuesta.error || 'No se pudo entrar. Inténtalo de nuevo.');
+            campo('#entrada-clave').value = '';
+            campo('#entrada-codigo').value = '';
+            this.entrarBackend(respuesta.sesion, respuesta.usuario);
+        });
     }
 
     // ----- Backend Node (solo con CONFIG_GOOGLE.api) -----
@@ -586,6 +665,15 @@ class Responsable {
                 <p class="dialogo-nota cuenta-quien"></p>
                 <p class="dialogo-nota cuenta-google"></p>
                 <button type="button" class="btn-secondary cuenta-reconectar" hidden>Volver a conectar Google</button>
+                <div class="cuenta-clave" hidden>
+                    <button type="button" class="btn-secondary cuenta-clave-abrir">Cambiar mi contraseña</button>
+                    <div class="cuenta-clave-campos" hidden>
+                        <div class="form-group cuenta-clave-actual"><label for="cuenta-clave-actual">Contraseña actual</label><input id="cuenta-clave-actual" type="password" autocomplete="current-password"></div>
+                        <div class="form-group"><label for="cuenta-clave-nueva">Contraseña nueva (al menos 10 caracteres)</label><input id="cuenta-clave-nueva" type="password" autocomplete="new-password" minlength="10"></div>
+                        <p class="form-error cuenta-clave-error" role="alert" hidden></p>
+                        <button type="button" class="btn-primary cuenta-clave-guardar">Guardar la contraseña nueva</button>
+                    </div>
+                </div>
                 <div class="cuenta-push" hidden>
                     <p class="dialogo-nota cuenta-push-estado" aria-live="polite"></p>
                     <button type="button" class="btn-secondary cuenta-push-boton"></button>
@@ -614,6 +702,31 @@ class Responsable {
         dialogo.querySelector('.cuenta-cancelar').addEventListener('click', () => dialogo.close());
         dialogo.querySelector('.cuenta-reconectar').addEventListener('click', () => this.irAGoogle('conectar'));
         dialogo.querySelector('.cuenta-push-boton').addEventListener('click', () => this.cambiarPush());
+        // Contraseña (entrada sin Google): cambiarla cierra las demás sesiones abiertas
+        const campos = dialogo.querySelector('.cuenta-clave-campos');
+        const errorClave = dialogo.querySelector('.cuenta-clave-error');
+        dialogo.querySelector('.cuenta-clave-abrir').addEventListener('click', () => {
+            campos.hidden = !campos.hidden;
+            if (!campos.hidden) dialogo.querySelector(this.sesion && this.sesion.conClave ? '#cuenta-clave-actual' : '#cuenta-clave-nueva').focus();
+        });
+        dialogo.querySelector('.cuenta-clave-guardar').addEventListener('click', async (e) => {
+            const boton = e.currentTarget;
+            const actual = dialogo.querySelector('#cuenta-clave-actual');
+            const nueva = dialogo.querySelector('#cuenta-clave-nueva');
+            const mostrar = (texto) => { errorClave.textContent = texto; errorClave.hidden = !texto; };
+            if (nueva.value.length < 10) return mostrar('La contraseña nueva necesita al menos 10 caracteres.');
+            boton.disabled = true;
+            const r = this.conector ? await this.conector.backend('/api/accion', { accion: 'cambiarClave', actual: actual.value, nueva: nueva.value }) : null;
+            boton.disabled = false;
+            if (!r) return mostrar('No se pudo hablar con el servidor. Revisa la conexión e inténtalo de nuevo.');
+            if (!r.ok) return mostrar(r.error || 'No se pudo cambiar la contraseña.');
+            actual.value = '';
+            nueva.value = '';
+            mostrar('');
+            campos.hidden = true;
+            if (this.sesion) this.guardarSesion({ ...this.sesion, conClave: true });
+            if (window.equipo) window.equipo.mostrarAviso('Contraseña cambiada. Las demás sesiones abiertas se cerraron.');
+        });
         // Google Workspace: agenda del CRM en Calendar (cada persona) y respaldo en Drive (Master)
         const accionWorkspace = (selector, accion, exito) => {
             const boton = dialogo.querySelector(selector);
@@ -674,6 +787,15 @@ class Responsable {
                 : 'Gmail, Calendar y Drive no están conectados: para enviar correos, crear reuniones o reportes, conéctalos.';
             const reconectar = d.querySelector('.cuenta-reconectar');
             reconectar.hidden = Boolean(sesion.googleConectado);
+            // Google todavía sin conectar en el servidor: no se ofrece conectarlo
+            const acceso = this.accesoServidor || {};
+            if (acceso.google === false) {
+                d.querySelector('.cuenta-google').textContent = 'Google todavía no está conectado en el servidor: los correos, las reuniones con Meet y los reportes en Drive se activan cuando se conecte.';
+                reconectar.hidden = true;
+            }
+            d.querySelector('.cuenta-clave').hidden = acceso.clave !== true;
+            d.querySelector('.cuenta-clave-actual').hidden = !sesion.conClave;
+            d.querySelector('.cuenta-clave-abrir').textContent = sesion.conClave ? 'Cambiar mi contraseña' : 'Poner una contraseña para entrar sin Google';
             reconectar.textContent = sesion.tipoCuenta === 'personal' && !(sesion.permisos || []).length ? 'Conectar Gmail, Calendar y Drive' : 'Volver a conectar Google';
             d.querySelector('#cuenta-telefono').value = sesion.telefono || '';
             d.querySelector('#cuenta-resumen').checked = sesion.resumen !== false;

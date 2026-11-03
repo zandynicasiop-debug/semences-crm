@@ -181,6 +181,11 @@
     font-family: var(--font-cuerpo);
 }
 
+/* Lo que el código oculta (atributo hidden) no se ve nunca, aunque su clase le dé display: flex o grid */
+[hidden] {
+    display: none !important;
+}
+
 body, html {
     width: 100%;
     height: 100%;
@@ -1369,6 +1374,11 @@ summary {
     align-items: center;
     gap: var(--sdc-espacio-2);
     min-height: 44px;
+}
+
+/* Sin Google conectado en el servidor, el botón no se enseña (usuario.js › ajustarEntrada) */
+.boton-google[hidden] {
+    display: none;
 }
 
 /* Opción B: entrar con una cuenta personal de Google, debajo del botón principal (cuenta de la empresa) */
@@ -4003,4 +4013,50 @@ body.ventana-flotante {
         min-width: var(--sdc-objetivo-tactil);
         justify-content: center;
     }
+}
+
+/* ----- Entrada con correo y contraseña (usuario.js) ----- */
+.entrada-clave {
+    display: grid;
+    gap: var(--sdc-espacio-3);
+    width: 100%;
+    text-align: left;
+}
+
+.entrada-clave .btn-primary,
+.entrada-clave .btn-texto {
+    justify-self: stretch;
+}
+
+/* "o con tu correo y contraseña", entre dos rayas */
+.entrada-separador {
+    display: flex;
+    align-items: center;
+    gap: var(--sdc-espacio-3);
+    margin: var(--sdc-espacio-2) 0 0;
+    color: var(--ui-texto-suave);
+}
+
+.entrada-separador::before,
+.entrada-separador::after {
+    content: "";
+    flex: 1;
+    border-top: 1px solid var(--ui-borde);
+}
+
+.entrada-separador[hidden] {
+    display: none;
+}
+
+.cuenta-clave,
+.cuenta-clave-campos {
+    display: grid;
+    gap: var(--sdc-espacio-3);
+}
+
+.clave-temporal strong {
+    font-family: var(--font-dato);
+    font-size: var(--sdc-texto-lg);
+    color: var(--ui-titulo);
+    user-select: all;
 }

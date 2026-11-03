@@ -51,12 +51,18 @@ export function leerConfig(entorno = process.env) {
             // Opción B: cualquier cuenta personal de Google (Gmail…) también puede entrar. Como toda cuenta
             // nueva, espera en la sala de espera hasta que un Master la aprueba. CUENTAS_PERSONALES=no la apaga
             cuentasPersonales: !/^no$/i.test(String(entorno.CUENTAS_PERSONALES || '').trim()),
+            // Google de verdad: los valores de ejemplo de .env.example ("PEGA_AQUI…") no cuentan
+            activo: Boolean(entorno.GOOGLE_CLIENT_ID && entorno.GOOGLE_CLIENT_SECRET && !/PEGA_AQUI/i.test(`${entorno.GOOGLE_CLIENT_ID}${entorno.GOOGLE_CLIENT_SECRET}`)),
             // Quienes pueden gestionar el equipo desde la app
             admins: lista(entorno.ADMINS).map(c => c.toLowerCase())
         },
 
         // 32 bytes en hexadecimal (64 caracteres): cifra los tokens de Google guardados en la base
         claveCifrado: entorno.CLAVE_CIFRADO || '',
+        // Entrar con correo y contraseña, además de (o en vez de) Google. Sin Google, los Master (ADMINS) crean
+        // su cuenta con CODIGO_ALTA, para que nadie la cree antes con su correo
+        entradaClave: !/^no$/i.test(String(entorno.ENTRADA_CLAVE || '').trim()),
+        codigoAlta: String(entorno.CODIGO_ALTA || '').trim(),
         // Solo mientras se cambia la clave (npm run rotar-clave): la de antes, para leer lo que aún está cifrado con ella
         claveCifradoAnterior: entorno.CLAVE_CIFRADO_ANTERIOR || '',
         diasSesion: Number(entorno.DIAS_SESION) || 30,
@@ -195,7 +201,8 @@ export function validarEntorno(e = {}) {
     if (valor('ANTHROPIC_API_KEY') && !/^sk-ant-[\w-]{20,}$/.test(valor('ANTHROPIC_API_KEY'))) avisos.push('ANTHROPIC_API_KEY no parece una clave de la API de Anthropic (empieza por sk-ant-)');
     if (valor('IA_MODELO') && !/^claude-[a-z0-9-]+$/.test(valor('IA_MODELO'))) avisos.push('IA_MODELO debe ser un id de modelo de Claude, p. ej. claude-opus-5-5');
     if (valor('RESUMEN_HORA') && !/^no$/i.test(valor('RESUMEN_HORA'))) entero('RESUMEN_HORA', 0, 23);
-    for (const nombre of ['CUENTAS_PERSONALES', 'CHAT_TARJETAS', 'CORREOS_AVISOS', 'AGENDA_AUTOMATICA', 'REPORTE_SEMANAL']) siNo(nombre);
+    for (const nombre of ['CUENTAS_PERSONALES', 'CHAT_TARJETAS', 'CORREOS_AVISOS', 'AGENDA_AUTOMATICA', 'REPORTE_SEMANAL', 'ENTRADA_CLAVE']) siNo(nombre);
+    if (valor('CODIGO_ALTA') && valor('CODIGO_ALTA').length < 12) errores.push('CODIGO_ALTA: al menos 12 caracteres (es lo que protege el alta de los Master)');
 
     if (valor('URL_APP') && !/^https:\/\/[^\s]+$/.test(valor('URL_APP'))) avisos.push('URL_APP debe empezar por https://');
     if (valor('CHAT_WEBHOOK') && !valor('CHAT_WEBHOOK').startsWith('https://chat.googleapis.com/')) avisos.push('CHAT_WEBHOOK no parece un webhook de Google Chat (https://chat.googleapis.com/…)');
@@ -220,7 +227,11 @@ export function comprobarConfig(config) {
     const faltan = [];
     if (!config.urlPublica.startsWith('https://') && !config.urlPublica.startsWith('http://localhost')) faltan.push('URL_PUBLICA (https://…)');
     if (!config.mysql.user || !config.mysql.database) faltan.push('MYSQL_USUARIO y MYSQL_BASE');
-    if (!config.google.clientId || !config.google.clientSecret) faltan.push('GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET');
+    // Sin Google se puede arrancar si se entra con contraseña; los Master necesitan entonces el código de alta
+    if (!config.google.activo && !config.entradaClave) faltan.push('GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET (o ENTRADA_CLAVE=si)');
+    if (!config.google.activo && config.entradaClave && config.google.admins.length && !config.codigoAlta) {
+        faltan.push('CODIGO_ALTA (sin Google, los Master de ADMINS crean su cuenta con este código)');
+    }
     if (!/^[0-9a-fA-F]{64}$/.test(config.claveCifrado)) faltan.push('CLAVE_CIFRADO (64 caracteres hexadecimales: npm run clave)');
     if (!config.google.dominio && !config.google.admins.length) faltan.push('DOMINIO o ADMINS (si no, nadie podría entrar)');
     return faltan;

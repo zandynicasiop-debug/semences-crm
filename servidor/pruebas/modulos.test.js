@@ -209,7 +209,7 @@ describe('configuración', () => {
 
     test('comprobarConfig: dice todo lo que falta para arrancar', () => {
         const faltan = comprobarConfig(leerConfig({}));
-        assert.equal(faltan.length, 5);
+        assert.equal(faltan.length, 4, 'Google ya no es obligatorio: se puede entrar con correo y contraseña');
         assert.ok(faltan.some(f => f.startsWith('CLAVE_CIFRADO')));
         const completa = leerConfig({
             URL_PUBLICA: 'https://api.semillasdata.com', MYSQL_USUARIO: 'u', MYSQL_BASE: 'b',
@@ -218,6 +218,17 @@ describe('configuración', () => {
         assert.deepEqual(comprobarConfig(completa), []);
         assert.deepEqual(comprobarConfig({ ...completa, urlPublica: 'http://api.x.com' }), ['URL_PUBLICA (https://…)'], 'sin https no arranca');
         assert.deepEqual(comprobarConfig({ ...completa, urlPublica: 'http://localhost:3000' }), [], 'localhost sí, para pruebas');
+    });
+
+    test('sin Google: se arranca con correo y contraseña, y los Master necesitan el código de alta', () => {
+        const base = { URL_PUBLICA: 'https://api.semillasdata.com', MYSQL_USUARIO: 'u', MYSQL_BASE: 'b', CLAVE_CIFRADO: CLAVE, ADMINS: 'jefa@gmail.com' };
+        assert.deepEqual(comprobarConfig(leerConfig(base)), ['CODIGO_ALTA (sin Google, los Master de ADMINS crean su cuenta con este código)']);
+        assert.deepEqual(comprobarConfig(leerConfig({ ...base, CODIGO_ALTA: 'codigo-de-alta-largo' })), []);
+        // Los valores de ejemplo de .env.example no cuentan como Google conectado
+        const ejemplo = leerConfig({ ...base, CODIGO_ALTA: 'codigo-de-alta-largo', GOOGLE_CLIENT_ID: 'PEGA_AQUI_EL_ID.apps.googleusercontent.com', GOOGLE_CLIENT_SECRET: 'PEGA_AQUI_EL_SECRETO' });
+        assert.equal(ejemplo.google.activo, false);
+        assert.ok(comprobarConfig(leerConfig({ ...base, ENTRADA_CLAVE: 'no' })).some(f => f.startsWith('GOOGLE_CLIENT_ID')), 'sin contraseña, Google es obligatorio');
+        assert.ok(validarEntorno({ ...base, CODIGO_ALTA: 'corto' }).errores.some(e => e.startsWith('CODIGO_ALTA')));
     });
 });
 
