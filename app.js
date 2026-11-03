@@ -1428,7 +1428,8 @@ class Vehiculo {
 
 /**
  * Todo lo que hay fuera de la cerca: carreteras con tráfico, el pueblo frente a la entrada,
- * fincas vecinas (plátano y caña), palmas, potrero con vacas, tendido eléctrico y montañas.
+ * fincas vecinas (plátano y caña), palmas, potrero con vacas, la zona de hortalizas de detrás (campos en
+ * hileras, túneles vecinos, campo recién arado, mangos, canal de riego y tinaco), tendido eléctrico y montañas.
  * Las coordenadas de la finca: cerca de x = -32 a 34 y de z = -21 a 24.
  */
 class Alrededores {
@@ -1449,6 +1450,7 @@ class Alrededores {
         this.crearCanaveral(52, 112, -110, -38);
         this.crearPalmas();
         this.crearPotrero();
+        this.crearZonaAgricola();
         this.crearTendidoElectrico();
         this.crearMontanas();
         this.inst.construir();
@@ -1472,6 +1474,121 @@ class Alrededores {
         parche(-36, 38, -110, -38, 0x5f8a3c);  // Potrero trasero
         parche(-150, -116, -110, 20, 0x6b4f2a); // Tierra arada
         parche(118, 170, -110, 18, 0x557a33);
+        // Las tierras de los lados, sembradas en hileras (de lejos se ven como surcos verdes)
+        const hilera = new THREE.BoxGeometry(1, 1, 1);
+        const verdeHilera = new THREE.MeshStandardMaterial({ color: 0x4f8a35, roughness: 0.9 });
+        for (let x = -148; x <= -118; x += 2.6) this.inst.agregar('hileraLejana', hilera, verdeHilera, x, 0.2, -45, 0, 0, 0, 1.1, 0.4, 126);
+        for (let x = 120; x <= 168; x += 2.6) this.inst.agregar('hileraLejana', hilera, verdeHilera, x, 0.2, -46, 0, 0, 0, 1.1, 0.4, 124);
+    }
+
+    /**
+     * Zona de hortalizas detrás de la finca (mitad este del antiguo potrero, x 10 a 40): canal de riego
+     * junto al camino, caminos de tierra y cuatro campos vecinos: ají en hileras, túneles con acolchado
+     * plateado, campo recién arado con su tractor y un huerto de mangos. Y un tinaco elevado junto al
+     * ranchito. Todo fijo: se junta con el resto del paisaje (optimizarEscena) o va instanciado.
+     */
+    crearZonaAgricola() {
+        const mat = (color, roughness = 0.9, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness, ...extra });
+        const plano = (x0, x1, z0, z1, material, y = 0.003) => {
+            const m = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, z1 - z0), material);
+            m.rotation.x = -Math.PI / 2;
+            m.position.set((x0 + x1) / 2, y, (z0 + z1) / 2);
+            this.scene.add(m);
+        };
+        const caja = new THREE.BoxGeometry(1, 1, 1);
+        const pieza = (clave, material, x, y, z, sx, sy, sz, ry = 0) => this.inst.agregar(clave, caja, material, x, y, z, 0, ry, 0, sx, sy, sz);
+        const tierra = mat(0x5a3d22, 1);
+        const camino = mat(0xb39a6b, 1);
+
+        // Canal de riego de concreto a lo largo del camino trasero, con agua
+        const concreto = mat(0xb8b2a7, 0.95);
+        pieza('canal', concreto, 25, 0.12, -37.6, 30, 0.25, 0.22);
+        pieza('canal', concreto, 25, 0.12, -38.9, 30, 0.25, 0.22);
+        plano(10, 40, -38.8, -37.7, mat(0x3f7fb5, 0.15, { metalness: 0.2 }), 0.08);
+
+        // Caminos de tierra: uno a lo largo (x = 25) y uno de través (z = -74)
+        plano(24, 26, -108, -39.5, camino, 0.006);
+        plano(10, 40, -75, -73, camino, 0.007);
+
+        // 1. Ají en hileras (x 11-24, z -40 a -72)
+        plano(11, 24, -72, -40, tierra);
+        const ajiMat = mat(0x3f8f3a, 0.85);
+        const rojoAji = mat(0xc2410c, 0.6);
+        for (let x = 11.8; x <= 23.4; x += 1.2) {
+            pieza('surco', tierra, x, 0.08, -56, 0.8, 0.16, 31);
+            pieza('aji', ajiMat, x, 0.36, -56, 0.5, 0.4, 30.4);
+            for (let z = -70; z <= -42; z += 2.3) if (this.azar() > 0.55) pieza('ajiFruto', rojoAji, x + (this.azar() - 0.5) * 0.4, 0.45, z, 0.14, 0.14, 0.14);
+        }
+
+        // 2. Túneles vecinos con acolchado plateado (x 26-39, z -40 a -72)
+        plano(26, 39, -72, -40, tierra);
+        const plateado = mat(0xc7ccd1, 0.35, { metalness: 0.35 });
+        const plastico = mat(0xf3faf6, 0.25, { transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide });
+        const tuboMat = mat(0xb6bcc2, 0.4, { metalness: 0.7 });
+        [28.6, 32.5, 36.4].forEach(cx => {
+            const tunel = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 28, 16, 1, true, Math.PI / 2, Math.PI), plastico);
+            tunel.rotation.x = Math.PI / 2;
+            tunel.position.set(cx, 0.3, -56);
+            this.scene.add(tunel);
+            for (let z = -69; z <= -43; z += 3.25) {
+                const arco = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.04, 4, 12, Math.PI), tuboMat);
+                arco.position.set(cx, 0.3, z);
+                this.scene.add(arco);
+            }
+            [-0.7, 0.7].forEach(dx => {
+                pieza('acolchadoVecino', plateado, cx + dx, 0.06, -56, 0.8, 0.1, 27);
+                pieza('matasTunel', ajiMat, cx + dx, 0.36, -56, 0.45, 0.5, 26.5);
+            });
+        });
+
+        // 3. Campo recién arado con su tractor (x 11-24, z -75 a -108)
+        plano(11, 24, -108, -75, mat(0x6b4a2b, 1));
+        const surcoArado = mat(0x4a3319, 1);
+        for (let x = 11.6; x <= 23.6; x += 0.8) pieza('arado', surcoArado, x, 0.06, -91.5, 0.4, 0.12, 32.5);
+        const tractor = new THREE.Group();
+        const rojo = mat(0xb91c1c, 0.5, { metalness: 0.3 });
+        const negro = mat(0x1f2937, 0.8);
+        const cuerpo = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.9, 2.2), rojo);
+        cuerpo.position.y = 1.1;
+        tractor.add(cuerpo);
+        const cabina = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1, 1), mat(0x334155, 0.3));
+        cabina.position.set(0, 2, -0.4);
+        tractor.add(cabina);
+        [[-0.75, -0.6, 0.65], [0.75, -0.6, 0.65], [-0.65, 0.8, 0.4], [0.65, 0.8, 0.4]].forEach(([px, pz, r]) => {
+            const rueda = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.35, 12), negro);
+            rueda.rotation.z = Math.PI / 2;
+            rueda.position.set(px, r, pz);
+            tractor.add(rueda);
+        });
+        const arado = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.25, 0.5), mat(0x52525b, 0.6, { metalness: 0.4 }));
+        arado.position.set(0, 0.35, -1.9);
+        tractor.add(arado);
+        tractor.position.set(17.2, 0, -84);
+        this.scene.add(tractor);
+
+        // 4. Huerto de mangos (x 26-39, z -75 a -108)
+        plano(26, 39, -108, -75, mat(0x6b8f3a, 1));
+        const troncoGeom = new THREE.CylinderGeometry(0.2, 0.28, 1, 6);
+        const troncoMat = mat(0x6b4423, 0.9);
+        const copaGeom = new THREE.IcosahedronGeometry(1, 1);
+        const copaMat = [mat(0x2f6b34, 0.85, { flatShading: true }), mat(0x3b7d3f, 0.85, { flatShading: true })];
+        let n = 0;
+        for (let x = 27.6; x <= 38; x += 3.4) {
+            for (let z = -77.5; z >= -106; z -= 3.6) {
+                const alto = 1.4 + this.azar() * 0.5;
+                const r = 1.3 + this.azar() * 0.4;
+                this.inst.agregar('troncoMango', troncoGeom, troncoMat, x, alto / 2, z, 0, 0, 0, 1, alto, 1);
+                this.inst.agregar(`copaMango${n++ % 2}`, copaGeom, copaMat[n % 2], x, alto + r * 0.6, z, 0, this.azar() * 3, 0, r, r * 0.8, r);
+            }
+        }
+
+        // Tinaco elevado junto al ranchito: torre de cuatro patas y tanque negro
+        const torre = mat(0x9ca3af, 0.5, { metalness: 0.5 });
+        [[-0.8, -0.8], [0.8, -0.8], [-0.8, 0.8], [0.8, 0.8]].forEach(([dx, dz]) => pieza('torreTinaco', torre, 1 + dx, 2.5, -56 + dz, 0.15, 5, 0.15));
+        pieza('torreTinaco', torre, 1, 5.05, -56, 2, 0.12, 2);
+        const tanque = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 1.6, 14), mat(0x1c1917, 0.5));
+        tanque.position.set(1, 5.9, -56);
+        this.scene.add(tanque);
     }
 
     crearCarreteras() {
@@ -1715,6 +1832,7 @@ class Alrededores {
             const z = -110 + this.azar() * 70;
             if (z > -40) continue;
             if (Math.hypot(x + 8, z + 62) < 6 || Math.hypot(x - 6, z + 60) < 5) continue; // Ni en la casa ni en el rancho
+            if (x > 9) continue; // Ni en los campos de hortalizas
             this.palma(x, z);
         }
     }
@@ -1730,7 +1848,7 @@ class Alrededores {
         const cabeza = new THREE.BoxGeometry(0.45, 0.45, 0.6);
         const pata = new THREE.BoxGeometry(0.16, 0.7, 0.16);
         for (let i = 0; i < 12; i++) {
-            const x = -30 + this.azar() * 64;
+            const x = -32 + this.azar() * 34;
             const z = -44 - this.azar() * 50;
             const r = this.azar() * Math.PI * 2;
             const m = vacaMat[i % 3];
@@ -1810,6 +1928,97 @@ class Alrededores {
 
     actualizar(delta) {
         this.vehiculos.forEach(v => v.actualizar(delta));
+    }
+}
+
+/**
+ * Asta con bandera que ondea: base de concreto, mástil blanco con remate dorado, driza y la tela
+ * (lienzo con la bandera) sujeta al mástil por el lado del asta, mirando a la cámara (+Z).
+ * La tela se mueve con una onda que crece hacia el extremo libre (sin onda con "reducir movimiento").
+ */
+class Bandera {
+    static ALTO = 7.5;
+
+    constructor(scene, x, z, ancho, alto, dibujar, descripcion) {
+        const mat = (color, roughness = 0.5, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness, ...extra });
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.55, 0.3, 12), mat(0xc9c5bc, 0.9));
+        base.position.set(x, 0.15, z);
+        scene.add(base);
+        const mastil = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.075, Bandera.ALTO, 10), mat(0xf8fafc, 0.3, { metalness: 0.2 }));
+        mastil.position.set(x, 0.3 + Bandera.ALTO / 2, z);
+        scene.add(mastil);
+        const remate = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 8), mat(0xd4a017, 0.25, { metalness: 0.8 }));
+        remate.position.set(x, 0.3 + Bandera.ALTO + 0.1, z);
+        scene.add(remate);
+        const driza = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, Bandera.ALTO - 0.4, 4), mat(0xe5e7eb, 0.8));
+        driza.position.set(x + 0.08, 0.3 + Bandera.ALTO / 2, z + 0.03);
+        scene.add(driza);
+
+        const lienzo = document.createElement('canvas');
+        lienzo.width = 768;
+        lienzo.height = Math.round((768 * alto) / ancho);
+        dibujar(lienzo.getContext('2d'), lienzo.width, lienzo.height);
+        const textura = new THREE.CanvasTexture(lienzo);
+        const geometria = new THREE.PlaneGeometry(ancho, alto, 16, 6);
+        geometria.translate(ancho / 2, 0, 0); // El borde del asta en x = 0
+        this.tela = new THREE.Mesh(geometria, new THREE.MeshStandardMaterial({ map: textura, roughness: 0.75, side: THREE.DoubleSide }));
+        this.tela.position.set(x + 0.06, 0.3 + Bandera.ALTO - 0.15 - alto / 2, z);
+        this.tela.userData.nombre = descripcion;
+        scene.add(this.tela);
+        this.ancho = ancho;
+        this.base = Float32Array.from(geometria.attributes.position.array);
+        this.fase = x * 0.7; // Las dos banderas no ondean al compás
+    }
+
+    actualizar(t) {
+        const pos = this.tela.geometry.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+            const bx = this.base[i * 3], by = this.base[i * 3 + 1];
+            const f = bx / this.ancho; // 0 en el asta, 1 en el extremo libre
+            pos.setZ(i, Math.sin(bx * 2.4 - t * 4.2 + this.fase) * 0.2 * f + Math.sin(by * 2 + t * 2.1) * 0.03 * f);
+            pos.setY(i, by - f * f * 0.06 + Math.sin(bx * 1.7 - t * 3.1 + this.fase) * 0.035 * f);
+        }
+        pos.needsUpdate = true;
+        this.tela.geometry.computeVertexNormals();
+    }
+}
+
+// República Dominicana (5:8): cruz blanca centrada, cuarteles azul y rojo (pabellón sin escudo)
+function dibujarBanderaRD(ctx, w, h) {
+    const azul = '#002D62', rojo = '#CE1126';
+    const cx = w * (350 / 800), cw = w * (100 / 800), cy = h * (200 / 500), ch = h * (100 / 500);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = azul;
+    ctx.fillRect(0, 0, cx, cy);
+    ctx.fillRect(cx + cw, cy + ch, w - cx - cw, h - cy - ch);
+    ctx.fillStyle = rojo;
+    ctx.fillRect(cx + cw, 0, w - cx - cw, cy);
+    ctx.fillRect(0, cy + ch, cx, h - cy - ch);
+}
+
+// Venezuela (2:3): franjas amarilla, azul y roja con el arco de ocho estrellas blancas (pabellón civil)
+function dibujarBanderaVenezuela(ctx, w, h) {
+    const franja = h / 3;
+    [['#FFCC00', 0], ['#00247D', 1], ['#CF142B', 2]].forEach(([color, k]) => {
+        ctx.fillStyle = color;
+        ctx.fillRect(0, k * franja, w, franja + 1);
+    });
+    const estrella = (x, y, r, giro) => {
+        ctx.beginPath();
+        for (let i = 0; i < 10; i++) {
+            const a = giro - Math.PI / 2 + (i * Math.PI) / 5;
+            const rr = i % 2 ? r * 0.4 : r;
+            ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+        }
+        ctx.closePath();
+        ctx.fill();
+    };
+    ctx.fillStyle = '#ffffff';
+    const centroY = franja * 2.05, radio = franja * 0.92, r = franja * 0.11;
+    for (let i = 0; i < 8; i++) {
+        const ang = Math.PI * (0.17 + (0.66 * i) / 7); // Arco superior, de izquierda a derecha
+        estrella(w / 2 - Math.cos(ang) * radio, centroY - Math.sin(ang) * radio, r, Math.PI / 2 - ang);
     }
 }
 
@@ -2097,8 +2306,11 @@ class Dashboard {
             ctx.font = '600 78px Lora, Georgia, serif';
             ctx.fillText('Semences del Caribe', lienzo.width / 2, 100);
             ctx.fillStyle = PALETA.css.textoSuave;
-            ctx.font = '600 34px Raleway, sans-serif';
-            ctx.fillText('SEMILLAS DE HORTALIZAS · REPÚBLICA DOMINICANA', lienzo.width / 2, 154);
+            // Los dos países donde trabaja la empresa; la letra se achica hasta caber
+            const lema = 'SEMILLAS DE HORTALIZAS · REPÚBLICA DOMINICANA · VENEZUELA';
+            let tamano = 34;
+            do { ctx.font = `600 ${tamano}px Raleway, sans-serif`; tamano -= 1; } while (ctx.measureText(lema).width > lienzo.width - 70 && tamano > 18);
+            ctx.fillText(lema, lienzo.width / 2, 154);
             texturaLetrero.needsUpdate = true;
         };
         dibujarLetrero();
@@ -2111,6 +2323,12 @@ class Dashboard {
         );
         letrero.position.set(0, 3.9, Z1);
         this.scene.add(letrero);
+
+        // Astas con las banderas de los dos países de la empresa, a la derecha de la entrada (por dentro)
+        this.banderas = [
+            new Bandera(this.scene, 5.2, Z1 - 1.5, 2.4, 1.5, dibujarBanderaRD, 'Bandera de la República Dominicana'),
+            new Bandera(this.scene, 8.6, Z1 - 1.5, 2.4, 1.6, dibujarBanderaVenezuela, 'Bandera de Venezuela')
+        ];
 
         // Portón corredizo abierto, recogido detrás de la cerca a la derecha
         const portonMat = new THREE.MeshStandardMaterial({ color: PALETA.primarioOscuro, roughness: 0.5, metalness: 0.4 });
@@ -2832,6 +3050,7 @@ class Dashboard {
      * El logo se recorta de su fondo blanco y se centra en el panel sin deformarlo.
      */
     crearCartelMarca(x, z, urlLogo) {
+        const COLORES_MARCA = { gautier: '#0b4a2f', hexagon: '#2b2b2b', genome: '#1f7a3a', fito: '#00512c' };
         const ANCHO = 6, ALTO = 3, Y_PANEL = 5.2; // Borde inferior del panel
         const aceroMat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.45, metalness: 0.7 });
         const oscuroMat = new THREE.MeshStandardMaterial({ color: 0x6b7280, roughness: 0.5, metalness: 0.6 });
@@ -2873,15 +3092,42 @@ class Dashboard {
             d.rotation.z = (k % 2 ? 1 : -1) * Math.atan2(ANCHO / 4, ALTO);
         }
 
-        // Panel con el logo
+        // Panel con el logo: lienzo grande (nítido de cerca), franja inferior del color de la marca y algo
+        // de luz propia para que se lea aunque le dé la sombra o la niebla
+        const W = 2048, H = 1024, FRANJA = 150;
+        const marca = Object.keys(COLORES_MARCA).find(k => urlLogo.includes(k));
+        const colorMarca = COLORES_MARCA[marca] || PALETA.css.primarioOscuro;
         const lienzo = document.createElement('canvas');
-        lienzo.width = 1024;
-        lienzo.height = 512;
+        lienzo.width = W;
+        lienzo.height = H;
         const ctx = lienzo.getContext('2d');
-        ctx.fillStyle = PALETA.css.blanco;
-        ctx.fillRect(0, 0, 1024, 512);
         const textura = new THREE.CanvasTexture(lienzo);
-        const panelMat = new THREE.MeshStandardMaterial({ map: textura, roughness: 0.6 });
+        let logo = null; // { imagen, x0, y0, w, h } cuando ha cargado
+        const dibujar = () => {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, W, H);
+            ctx.fillStyle = colorMarca;
+            ctx.fillRect(0, H - FRANJA, W, FRANJA);
+            ctx.globalAlpha = 0.35;
+            ctx.fillRect(0, H - FRANJA - 14, W, 8);
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = '700 58px Raleway, "Segoe UI", sans-serif';
+            ctx.fillText('SEMILLAS DE HORTALIZAS  ·  REPÚBLICA DOMINICANA  ·  VENEZUELA', W / 2, H - FRANJA / 2);
+            if (logo) {
+                const zona = H - FRANJA - 40;
+                const escala = Math.min((W * 0.86) / logo.w, (zona * 0.84) / logo.h);
+                const dw = logo.w * escala, dh = logo.h * escala;
+                ctx.imageSmoothingQuality = 'high';
+                ctx.drawImage(logo.imagen, logo.x0, logo.y0, logo.w, logo.h, (W - dw) / 2, (zona - dh) / 2 + 10, dw, dh);
+            }
+            textura.needsUpdate = true;
+        };
+        dibujar();
+        if (document.fonts) document.fonts.ready.then(dibujar);
+        const panelMat = new THREE.MeshStandardMaterial({ map: textura, roughness: 0.55, emissive: 0xffffff, emissiveMap: textura, emissiveIntensity: 0.32 });
         const bordeMat = new THREE.MeshStandardMaterial({ color: 0xe5e7eb, roughness: 0.5 });
         const panel = new THREE.Mesh(
             new THREE.BoxGeometry(ANCHO, ALTO, 0.15),
@@ -2913,13 +3159,9 @@ class Dashboard {
                 }
             }
             if (x1 <= x0 || y1 <= y0) { x0 = 0; y0 = 0; x1 = tmp.width - 1; y1 = tmp.height - 1; }
-            const w = x1 - x0 + 1, h = y1 - y0 + 1;
             // Cabe en el panel con margen, sin deformar
-            const escala = Math.min((1024 * 0.84) / w, (512 * 0.78) / h);
-            const dw = w * escala, dh = h * escala;
-            ctx.imageSmoothingQuality = 'high';
-            ctx.drawImage(imagen, x0, y0, w, h, (1024 - dw) / 2, (512 - dh) / 2, dw, dh);
-            textura.needsUpdate = true;
+            logo = { imagen, x0, y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+            dibujar();
         };
         imagen.src = urlLogo;
 
@@ -3278,6 +3520,7 @@ class Dashboard {
         this.trabajadores.forEach(t => marcar(t.mesh));
         this.caminantes.forEach(c => marcar(c.mesh));
         (this.alrededores ? this.alrededores.vehiculos : []).forEach(v => marcar(v.mesh));
+        (this.banderas || []).forEach(b => marcar(b.tela)); // La tela ondea; el asta es fija
 
         const anisotropia = this.renderer.capabilities.getMaxAnisotropy();
         const caja = new THREE.Box3();
@@ -3525,6 +3768,7 @@ class Dashboard {
         });
 
         this.trabajadores.forEach(trabajador => trabajador.actualizar(delta));
+        if (!MOVIMIENTO_REDUCIDO) this.banderas.forEach(b => b.actualizar(this.tiempoSimulado));
         this.caminantes.forEach(caminante => caminante.actualizar(delta));
         this.alrededores.actualizar(delta);
 
