@@ -14,6 +14,8 @@ mkdir -p publicar
 cp index.html style.css manifest.webmanifest sw.js privacidad.html condiciones.html legal.css \
    googleSync.js app.js datos.js usuario.js mapa.js cotizador.js crm.js equipo.js tareas.js tablero.js bandejaInstagram.js panel.js reporte.js accesos.js agenda.js reunionesMetas.js auditoria.js pwa.js ventana.js tema.js textosIngles.js idioma.js publicar/
 cp -R iconos marcas publicar/
+# Todo legible para el servidor web (un archivo con permisos 600 sale como 403 en el hosting)
+chmod -R u+rwX,go+rX publicar
 
 # Para hosting con Apache o LiteSpeed (cPanel, p. ej. FastComet): siempre https (sin él no se instala
 # la app ni funciona sin conexión), tipos de archivo del manifiesto y del APK, y sin caché vieja para
