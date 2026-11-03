@@ -19,7 +19,9 @@ chmod -R u+rwX,go+rX publicar
 
 # Para hosting con Apache o LiteSpeed (cPanel, p. ej. FastComet): siempre https (sin él no se instala
 # la app ni funciona sin conexión), tipos de archivo del manifiesto y del APK, y sin caché vieja para
-# index.html y sw.js (así el equipo recibe cada versión nueva). GitHub Pages lo ignora.
+# la página, el código y los estilos: FastComet los marca para 7 días y el navegador mezclaba el index.html
+# nuevo con un style.css viejo. Con no-cache se pregunta cada vez (si no cambió, responde 304 sin
+# volver a mandarlo). GitHub Pages lo ignora.
 cat > publicar/.htaccess <<'HTACCESS'
 <IfModule mod_rewrite.c>
     RewriteEngine On
@@ -33,8 +35,9 @@ cat > publicar/.htaccess <<'HTACCESS'
 AddType application/manifest+json .webmanifest
 AddType application/vnd.android.package-archive .apk
 <IfModule mod_headers.c>
-    <FilesMatch "^(index\.html|sw\.js|manifest\.webmanifest)$">
+    <FilesMatch "\.(html|js|css|webmanifest)$">
         Header set Cache-Control "no-cache"
+        Header unset Expires
     </FilesMatch>
     <FilesMatch "\.apk$">
         Header set Content-Disposition "attachment"

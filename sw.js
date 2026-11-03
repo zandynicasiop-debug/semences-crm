@@ -6,7 +6,7 @@
  * - Lo demás (el Apps Script de Google, Chat…) no pasa por aquí: siempre va a la red.
  * Al publicar cambios grandes, sube VERSION para descartar las copias viejas.
  */
-const VERSION = 'semences-v25'; // Sube en cada publicación con cambios: descarta las copias viejas
+const VERSION = 'semences-v26'; // Sube en cada publicación con cambios: descarta las copias viejas
 const APP = [
     './', './index.html', './style.css', './manifest.webmanifest',
     './googleSync.js', './app.js', './datos.js', './usuario.js', './mapa.js', './cotizador.js',
@@ -44,7 +44,10 @@ self.addEventListener('fetch', (evento) => {
     const url = new URL(peticion.url);
 
     if (url.origin === self.location.origin) {
-        evento.respondWith(fetch(peticion)
+        // Sin la caché del navegador (el hosting marca el código para 7 días): así nunca se mezcla una
+        // página nueva con un estilo o un archivo viejo. La navegación no admite opciones: va tal cual
+        const desdeRed = peticion.mode === 'navigate' ? fetch(peticion) : fetch(peticion, { cache: 'no-cache' });
+        evento.respondWith(desdeRed
             .then(respuesta => {
                 if (respuesta.ok) {
                     const copia = respuesta.clone();
