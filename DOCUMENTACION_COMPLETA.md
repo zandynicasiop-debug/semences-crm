@@ -416,7 +416,7 @@ Todas bajo `/api` (y también en la raíz, por si el proxy de cPanel quita el pr
 
 | Tabla | Contenido |
 |---|---|
-| `usuarios` | Cuenta, nombre, foto, token de Google **cifrado**, huella scrypt de la contraseña (entrada sin Google) con sus fallos y bloqueo, teléfono, estado (`pendiente`/`aprobado`/`rechazado`), cargo, países y casas (JSON), presencia, idioma (`es`/`en`), preferencias del resumen |
+| `usuarios` | Cuenta, nombre, foto, token de Google **cifrado**, teléfono, estado (`pendiente`/`aprobado`/`rechazado`), cargo, países y casas (JSON), presencia, idioma (`es`/`en`), preferencias del resumen |
 | `sesiones` | **Huella** SHA-256 de cada sesión (nunca la sesión), usuario y caducidad |
 | `codigos` | Huella del código de un solo uso, reto PKCE, caducidad (2 min) |
 | `equipo` | Cuentas de fuera del dominio autorizadas, con su teléfono |

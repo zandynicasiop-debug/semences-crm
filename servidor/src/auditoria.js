@@ -201,7 +201,6 @@ export const AUDITAR_ACCION = {
     calendar: (d) => ({ accion: 'calendario', resumen: `Agendó ${texto(d.titulo)}`, cambios: { inicio: texto(d.inicio, 40), invitados: lista(d.invitados) } }),
     telefono: (d) => ({ accion: 'perfil', resumen: d.telefono ? 'Cambió su WhatsApp para los avisos' : 'Quitó su WhatsApp de los avisos' }),
     sala: () => ({ accion: 'perfil', resumen: 'Pidió acceso desde la sala de espera' }),
-    cambiarClave: () => ({ accion: 'perfil', resumen: 'Cambió su contraseña' }),
     resumen: (d) => ({ accion: 'perfil', resumen: d.activo ? 'Activó el resumen de la mañana' : 'Desactivó el resumen de la mañana' }),
     push: (d) => ['alta', 'baja'].includes(d.operacion) && { accion: 'dispositivo', resumen: d.operacion === 'alta' ? 'Activó los avisos en un dispositivo' : 'Desactivó los avisos en un dispositivo' },
     avisar: (d) => ({ accion: 'alerta', resumen: 'Envió una alerta al equipo', cambios: { mensaje: texto(d.mensaje, MAX_VALOR) } })

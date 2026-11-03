@@ -163,9 +163,7 @@ export const publico = (usuario, config) => ({
     foto: usuario.foto,
     telefono: usuario.telefono,
     admin: esAdmin(config, usuario.email),
-    // "clave": entró con correo y contraseña, sin Google (su correo no está verificado: el Master lo comprueba)
-    tipoCuenta: usuario.clave_hash && !usuario.token_google ? 'clave' : tipoCuenta(config, usuario.email),
-    conClave: Boolean(usuario.clave_hash),
+    tipoCuenta: tipoCuenta(config, usuario.email),
     ...ambitoDe(usuario, config),
     solicitado: Boolean(usuario.solicitado),
     resumen: usuario.resumen_activo === undefined ? true : Boolean(Number(usuario.resumen_activo)),
@@ -207,55 +205,4 @@ export async function destinosDe(pool, usuarioIds) {
 export async function tieneSuscripcion(pool, usuarioId, endpoint) {
     const [filas] = await pool.query('SELECT 1 FROM push_suscripciones WHERE huella = ? AND usuario_id = ?', [huella(endpoint), usuarioId]);
     return filas.length > 0;
-}
-
-// ----- Entrada con correo y contraseña (sin Google) -----
-// La contraseña nunca se guarda: solo su huella scrypt, con su propia sal. Comparación en tiempo constante
-
-export const LARGO_MINIMO_CLAVE = 10;
-export const FALLOS_PARA_BLOQUEAR = 5;
-export const MINUTOS_DE_BLOQUEO = 15;
-const SCRYPT = { N: 16384, r: 8, p: 1 };
-const LARGO_HUELLA = 32;
-
-const scrypt = (clave, sal, { N, r, p }) => new Promise((resolver, rechazar) =>
-    crypto.scrypt(String(clave).normalize('NFKC'), sal, LARGO_HUELLA, { N, r, p, maxmem: 64 * 1024 * 1024 }, (error, clave2) => (error ? rechazar(error) : resolver(clave2))));
-
-export async function cifrarClave(clave) {
-    const sal = crypto.randomBytes(16);
-    const h = await scrypt(clave, sal, SCRYPT);
-    return `scrypt$${SCRYPT.N}$${SCRYPT.r}$${SCRYPT.p}$${sal.toString('base64url')}$${h.toString('base64url')}`;
-}
-
-// Sin huella guardada se calcula una igual: así no se nota por el tiempo qué correos tienen cuenta
-const HUELLA_FALSA = 'scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-export async function claveCorrecta(clave, guardada) {
-    const partes = String(guardada || HUELLA_FALSA).split('$');
-    if (partes.length !== 6 || partes[0] !== 'scrypt') return false;
-    const [, N, r, p, sal, huellaGuardada] = partes;
-    const esperada = Buffer.from(huellaGuardada, 'base64url');
-    const calculada = await scrypt(clave, Buffer.from(sal, 'base64url'), { N: Number(N), r: Number(r), p: Number(p) });
-    return Boolean(guardada) && esperada.length === calculada.length && crypto.timingSafeEqual(esperada, calculada);
-}
-
-// Una contraseña aceptable, o el motivo para pedir otra
-export function problemaDeClave(clave, email = '') {
-    const texto = String(clave || '');
-    if (texto.length < LARGO_MINIMO_CLAVE) return `La contraseña necesita al menos ${LARGO_MINIMO_CLAVE} caracteres`;
-    if (texto.length > 200) return 'La contraseña es demasiado larga (200 caracteres como mucho)';
-    // El nombre del correo dentro de la contraseña (solo si es de 4 letras o más: "ana" no veta "banana")
-    const usuario = String(email || '').toLowerCase().split('@')[0];
-    if (usuario.length >= 4 && texto.toLowerCase().includes(usuario)) return 'La contraseña no puede contener tu correo';
-    return '';
-}
-
-// Contraseña temporal para dar a alguien en persona (letras y números sin los que se confunden)
-export function claveTemporal() {
-    const letras = 'abcdefghjkmnpqrstuvwxyz23456789';
-    return Array.from(crypto.randomBytes(12), (b) => letras[b % letras.length]).join('').replace(/(.{4})(?=.)/g, '$1-');
-}
-
-export function mismoCodigo(a, b) {
-    const x = Buffer.from(String(a || '')), y = Buffer.from(String(b || ''));
-    return x.length === y.length && x.length > 0 && crypto.timingSafeEqual(x, y);
 }

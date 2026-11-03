@@ -428,9 +428,8 @@ class TableroEquipo {
             nombre.textContent = persona.nombre || persona.email;
             const detalle = document.createElement('span');
             const estado = persona.master ? 'Master' : { pendiente: persona.solicitado ? 'En la sala de espera' : 'Entró, sin pedir acceso todavía', aprobado: 'Aprobado', rechazado: 'Rechazado' }[persona.estado];
-            // Cuenta personal de Google (opción B) o con contraseña: se marca para que el Master lo tenga en cuenta al
-            // aprobar (con contraseña, nadie verificó el correo: conviene confirmar en persona que es quien dice)
-            const tipo = persona.master ? '' : { personal: 'cuenta personal', clave: 'correo y contraseña (correo sin verificar)' }[persona.tipoCuenta] || '';
+            // Cuenta personal de Google (opción B): se marca para que el Master lo tenga en cuenta al aprobar
+            const tipo = persona.tipoCuenta === 'personal' && !persona.master ? 'cuenta personal' : '';
             detalle.textContent = [persona.email, tipo, persona.telefono && `WhatsApp ${persona.telefono}`, estado].filter(Boolean).join(' · ');
             textos.append(nombre, detalle);
             cab.append(this.avatar(persona), textos);
@@ -501,13 +500,10 @@ class TableroEquipo {
             else boton('Rechazar', 'btn-texto btn-peligro', 'rechazar');
             boton(persona.estado === 'aprobado' ? 'Guardar cambios' : 'Aprobar', 'btn-primary', 'aprobar');
         }
-        // Quien entra con contraseña y la olvidó: una temporal que el Master le da en persona
-        if (persona.conClave) boton('Contraseña temporal', 'btn-texto', 'claveTemporal');
         const enviar = async (operacion) => {
             error.hidden = true;
             if (operacion === 'rechazar' && !window.confirm(`¿Rechazar el acceso de ${persona.nombre || persona.email}?`)) return;
             if (operacion === 'reabrir' && persona.estado === 'aprobado' && !window.confirm(`¿Quitar el acceso a ${persona.nombre || persona.email}? Vuelve a la sala de espera.`)) return;
-            if (operacion === 'claveTemporal' && !window.confirm(`¿Dar una contraseña temporal a ${persona.nombre || persona.email}? Su contraseña actual deja de valer y se cierran sus sesiones.`)) return;
             const datos = { operacion, email: persona.email };
             if (operacion === 'aprobar') {
                 datos.cargo = cargo.value;
@@ -523,22 +519,6 @@ class TableroEquipo {
             if (!respuesta || !respuesta.ok) {
                 error.textContent = (respuesta && respuesta.error) || 'No se pudo guardar. Revisa la conexión.';
                 error.hidden = false;
-                return;
-            }
-            if (operacion === 'claveTemporal') {
-                // Se enseña una sola vez, aquí: el servidor no la guarda en claro
-                let caja = form.querySelector('.clave-temporal');
-                if (!caja) {
-                    caja = document.createElement('p');
-                    caja.className = 'dialogo-nota clave-temporal';
-                    caja.setAttribute('role', 'status');
-                    form.insertBefore(caja, error);
-                }
-                caja.textContent = '';
-                const valor = document.createElement('strong');
-                valor.translate = false;
-                valor.textContent = respuesta.claveTemporal;
-                caja.append(`${traducir('Contraseña temporal')}: `, valor, ` · ${traducir('Dásela en persona o por teléfono: no se vuelve a mostrar. Al entrar, que la cambie en Tu cuenta.')}`);
                 return;
             }
             this.aviso({ aprobar: `${persona.nombre || persona.email} tiene acceso${persona.estado !== 'aprobado' ? '; le avisamos por WhatsApp' : ''}.`, rechazar: 'Solicitud rechazada.', reabrir: 'Vuelve a la sala de espera.' }[operacion]);

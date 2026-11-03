@@ -72,10 +72,9 @@ class GoogleWorkspaceConnector {
                 body: metodo === 'GET' ? undefined : JSON.stringify(cuerpo || {})
             });
             const datos = await respuesta.json();
-            // En la entrada (/api/auth/…) un error se enseña en el formulario: no cierra ninguna sesión
             // Sin el reporte semanal de la semana pasada: reporte.js abre la pantalla para entregarlo
             if (datos && datos.codigo === 'reporte') window.dispatchEvent(new CustomEvent('sdc-reporte'));
-            if (datos && datos.codigo && ['sesion', 'acceso', 'google', 'espera', 'rechazado'].includes(datos.codigo) && window.responsable && !ruta.startsWith('/api/auth/')) {
+            if (datos && datos.codigo && ['sesion', 'acceso', 'google', 'espera', 'rechazado'].includes(datos.codigo) && window.responsable) {
                 window.responsable.rechazado(datos.codigo, datos.error);
             }
             return datos;

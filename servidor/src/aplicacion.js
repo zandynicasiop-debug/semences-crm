@@ -43,7 +43,7 @@ function leerEstado(config, estado) {
 }
 
 // Lo único que puede hacer quien aún no está aprobado
-const SIN_APROBAR = ['sala', 'telefono', 'push', 'cambiarClave'];
+const SIN_APROBAR = ['sala', 'telefono', 'push'];
 
 export function crearApp({ config, pool, google, avisos, transportistas = null, instagram = null, ia = { activo: false }, registrar = console }) {
     const app = express();
@@ -155,12 +155,11 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
             colaAvisos: cola,
             // Flujos automáticos por tipo y estado (los 'fallido' son la cola de mensajes muertos)
             eventos,
-            // Para la pantalla de entrada: el dominio de la empresa, si se admiten cuentas personales y si se entra
-            // con Google, con correo y contraseña o con las dos
-            acceso: { dominio: config.google.dominio, cuentasPersonales: config.google.cuentasPersonales, google: config.google.activo, clave: config.entradaClave },
+            // Para la pantalla de entrada: el dominio de la empresa y si se admiten cuentas personales
+            acceso: { dominio: config.google.dominio, cuentasPersonales: config.google.cuentasPersonales },
             // Clave pública VAPID: la app la necesita para suscribirse a los avisos push (no es secreta)
             clavePush: avisos.clavePush,
-            clientId: config.google.activo ? config.google.clientId : ''
+            clientId: config.google.clientId
         });
     });
 
@@ -178,7 +177,6 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
     };
 
     api.get('/auth/google/inicio', limiteEntrada, (req, res) => {
-        if (!config.google.activo) return res.status(503).json({ ok: false, codigo: 'configuracion', error: 'Google todavía no está conectado en el servidor: entra con tu correo y contraseña' });
         const reto = String(req.query.reto || '');
         if (!/^[\w-]{43}$/.test(reto)) return res.status(400).json({ ok: false, codigo: 'datos', error: 'Falta el reto de la app' });
         const vuelta = vueltaValida(String(req.query.vuelta || ''));
@@ -225,86 +223,6 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
         }
     });
 
-    // ----- Entrada con correo y contraseña (sin Google) -----
-    // Mismo resultado que /auth/canjear: { sesion, usuario }. Quien se registra entra a la sala de espera, como
-    // con una cuenta personal de Google; los Master (ADMINS) necesitan además el código de alta (CODIGO_ALTA)
-    const conClave = (manejador) => async (req, res, next) => {
-        try {
-            if (!config.entradaClave) throw errorApp('La entrada con contraseña está apagada en el servidor', 403, 'acceso');
-            await manejador(req, res);
-        } catch (error) {
-            next(error);
-        }
-    };
-    const datosDeEntrada = (req) => {
-        const cuerpo = req.body || {};
-        const email = String(cuerpo.email || '').trim().toLowerCase();
-        if (!/^[^\s@]{1,64}@[^\s@]+\.[^\s@]{2,}$/.test(email) || email.length > 254) throw errorApp('Escribe un correo válido');
-        return { cuerpo, email, clave: String(cuerpo.clave || '') };
-    };
-    const rechazarEntrada = async (req, email, motivo, estado = 403, codigo = 'acceso') => {
-        await auditar(pool, config, { email, nombre: email, accion: 'ingreso_rechazado', resumen: motivo, red: redDe(req) });
-        return errorApp(motivo, estado, codigo);
-    };
-    const abrirSesion = async (req, res, usuarioId, resumen) => {
-        const sesion = await cuentas.crearSesion(pool, config, usuarioId);
-        const [[usuario]] = await pool.query('SELECT * FROM usuarios WHERE id = ?', [usuarioId]);
-        await auditar(pool, config, { usuario, accion: 'ingreso', resumen, red: redDe(req) });
-        res.json({ ok: true, sesion, usuario: cuentas.publico(usuario, config) });
-    };
-
-    api.post('/auth/registro', limiteEntrada, conClave(async (req, res) => {
-        const { cuerpo, email, clave } = datosDeEntrada(req);
-        const nombre = String(cuerpo.nombre || '').trim().replace(/\s+/g, ' ').slice(0, 200);
-        if (nombre.length < 2) throw errorApp('Escribe tu nombre');
-        const problema = cuentas.problemaDeClave(clave, email);
-        if (problema) throw errorApp(problema);
-        const [[existe]] = await pool.query('SELECT * FROM usuarios WHERE email = ?', [email]);
-        if (existe && (existe.clave_hash || existe.token_google)) throw errorApp('Ya hay una cuenta con ese correo: entra con tu contraseña', 409, 'datos');
-        if (cuentas.esAdmin(config, email)) {
-            if (!config.codigoAlta || !cuentas.mismoCodigo(cuerpo.codigoAlta, config.codigoAlta)) {
-                throw await rechazarEntrada(req, email, 'Ese correo es de un Master: para crear su cuenta hace falta el código de alta del servidor');
-            }
-        } else if (!(await cuentas.cuentaAutorizada(pool, config, email, ''))) {
-            throw await rechazarEntrada(req, email, `La cuenta ${email} no está autorizada. Pide a un administrador que te añada al equipo.`);
-        }
-        const huella = await cuentas.cifrarClave(clave);
-        await pool.query(
-            `INSERT INTO usuarios (email, nombre, clave_hash, ultimo_acceso) VALUES (?, ?, ?, UTC_TIMESTAMP())
-             ON DUPLICATE KEY UPDATE nombre = VALUES(nombre), clave_hash = VALUES(clave_hash), ultimo_acceso = UTC_TIMESTAMP()`,
-            [email, nombre, huella]);
-        if (cuentas.esAdmin(config, email)) await pool.query("UPDATE usuarios SET estado = 'aprobado' WHERE email = ?", [email]);
-        const [[usuario]] = await pool.query('SELECT id FROM usuarios WHERE email = ?', [email]);
-        await abrirSesion(req, res, usuario.id, 'Creó su cuenta con correo y contraseña');
-    }));
-
-    api.post('/auth/entrar', limiteEntrada, conClave(async (req, res) => {
-        const { email, clave } = datosDeEntrada(req);
-        const [[usuario]] = await pool.query('SELECT * FROM usuarios WHERE email = ?', [email]);
-        if (usuario && usuario.clave_bloqueo && new Date(usuario.clave_bloqueo) > new Date()) {
-            throw await rechazarEntrada(req, email, `Demasiados intentos con esta cuenta. Prueba de nuevo en ${cuentas.MINUTOS_DE_BLOQUEO} minutos.`, 429, 'datos');
-        }
-        // Mismo mensaje y mismo tiempo exista o no la cuenta: no se puede averiguar qué correos están dados de alta
-        const correcta = await cuentas.claveCorrecta(clave, usuario && usuario.clave_hash);
-        if (!correcta) {
-            if (usuario && usuario.clave_hash) {
-                const fallos = usuario.clave_fallos + 1;
-                await pool.query(
-                    fallos >= cuentas.FALLOS_PARA_BLOQUEAR
-                        ? 'UPDATE usuarios SET clave_fallos = 0, clave_bloqueo = UTC_TIMESTAMP() + INTERVAL ? MINUTE WHERE id = ?'
-                        : 'UPDATE usuarios SET clave_fallos = ? WHERE id = ?',
-                    fallos >= cuentas.FALLOS_PARA_BLOQUEAR ? [cuentas.MINUTOS_DE_BLOQUEO, usuario.id] : [fallos, usuario.id]);
-            }
-            throw await rechazarEntrada(req, email, 'Correo o contraseña incorrectos', 401, 'sesion');
-        }
-        if (!(await cuentas.cuentaAutorizada(pool, config, email, ''))) {
-            throw await rechazarEntrada(req, email, `La cuenta ${email} ya no está autorizada.`);
-        }
-        await pool.query('UPDATE usuarios SET clave_fallos = 0, clave_bloqueo = NULL, ultimo_acceso = UTC_TIMESTAMP() WHERE id = ?', [usuario.id]);
-        if (cuentas.esAdmin(config, email)) await pool.query("UPDATE usuarios SET estado = 'aprobado' WHERE id = ?", [usuario.id]);
-        await abrirSesion(req, res, usuario.id, 'Entró con correo y contraseña');
-    }));
-
     api.get('/yo', conSesion, (req, res) => res.json({ ok: true, usuario: cuentas.publico(req.usuario, config) }));
 
     api.post('/salir', conSesion, async (req, res, next) => {
@@ -340,7 +258,7 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
                 if (semana) throw errorApp(`Entrega tu reporte semanal (semana ${semana.slice(6)}) para seguir usando la app`, 423, 'reporte');
             }
             const red = redDe(req);
-            const respuesta = await accion(datos, { pool, config, google, avisos, transportistas, instagram, ia, registrar, usuario: req.usuario, ambito: req.ambito, red, sesion: req.sesion });
+            const respuesta = await accion(datos, { pool, config, google, avisos, transportistas, instagram, ia, registrar, usuario: req.usuario, ambito: req.ambito, red });
             // Auditoría de lo que cambia algo fuera del CRM (los registros y los accesos se apuntan dentro)
             const apuntar = respuesta && respuesta.ok !== false && Object.hasOwn(AUDITAR_ACCION, datos.accion) && AUDITAR_ACCION[datos.accion](datos, respuesta);
             if (apuntar) await auditar(pool, config, { usuario: req.usuario, ...apuntar, red });

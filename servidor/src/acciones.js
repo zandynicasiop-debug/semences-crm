@@ -7,9 +7,7 @@
  */
 import * as db from './db.js';
 import { telefonosDelEquipo, guardarTelefono, esAdmin, publico,
-    guardarSuscripcion, borrarSuscripcion, suscripcionesDelEquipo, tieneSuscripcion, destinosDe, tokenDe,
-    cifrarClave, claveCorrecta, problemaDeClave, claveTemporal } from './cuentas.js';
-import { huella } from './cifrado.js';
+    guardarSuscripcion, borrarSuscripcion, suscripcionesDelEquipo, tieneSuscripcion, destinosDe, tokenDe } from './cuentas.js';
 import { ambitoDe, puedeEscribir, puedeLeer, dentroDelAmbito, filtrarDatos, asignacionValida, PAISES, CASAS, CARGOS, NOMBRE_PAIS } from './permisos.js';
 import { construirCorreo, destinatarios } from './correo.js';
 import { pestanasDe } from './exportar.js';
@@ -404,7 +402,7 @@ export const ACCIONES = {
             const texto = `🔐 Nueva solicitud de acceso\n${usuario.nombre || usuario.email} (${usuario.email}) espera en la sala de espera. Entra a la app › Equipo y accesos para asignarle país, casa comercial y cargo.`;
             if (avisos.pushActivo) await encolar(pool, 'push', huellas, texto);
             if (avisos.whatsappActivo) await encolar(pool, 'whatsapp', telefonos, texto);
-            const tipo = { personal: 'cuenta personal de Google', clave: 'correo y contraseña, correo sin verificar' }[publico(usuario, config).tipoCuenta] || 'cuenta de la empresa';
+            const tipo = publico(usuario, config).tipoCuenta === 'personal' ? 'cuenta personal de Google' : 'cuenta de la empresa';
             enSegundoPlano(avisarPorCorreo(contexto, { para: config.google.admins, asunto: 'Nueva solicitud de acceso',
                 texto: `${usuario.nombre || usuario.email} (${usuario.email}, ${tipo}) pidió acceso al CRM.\nWhatsApp: +${telefono}\n\nEntra a la app › Equipo y accesos para asignarle país, casa comercial y cargo, o rechazarla.` }));
         }
@@ -419,7 +417,6 @@ export const ACCIONES = {
         const email = String(datos.email || '').trim().toLowerCase();
         const [objetivo] = email ? await pool.query('SELECT * FROM usuarios WHERE email = ?', [email]) : [[]];
         const persona = objetivo[0];
-        let temporal = '';
         if (datos.operacion !== 'listar') {
             if (!persona) throw errorApp('Esa cuenta todavía no ha entrado nunca en la app');
             if (esAdmin(config, persona.email)) throw errorApp('Los Master (ADMINS) tienen siempre todo el acceso');
@@ -447,21 +444,15 @@ export const ACCIONES = {
         } else if (datos.operacion === 'reabrir') {
             // Devuelve a la sala de espera a alguien rechazado (o quita el acceso a alguien aprobado)
             await pool.query(`UPDATE usuarios SET estado = 'pendiente', cargo = NULL, paises = '[]', casas = '[]' WHERE id = ?`, [persona.id]);
-        } else if (datos.operacion === 'claveTemporal') {
-            // Para quien olvidó su contraseña (sin Google): una temporal que el Master le da en persona. Sus
-            // sesiones abiertas se cierran y la cambia al entrar (menú › Cuenta)
-            temporal = claveTemporal();
-            await pool.query('UPDATE usuarios SET clave_hash = ?, clave_fallos = 0, clave_bloqueo = NULL WHERE id = ?', [await cifrarClave(temporal), persona.id]);
-            await pool.query('DELETE FROM sesiones WHERE usuario_id = ?', [persona.id]);
         } else if (datos.operacion !== 'listar') {
-            throw errorApp('Operación desconocida (listar, aprobar, rechazar, reabrir o claveTemporal)');
+            throw errorApp('Operación desconocida (listar, aprobar, rechazar o reabrir)');
         }
         if (datos.operacion !== 'listar') {
             // Auditoría: el acceso de antes y el de ahora
             const [[ahora]] = await pool.query('SELECT estado, cargo, paises, casas FROM usuarios WHERE id = ?', [persona.id]);
             const leerLista = (v) => { try { return JSON.parse(v || '[]'); } catch (e) { return []; } };
             const acceso = (u) => ({ estado: u.estado, cargo: u.cargo || null, paises: leerLista(u.paises), casas: leerLista(u.casas) });
-            const que = { aprobar: 'Aprobó o cambió el acceso de', rechazar: 'Rechazó el acceso de', reabrir: 'Devolvió a la sala de espera a', claveTemporal: 'Le dio una contraseña temporal a' }[datos.operacion];
+            const que = { aprobar: 'Aprobó o cambió el acceso de', rechazar: 'Rechazó el acceso de', reabrir: 'Devolvió a la sala de espera a' }[datos.operacion];
             await auditar(pool, config, { usuario, accion: 'accesos', objeto: persona.email, resumen: `${que} ${persona.nombre || persona.email}`, cambios: diferencias(acceso(persona), acceso(ahora)), red: contexto.red });
         }
         const [personas] = await pool.query(
@@ -469,22 +460,8 @@ export const ACCIONES = {
         return {
             ok: true,
             opciones: { paises: PAISES.map(p => ({ id: p, nombre: NOMBRE_PAIS[p] })), casas: CASAS, cargos: CARGOS.filter(c => c !== 'master') },
-            personas: personas.map(p => ({ ...publico(p, config), solicitadoEn: p.solicitado, aprobadoPor: p.aprobado_por || '' })),
-            // Solo en la respuesta de esta vez: no se guarda en claro en ningún sitio
-            ...(temporal && { claveTemporal: temporal })
+            personas: personas.map(p => ({ ...publico(p, config), solicitadoEn: p.solicitado, aprobadoPor: p.aprobado_por || '' }))
         };
-    },
-
-    // Mi contraseña (entrada sin Google): { actual, nueva }. Quien todavía no tiene una la pone sin la actual.
-    // Las demás sesiones abiertas se cierran: si alguien conocía la anterior, deja de entrar
-    async cambiarClave(datos, { pool, usuario, config, sesion }) {
-        if (!config.entradaClave) throw errorApp('La entrada con contraseña está apagada en el servidor', 403, 'acceso');
-        if (usuario.clave_hash && !(await claveCorrecta(datos.actual, usuario.clave_hash))) throw errorApp('La contraseña actual no es correcta');
-        const problema = problemaDeClave(datos.nueva, usuario.email);
-        if (problema) throw errorApp(problema);
-        await pool.query('UPDATE usuarios SET clave_hash = ?, clave_fallos = 0, clave_bloqueo = NULL WHERE id = ?', [await cifrarClave(datos.nueva), usuario.id]);
-        await pool.query('DELETE FROM sesiones WHERE usuario_id = ? AND huella <> ?', [usuario.id, huella(sesion || '')]);
-        return { ok: true };
     },
 
     // ----- Tablero del equipo -----

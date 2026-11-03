@@ -131,7 +131,6 @@ for (const base of BASES) {
                 // Las pruebas de siempre, con el acceso cerrado; las cuentas personales (opción B) se prueban al final
                 CUENTAS_PERSONALES: 'no',
                 CLAVE_CIFRADO: crypto.randomBytes(32).toString('hex'),
-                CODIGO_ALTA: 'codigo-de-alta-de-prueba',
                 ORIGENES: 'https://semillasdata.com', ENTRADAS_POR_MINUTO: '1000',
                 CHAT_WEBHOOK: 'https://chat.googleapis.com/v1/spaces/X/messages?key=k',
                 WHATSAPP_TOKEN: 'meta-token', WHATSAPP_TELEFONO_ID: '123', WHATSAPP_PLANTILLA: 'aviso_equipo', WHATSAPP_PLANTILLA_CLIENTES: 'aviso_cliente',
@@ -1336,75 +1335,6 @@ for (const base of BASES) {
                 assert.equal(correo.json.codigo, 'google');
             } finally {
                 config.google.cuentasPersonales = false;
-            }
-        });
-
-        test('correo y contraseña: registro a la sala de espera, entrada, errores, bloqueo, Master con código, cambio y temporal', async () => {
-            config.google.cuentasPersonales = true;
-            const [[jefaAntes]] = await pool.query("SELECT token_google, clave_hash FROM usuarios WHERE email = 'jefa@gmail.com'");
-            try {
-                const reg = (cuerpo) => llamar('/api/auth/registro', { cuerpo });
-                const entrar = (email, clave) => llamar('/api/auth/entrar', { cuerpo: { email, clave } });
-                assert.deepEqual((await llamar('/api/salud', { metodo: 'GET' })).json.acceso.clave, true);
-
-                // Registro: datos que faltan o flojos
-                assert.equal((await reg({ email: 'nueva@finca.do', nombre: 'Nueva', clave: 'corta' })).estado, 400);
-                assert.equal((await reg({ email: 'nueva@finca.do', nombre: 'Nueva', clave: 'nueva-1234567' })).estado, 400, 'no puede llevar su correo');
-                assert.equal((await reg({ email: 'no es correo', nombre: 'Nueva', clave: 'una clave larga' })).estado, 400);
-                // Bien: entra a la sala de espera, sin ver datos
-                const nueva = await reg({ email: 'Nueva@Finca.do', nombre: 'Rosa Nueva', clave: 'una clave larga y buena' });
-                assert.equal(nueva.estado, 200);
-                assert.deepEqual([nueva.json.usuario.email, nueva.json.usuario.estado, nueva.json.usuario.tipoCuenta], ['nueva@finca.do', 'pendiente', 'clave']);
-                assert.equal((await accion(nueva.json.sesion, { accion: 'sincronizar' })).estado, 403);
-                const [[fila]] = await pool.query("SELECT clave_hash FROM usuarios WHERE email = 'nueva@finca.do'");
-                assert.match(fila.clave_hash, /^scrypt\$/);
-                assert.ok(!fila.clave_hash.includes('una clave larga'), 'la contraseña nunca se guarda en claro');
-                // El mismo correo no se registra dos veces, ni el de alguien que entra con Google
-                assert.equal((await reg({ email: 'nueva@finca.do', nombre: 'Otra', clave: 'otra clave larga' })).estado, 409);
-                assert.equal((await reg({ email: 'ana@semillasdata.com', nombre: 'Falsa', clave: 'quiero entrar 2026' })).estado, 409, 'una cuenta de Google no se toma con contraseña');
-
-                // Entrar: bien, mal (mismo mensaje exista o no) y bloqueo tras 5 fallos
-                assert.equal((await entrar('nueva@finca.do', 'una clave larga y buena')).estado, 200);
-                const mal = await entrar('nueva@finca.do', 'equivocada');
-                const noExiste = await entrar('nadie@finca.do', 'equivocada');
-                assert.deepEqual([mal.estado, noExiste.estado, mal.json.error], [401, 401, noExiste.json.error]);
-                for (let i = 0; i < 4; i++) await entrar('nueva@finca.do', 'equivocada');
-                assert.equal((await entrar('nueva@finca.do', 'una clave larga y buena')).estado, 429, 'bloqueada aunque ahora acierte');
-                await pool.query("UPDATE usuarios SET clave_bloqueo = NULL WHERE email = 'nueva@finca.do'");
-
-                // Master (ADMINS) sin Google: solo con el código de alta
-                await pool.query("UPDATE usuarios SET token_google = NULL WHERE email = 'jefa@gmail.com'");
-                const sinCodigo = await reg({ email: 'jefa@gmail.com', nombre: 'Jefa', clave: 'clave de la direccion 2026' });
-                assert.equal(sinCodigo.estado, 403);
-                const conCodigo = await reg({ email: 'jefa@gmail.com', nombre: 'Jefa', clave: 'clave de la direccion 2026', codigoAlta: 'codigo-de-alta-de-prueba' });
-                assert.deepEqual([conCodigo.estado, conCodigo.json.usuario.estado, conCodigo.json.usuario.master], [200, 'aprobado', true]);
-
-                // Cambiar la contraseña cierra las demás sesiones; la temporal del Master también
-                const sesionVieja = (await entrar('nueva@finca.do', 'una clave larga y buena')).json.sesion;
-                const sesionActual = (await entrar('nueva@finca.do', 'una clave larga y buena')).json.sesion;
-                assert.equal((await accion(sesionActual, { accion: 'cambiarClave', actual: 'mal', nueva: 'otra clave distinta 1' })).estado, 400);
-                { const r = await accion(sesionActual, { accion: 'cambiarClave', actual: 'una clave larga y buena', nueva: 'otra clave distinta 1' }); assert.equal(r.estado, 200, JSON.stringify(r.json)); }
-                assert.equal((await llamar('/api/yo', { metodo: 'GET', sesion: sesionVieja })).estado, 401, 'la otra sesión ya no vale');
-                assert.equal((await llamar('/api/yo', { metodo: 'GET', sesion: sesionActual })).estado, 200);
-                const temporal = await accion(conCodigo.json.sesion, { accion: 'accesos', operacion: 'claveTemporal', email: 'nueva@finca.do' });
-                assert.match(temporal.json.claveTemporal, /^[a-z2-9]{4}-[a-z2-9]{4}-[a-z2-9]{4}$/);
-                assert.equal((await llamar('/api/yo', { metodo: 'GET', sesion: sesionActual })).estado, 401, 'sus sesiones se cierran');
-                assert.equal((await entrar('nueva@finca.do', temporal.json.claveTemporal)).estado, 200);
-
-                // Todo queda en la auditoría, sin ninguna contraseña
-                const auditoria = (await accion(conCodigo.json.sesion, { accion: 'auditoria', email: 'nueva@finca.do' })).json.entradas;
-                assert.ok(auditoria.some(e => e.accion === 'ingreso' && /Creó su cuenta/.test(e.resumen)));
-                assert.ok(auditoria.some(e => e.accion === 'ingreso_rechazado' && /incorrectos/.test(e.resumen)));
-                assert.ok(auditoria.some(e => e.accion === 'perfil' && /Cambió su contraseña/.test(e.resumen)));
-                const [[todo]] = await pool.query('SELECT GROUP_CONCAT(CONCAT(resumen, IFNULL(cambios, ""))) t FROM auditoria');
-                assert.ok(!/una clave larga|otra clave distinta|clave de la direccion/.test(todo.t), 'ninguna contraseña en la auditoría');
-                const temporalAuditada = (await accion(conCodigo.json.sesion, { accion: 'auditoria', tipo: 'accesos' })).json.entradas[0];
-                assert.match(temporalAuditada.resumen, /contraseña temporal/);
-                assert.ok(!JSON.stringify(temporalAuditada).includes(temporal.json.claveTemporal));
-            } finally {
-                config.google.cuentasPersonales = false;
-                // Jefa vuelve a estar como antes (con su Google) para las pruebas siguientes
-                await pool.query("UPDATE usuarios SET token_google = ?, clave_hash = ? WHERE email = 'jefa@gmail.com'", [jefaAntes.token_google, jefaAntes.clave_hash]);
             }
         });
 
