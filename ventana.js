@@ -12,7 +12,7 @@ class VentanaFlotante {
     }
 
     crearOpcion() {
-        const lista = document.getElementById('lista-modulos');
+        const lista = document.getElementById('lista-app');
         if (!lista || !this.soportada) return;
         const opcion = document.createElement('button');
         opcion.type = 'button';
@@ -21,7 +21,7 @@ class VentanaFlotante {
         opcion.textContent = 'Ver la finca en una ventana flotante';
         opcion.addEventListener('click', () => {
             lista.hidden = true;
-            document.getElementById('btn-modulos').setAttribute('aria-expanded', 'false');
+            document.getElementById('btn-app').setAttribute('aria-expanded', 'false');
             this.abrir();
         });
         const separador = lista.querySelector('.menu-separador');

@@ -1,6 +1,6 @@
 /**
  * Tema claro u oscuro de la interfaz. Por defecto sigue al teléfono o al ordenador (modo automático);
- * en el menú de módulos se puede fijar "claro" (para leer a pleno sol en el campo) u "oscuro".
+ * en el menú del logo se puede fijar "claro" (para leer a pleno sol en el campo) u "oscuro".
  * La elección se guarda en este dispositivo. Se carga en <head> para que la página no parpadee al abrir.
  */
 const TEMAS = ['auto', 'claro', 'oscuro'];
@@ -30,10 +30,10 @@ function aplicarTema(tema) {
 aplicarTema(temaGuardado());
 window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => aplicarTema(temaGuardado()));
 
-// Opción del menú de módulos, junto a "Compartir la app" (pwa.js la crea en "load"): cada toque pasa
+// Opción del menú del logo, junto a "Compartir la app" (pwa.js la crea en "load"): cada toque pasa
 // a automático › claro › oscuro
 window.addEventListener('load', () => setTimeout(() => {
-    const lista = document.getElementById('lista-modulos');
+    const lista = document.getElementById('lista-app');
     if (!lista) return;
     const opcion = document.createElement('button');
     opcion.type = 'button';

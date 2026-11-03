@@ -45,7 +45,7 @@ class Auditoria {
     }
 
     crearOpcion() {
-        const lista = document.getElementById('lista-modulos');
+        const lista = document.getElementById('lista-app');
         if (!lista || this.opcion) return;
         const boton = document.createElement('button');
         boton.type = 'button';
@@ -54,7 +54,7 @@ class Auditoria {
         boton.hidden = true;
         boton.addEventListener('click', () => {
             lista.hidden = true;
-            document.getElementById('btn-modulos').setAttribute('aria-expanded', 'false');
+            document.getElementById('btn-app').setAttribute('aria-expanded', 'false');
             this.abrir();
         });
         const referencia = document.getElementById('menu-tema');

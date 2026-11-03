@@ -37,7 +37,7 @@ function mostrarOpcionInstalar() {
 }
 
 function crearOpcionInstalar() {
-    const lista = document.getElementById('lista-modulos');
+    const lista = document.getElementById('lista-app');
     if (!lista) return;
     const separador = document.createElement('hr');
     separador.className = 'menu-separador';
@@ -49,7 +49,7 @@ function crearOpcionInstalar() {
     opcion.hidden = true;
     opcion.addEventListener('click', async () => {
         lista.hidden = true;
-        document.getElementById('btn-modulos').setAttribute('aria-expanded', 'false');
+        document.getElementById('btn-app').setAttribute('aria-expanded', 'false');
         if (avisoInstalacion) {
             avisoInstalacion.prompt();
             await avisoInstalacion.userChoice;
@@ -67,7 +67,7 @@ function crearOpcionInstalar() {
     compartir.hidden = EN_APK;
     compartir.addEventListener('click', () => {
         lista.hidden = true;
-        document.getElementById('btn-modulos').setAttribute('aria-expanded', 'false');
+        document.getElementById('btn-app').setAttribute('aria-expanded', 'false');
         compartirApp();
     });
     lista.append(separador, compartir, opcion);
@@ -90,7 +90,7 @@ async function compartirApp() {
         if (window.equipo) window.equipo.mostrarAviso('Primero publica la app (ver apps-script/DESPLIEGUE.md): desde este ordenador el enlace no le sirve a nadie más.', 'alerta');
         return;
     }
-    const texto = 'Semences del Caribe · CRM del equipo. Ábrela aquí y, en el móvil, instálala desde el menú de módulos › Instalar la app:';
+    const texto = 'Semences del Caribe · CRM del equipo. Ábrela aquí y, en el móvil, instálala desde el menú del logo › Instalar la app:';
     // En el móvil: el menú de compartir del sistema (WhatsApp, correo, Telegram…)
     if (navigator.share) {
         try {

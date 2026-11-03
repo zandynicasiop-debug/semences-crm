@@ -36,7 +36,7 @@ class ReporteSemanal {
     }
 
     crearOpciones() {
-        const lista = document.getElementById('lista-modulos');
+        const lista = document.getElementById('lista-app');
         if (!lista || this.opcion) return;
         const opcion = (texto, alPulsar) => {
             const boton = document.createElement('button');
@@ -46,7 +46,7 @@ class ReporteSemanal {
             boton.hidden = true;
             boton.addEventListener('click', () => {
                 lista.hidden = true;
-                document.getElementById('btn-modulos').setAttribute('aria-expanded', 'false');
+                document.getElementById('btn-app').setAttribute('aria-expanded', 'false');
                 alPulsar();
             });
             const referencia = document.getElementById('menu-tema');

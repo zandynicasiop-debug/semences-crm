@@ -57,19 +57,19 @@ class Responsable {
         if (this.conBackend) this.iniciarBackend();
         else if (this.conGoogle) this.iniciarGoogle();
         else if (!this.nombre) this.pedir({ primeraVez: true });
-        // En el teléfono el botón de la barra no cabe: el cambio de responsable va al final del menú de módulos
+        // En el teléfono el botón de la barra no cabe: el cambio de responsable va al final del menú del logo
         window.addEventListener('load', () => setTimeout(() => this.crearOpcionMenu()));
     }
 
     crearOpcionMenu() {
-        const lista = document.getElementById('lista-modulos');
+        const lista = document.getElementById('lista-app');
         if (!lista) return;
         const opcion = document.createElement('button');
         opcion.type = 'button';
         opcion.className = 'menu-extra solo-telefono';
         opcion.addEventListener('click', () => {
             lista.hidden = true;
-            document.getElementById('btn-modulos').setAttribute('aria-expanded', 'false');
+            document.getElementById('btn-app').setAttribute('aria-expanded', 'false');
             this.pedir();
         });
         lista.appendChild(opcion);
@@ -333,7 +333,7 @@ class Responsable {
             this.contenedorBoton.append(boton, personal);
             this.mostrarOpcionPersonal(dialogo, boton, personal);
         } else if (window.AppNativa) {
-            this.contenedorBoton.innerHTML = `<p class="dialogo-nota">Dentro de la app Android no se puede entrar con Google. Abre la dirección de la app en Chrome e instálala desde el menú de módulos › <b>Instalar la app en este dispositivo</b>.</p>`;
+            this.contenedorBoton.innerHTML = `<p class="dialogo-nota">Dentro de la app Android no se puede entrar con Google. Abre la dirección de la app en Chrome e instálala desde el menú del logo › <b>Instalar la app en este dispositivo</b>.</p>`;
         } else if (navegadorIntegrado()) {
             // Enlace abierto desde Instagram, Facebook u otra app: Google bloquea el inicio de sesión ahí dentro
             this.contenedorBoton.innerHTML = `
@@ -572,7 +572,7 @@ class Responsable {
         if (codigo === 'google') {
             const sesion = this.sesion;
             if (sesion) this.guardarSesion({ ...sesion, googleConectado: false });
-            if (window.equipo) window.equipo.mostrarAviso(`${mensaje} Menú de módulos › Cuenta.`, 'alerta');
+            if (window.equipo) window.equipo.mostrarAviso(`${mensaje} Menú del logo › Cuenta.`, 'alerta');
         }
     }
 
@@ -714,7 +714,7 @@ class Responsable {
         if (!this.clavePush) return;
         boton.hidden = false;
         if (window.AppNativa) {
-            estado.textContent = 'Los avisos push del navegador no funcionan dentro de la app instalada. Para recibirlos con la app cerrada, deja tu WhatsApp aquí abajo, o abre la app en Chrome o Safari e instálala desde el menú de módulos.';
+            estado.textContent = 'Los avisos push del navegador no funcionan dentro de la app instalada. Para recibirlos con la app cerrada, deja tu WhatsApp aquí abajo, o abre la app en Chrome o Safari e instálala desde el menú del logo.';
             boton.hidden = true;
         } else if (!this.pushPosible) {
             const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);

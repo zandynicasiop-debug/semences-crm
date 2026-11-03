@@ -30,7 +30,7 @@ class BandejaInstagram {
     }
 
     crearOpcion() {
-        const lista = document.getElementById('lista-modulos');
+        const lista = document.getElementById('lista-app');
         if (!lista || this.opcion) return;
         const boton = document.createElement('button');
         boton.type = 'button';
@@ -38,7 +38,7 @@ class BandejaInstagram {
         boton.hidden = true;
         boton.addEventListener('click', () => {
             lista.hidden = true;
-            document.getElementById('btn-modulos').setAttribute('aria-expanded', 'false');
+            document.getElementById('btn-app').setAttribute('aria-expanded', 'false');
             this.abrir();
         });
         const referencia = document.getElementById('menu-tema');
@@ -63,7 +63,7 @@ class BandejaInstagram {
         const r = await this.google.enviar('instagram', { operacion: 'conversaciones' }, true);
         if (!r || !r.ok) return;
         const nuevos = r.conversaciones.filter(c => c.sin_leer > 0).length;
-        if (nuevos > this.nuevos) this.aviso(`Instagram: ${nuevos} conversación${nuevos === 1 ? '' : 'es'} sin leer (menú de módulos).`);
+        if (nuevos > this.nuevos) this.aviso(`Instagram: ${nuevos} conversación${nuevos === 1 ? '' : 'es'} sin leer (menú del logo).`);
         this.nuevos = nuevos;
         this.pintarOpcion();
     }

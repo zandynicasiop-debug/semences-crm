@@ -1498,6 +1498,63 @@ summary {
     color: var(--ui-texto-suave);
 }
 
+/* El logo y el nombre son el botón del menú de la app (cuenta, equipo, reportes, tema…) */
+.menu-app {
+    position: relative;
+}
+
+.btn-app {
+    display: flex;
+    align-items: center;
+    gap: var(--sdc-espacio-3);
+    min-width: 0;
+    min-height: var(--sdc-objetivo-tactil);
+    padding: var(--sdc-espacio-1) var(--sdc-espacio-3) var(--sdc-espacio-1) var(--sdc-espacio-1);
+    margin-left: calc(-1 * var(--sdc-espacio-1));
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--sdc-radio-md);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.btn-app:hover,
+.btn-app[aria-expanded="true"] {
+    background: var(--ui-apagado);
+    border-color: var(--ui-borde);
+}
+
+.btn-app:focus-visible {
+    outline: 2px solid var(--ui-foco);
+    outline-offset: 2px;
+}
+
+.btn-app-flecha {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    color: var(--ui-texto-suave);
+    transition: transform var(--sdc-transicion);
+}
+
+.btn-app[aria-expanded="true"] .btn-app-flecha {
+    transform: rotate(180deg);
+}
+
+/* Se abre bajo el logo, hacia la derecha */
+.lista-app {
+    left: 0;
+    right: auto;
+    max-height: min(70vh, 560px);
+    overflow-y: auto;
+}
+
+.lista-app > .menu-separador:first-child {
+    display: none;
+}
+
 .metric-card {
     background: var(--ui-tarjeta);
     padding: var(--sdc-espacio-4) var(--sdc-espacio-6);

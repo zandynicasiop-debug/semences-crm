@@ -18,7 +18,7 @@ class PanelIndicadores {
     }
 
     crearOpcion() {
-        const lista = document.getElementById('lista-modulos');
+        const lista = document.getElementById('lista-app');
         if (!lista || this.opcion) return;
         const boton = document.createElement('button');
         boton.type = 'button';
@@ -26,7 +26,7 @@ class PanelIndicadores {
         boton.textContent = 'Panel de indicadores';
         boton.addEventListener('click', () => {
             lista.hidden = true;
-            document.getElementById('btn-modulos').setAttribute('aria-expanded', 'false');
+            document.getElementById('btn-app').setAttribute('aria-expanded', 'false');
             this.abrir();
         });
         // Primera opción del menú después de los módulos

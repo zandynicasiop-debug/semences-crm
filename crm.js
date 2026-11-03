@@ -396,6 +396,7 @@ class CRM {
         this.crearListas();
         Object.keys(MODULOS_CRM).forEach(m => this.crearModulo(m));
         this.iniciarPestanas();
+        this.iniciarMenuApp();
         // Con el backend: el cargo decide los módulos; el ámbito, las columnas y opciones de país y casa
         window.addEventListener('sdc-ambito', () => this.aplicarAmbito());
         // El CRM se crea en "load": la opción se añade justo después, cuando tema.js ya puso la suya
@@ -604,6 +605,56 @@ class CRM {
 
         seccion.append(cabecera, cuerpo);
         this.contenedor.appendChild(seccion);
+    }
+
+    // Menú de la app, en el logo: cuenta, equipo, reportes, tema, instalar… (las opciones las añaden los demás
+    // archivos). Flechas arriba/abajo, Inicio, Fin y Escape, y se cierra al pulsar fuera, como el de módulos
+    iniciarMenuApp() {
+        const boton = document.getElementById('btn-app');
+        const lista = document.getElementById('lista-app');
+        if (!boton || !lista) return;
+        const opciones = () => [...lista.querySelectorAll('button')].filter(b => !b.hidden && b.offsetParent !== null);
+        const abrir = (si, enfocar = si) => {
+            lista.hidden = !si;
+            boton.setAttribute('aria-expanded', String(si));
+            if (si) {
+                // Abrir uno cierra el otro
+                this.tablist.hidden = true;
+                document.getElementById('btn-modulos').setAttribute('aria-expanded', 'false');
+                if (enfocar && opciones()[0]) opciones()[0].focus();
+            }
+        };
+        boton.addEventListener('click', () => abrir(lista.hidden));
+        boton.addEventListener('keydown', (e) => {
+            if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+            e.preventDefault();
+            abrir(true);
+        });
+        document.getElementById('btn-modulos').addEventListener('click', () => abrir(false, false));
+        lista.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                abrir(false);
+                boton.focus();
+                return;
+            }
+            const todas = opciones();
+            const i = todas.indexOf(document.activeElement);
+            let j = null;
+            if (e.key === 'ArrowDown') j = (i + 1) % todas.length;
+            if (e.key === 'ArrowUp') j = (i - 1 + todas.length) % todas.length;
+            if (e.key === 'Home') j = 0;
+            if (e.key === 'End') j = todas.length - 1;
+            if (j === null) return;
+            e.preventDefault();
+            todas[j].focus();
+        });
+        document.addEventListener('click', (e) => {
+            if (!lista.hidden && !e.target.closest('.menu-app')) abrir(false);
+        });
+        lista.addEventListener('focusout', (e) => {
+            if (e.relatedTarget && !e.relatedTarget.closest('.menu-app')) abrir(false);
+        });
     }
 
     // Menú de módulos: botón con el módulo actual y lista (flechas arriba/abajo, Inicio, Fin y Escape)
@@ -1168,9 +1219,9 @@ class CRM {
         abrir.focus();
     }
 
-    // Opción del menú de módulos (con el backend), junto al tema y a "Compartir la app"
+    // Opción del menú de la app (logo), con el backend, junto al tema y a "Compartir la app"
     crearOpcionExportar() {
-        const lista = document.getElementById('lista-modulos');
+        const lista = document.getElementById('lista-app');
         if (!lista || !(this.google && this.google.conBackend)) return;
         const opcion = document.createElement('button');
         opcion.type = 'button';
@@ -1178,7 +1229,7 @@ class CRM {
         opcion.textContent = 'Exportar el CRM a Google Sheets';
         opcion.addEventListener('click', () => {
             lista.hidden = true;
-            document.getElementById('btn-modulos').setAttribute('aria-expanded', 'false');
+            document.getElementById('btn-app').setAttribute('aria-expanded', 'false');
             this.exportarSheets();
         });
         const referencia = document.getElementById('menu-tema');

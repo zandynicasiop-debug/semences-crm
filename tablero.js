@@ -36,9 +36,9 @@ class TableroEquipo {
         if (window.equipo) window.equipo.mostrarAviso(texto, tipo);
     }
 
-    // ----- Menú de módulos -----
+    // ----- Menú del logo -----
     crearOpciones() {
-        const lista = document.getElementById('lista-modulos');
+        const lista = document.getElementById('lista-app');
         if (!lista || this.opcionTablero) return;
         const opcion = (texto, alPulsar) => {
             const boton = document.createElement('button');
@@ -48,7 +48,7 @@ class TableroEquipo {
             boton.hidden = true;
             boton.addEventListener('click', () => {
                 lista.hidden = true;
-                document.getElementById('btn-modulos').setAttribute('aria-expanded', 'false');
+                document.getElementById('btn-app').setAttribute('aria-expanded', 'false');
                 alPulsar();
             });
             const referencia = document.getElementById('menu-tema');
@@ -79,7 +79,7 @@ class TableroEquipo {
         if (!respuesta || !respuesta.ok) return null;
         this.equipo = respuesta.equipo || [];
         if (respuesta.sinLeer > this.sinLeer && !(this.dialogo && this.dialogo.open)) {
-            this.aviso(`Tienes ${respuesta.sinLeer} mensaje${respuesta.sinLeer === 1 ? '' : 's'} nuevo${respuesta.sinLeer === 1 ? '' : 's'} en el tablero del equipo (menú de módulos).`);
+            this.aviso(`Tienes ${respuesta.sinLeer} mensaje${respuesta.sinLeer === 1 ? '' : 's'} nuevo${respuesta.sinLeer === 1 ? '' : 's'} en el tablero del equipo (menú del logo).`);
         }
         this.sinLeer = respuesta.sinLeer || 0;
         this.pintarOpcion();

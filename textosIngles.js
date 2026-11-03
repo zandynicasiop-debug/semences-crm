@@ -761,7 +761,7 @@ window.TEXTOS_EN = {
     'Usa tu cuenta del equipo de Semences del Caribe. Tu nombre y tu correo quedan en lo que registres, en el chat y en las cotizaciones.': 'Use your Semences del Caribe team account. Your name and email go on what you log, in the chat and on quotes.',
     'Entrar con la cuenta de la empresa': 'Sign in with your company account',
     '¿No tienes cuenta de la empresa? Entra con tu cuenta personal de Google': 'No company account? Sign in with your personal Google account',
-    'Dentro de la app Android no se puede entrar con Google. Abre la dirección de la app en Chrome e instálala desde el menú de módulos ›': 'You can’t sign in with Google inside the Android app. Open the app’s address in Chrome and install it from the modules menu ›',
+    'Dentro de la app Android no se puede entrar con Google. Abre la dirección de la app en Chrome e instálala desde el menú del logo ›': 'You can’t sign in with Google inside the Android app. Open the app’s address in Chrome and install it from the logo menu ›',
     'Esta página se abrió dentro de otra app y Google no permite entrar desde aquí. Ábrela en': 'This page opened inside another app and Google doesn’t allow signing in here. Open it in',
     '(Android) o': '(Android) or',
     '(iPhone): usa el menú': '(iPhone): use the menu',
@@ -777,6 +777,7 @@ window.TEXTOS_EN = {
     'Entrando…': 'Signing in…',
     'No se pudo entrar. Inténtalo de nuevo.': 'Couldn’t sign in. Try again.',
     'Tu cuenta': 'Your account',
+    'Menú de la app': 'App menu',
     'Volver a conectar Google': 'Reconnect Google',
     'Recibir cada mañana el resumen de Borja: tu agenda, tus seguimientos y tus tareas del día': 'Get Borja’s summary every morning: your calendar, follow-ups and tasks for the day',
     'Tus seguimientos de clientes, tus tareas, los trasplantes y la llegada de los envíos pasan solos a tu Google Calendar cada mañana.': 'Your client follow-ups, tasks, transplants and shipment arrivals go to your Google Calendar by themselves every morning.',
@@ -790,7 +791,7 @@ window.TEXTOS_EN = {
     'Google conectado: los correos, eventos, reuniones y reportes salen con tu cuenta.': 'Google connected: emails, events, meetings and reports go out from your account.',
     'Gmail, Calendar y Drive no están conectados: para enviar correos, crear reuniones o reportes, conéctalos.': 'Gmail, Calendar and Drive aren’t connected: connect them to send emails or create meetings and reports.',
     'Conectar Gmail, Calendar y Drive': 'Connect Gmail, Calendar and Drive',
-    'Los avisos push del navegador no funcionan dentro de la app instalada. Para recibirlos con la app cerrada, deja tu WhatsApp aquí abajo, o abre la app en Chrome o Safari e instálala desde el menú de módulos.': 'Browser push notifications don’t work inside the installed app. To get them with the app closed, leave your WhatsApp below, or open the app in Chrome or Safari and install it from the modules menu.',
+    'Los avisos push del navegador no funcionan dentro de la app instalada. Para recibirlos con la app cerrada, deja tu WhatsApp aquí abajo, o abre la app en Chrome o Safari e instálala desde el menú del logo.': 'Browser push notifications don’t work inside the installed app. To get them with the app closed, leave your WhatsApp below, or open the app in Chrome or Safari and install it from the logo menu.',
     'En iPhone, los avisos llegan solo con la app instalada: Safari › Compartir › Añadir a pantalla de inicio, y ábrela desde su icono.': 'On iPhone, notifications only arrive with the app installed: Safari › Share › Add to Home Screen, then open it from its icon.',
     'Este navegador no puede recibir avisos con la app cerrada.': 'This browser can’t receive notifications with the app closed.',
     'Los avisos están bloqueados para esta página. Permítelos en los ajustes del navegador (icono junto a la dirección).': 'Notifications are blocked for this page. Allow them in the browser settings (icon next to the address).',
@@ -1036,7 +1037,7 @@ window.PATRONES_EN = (() => {
     
         // Instagram
         [String.raw`Bandeja de Instagram · (\d+) nuevas?`, 'Instagram inbox · {1} new'],
-        [String.raw`Instagram: (\d+) conversaci(?:ón|ones) sin leer \(menú de módulos\)\.`, (n) => `Instagram: ${n} unread conversation${n === '1' ? '' : 's'} (modules menu).`],
+        [String.raw`Instagram: (\d+) conversaci(?:ón|ones) sin leer \(menú del logo\)\.`, (n) => `Instagram: ${n} unread conversation${n === '1' ? '' : 's'} (logo menu).`],
         [String.raw`Nuevo cliente de (.*) · (.*)`, 'New client from {1} · {2}'],
         [String.raw`Lo que diga @(.+)`, 'Whatever @{1} says'],
         [String.raw`Cliente creado y asignado a (.+); le avisamos\.`, 'Client created and assigned to {1}; we let them know.'],
@@ -1150,7 +1151,7 @@ window.PATRONES_EN = (() => {
     
         // Tablero y accesos
         [String.raw`Tablero del equipo · (\d+) mensajes? nuevos?`, (n) => `Team board · ${n} new message${n === '1' ? '' : 's'}`],
-        [String.raw`Tienes (\d+) mensajes? nuevos? en el tablero del equipo \(menú de módulos\)\.`, (n) => `You have ${n} new message${n === '1' ? '' : 's'} on the team board (modules menu).`],
+        [String.raw`Tienes (\d+) mensajes? nuevos? en el tablero del equipo \(menú del logo\)\.`, (n) => `You have ${n} new message${n === '1' ? '' : 's'} on the team board (logo menu).`],
         [String.raw`(.+), (.+)\. Acciones`, '{1}, {2}. Actions'],
         [String.raw`Mensaje enviado a (.+): le llega a la app, por push y por WhatsApp\.`, 'Message sent to {1}: it reaches them in the app, by push and by WhatsApp.'],
         [String.raw`Entrar a la videollamada con (.+)`, 'Join the video call with {1}'],
@@ -1187,7 +1188,7 @@ window.PATRONES_EN = (() => {
         [String.raw`Usa preferiblemente tu cuenta de la empresa(?: \(@(.+)\))?\. Si no tienes, entra con tu cuenta personal de Google: un Master revisará tu solicitud antes de que veas los datos\. Tu nombre y tu correo quedan en lo que registres, en el chat y en las cotizaciones\.`,
             (dominio) => `Preferably use your company account${dominio ? ` (@${dominio})` : ''}. If you don’t have one, sign in with your personal Google account: a Master will review your request before you see any data. Your name and email go on what you log, in the chat and on quotes.`],
         [String.raw`Hola, (.+)\. Para entrar, deja tu WhatsApp: un Master revisará tu solicitud, te asignará tu país, tu casa comercial y tu cargo, y te avisará por allí\.`, 'Hi, {1}. To get in, leave your WhatsApp: a Master will review your request, assign your country, brand and role, and let you know there.'],
-        [String.raw`(.+) Menú de módulos › Cuenta\.`, '{1} Modules menu › Account.'],
+        [String.raw`(.+) Menú del logo › Cuenta\.`, '{1} Logo menu › Account.'],
         [String.raw`Agenda al día en Google Calendar: (\d+) nuevos, (\d+) cambiados, (\d+) quitados\.`, 'Google Calendar up to date: {1} new, {2} changed, {3} removed.'],
         [String.raw`Respaldo guardado en Drive: (.+)\.`, 'Backup saved to Drive: {1}.'],
         [String.raw`No se pudieron activar los avisos: (.+)`, 'Couldn’t turn on notifications: {1}'],
