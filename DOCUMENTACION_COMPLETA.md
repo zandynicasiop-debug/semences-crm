@@ -142,7 +142,7 @@ Si hay `api`, manda el backend y se ignoran `url` y `token`.
 
 `index.html` carga, en este orden: `tema.js` (en `<head>`), las librerías del CDN y después, al final del `<body>`,
 `googleSync.js → app.js → datos.js → usuario.js → mapa.js → cotizador.js → crm.js → equipo.js → tareas.js →
-tablero.js → pwa.js → ventana.js`. Son scripts clásicos que comparten el ámbito global (`window.baseDatos`,
+tablero.js → bandejaInstagram.js → panel.js → reporte.js → pwa.js → ventana.js`. Son scripts clásicos que comparten el ámbito global (`window.baseDatos`,
 `window.responsable`, `window.cotizador`, `window.appDashboard`, `window.equipo`…). Los módulos que dependen del
 3D se crean en el evento `load`.
 
@@ -245,6 +245,47 @@ Al publicar cambios grandes hay que subir `VERSION` (ahora `semences-v10`) para 
 - **`equipo.js` / `tareas.js` / `tablero.js`:** chat, alertas, tareas, presencia (latido cada minuto), mensajes
   directos, videollamadas, pasar clientes y, para los Master, *Equipo y accesos*.
 - **`pwa.js`, `ventana.js`, `tema.js`:** instalar y compartir la app, ventana flotante en el ordenador y tema.
+- **`bandejaInstagram.js` / `panel.js` / `reporte.js`:** bandeja de Instagram (administración), panel de
+  indicadores por cargo y reporte semanal de actividades.
+
+### 4.8 Sistema de diseño (`style.css`)
+
+Todo el aspecto sale de **tokens** (variables CSS) definidos al principio de `style.css`. En las reglas no se
+escriben colores, pesos, capas ni radios a mano: se usa el token (`var(--…)`). Una prueba (`pruebas-web`)
+comprueba además que la hoja tenga las llaves equilibradas.
+
+| Familia | Tokens | Para qué |
+|---|---|---|
+| Marca (`--sdc-*`) | `fondo`, `tarjeta`, `primario`, `brote`, `menta`, `dorado`, `peligro`, `agua`… | Colores fijos de la marca; los lee también la escena 3D (`app.js`) |
+| Tema (`--ui-*`) | `fondo`, `tarjeta`, `apagado`, `borde`, `texto`, `texto-suave`, `titulo`, `enlace`, `error`, `aviso`, `foco`, `grafico`, `aviso-grafico` | Cambian entre oscuro y claro (tres bloques: oscuro por defecto, `prefers-color-scheme: light` y `data-tema="claro"`). **Un color nuevo de la interfaz va aquí, con su valor en los tres bloques** |
+| Gráficos | `--ui-grafico` (barras, azul) y `--ui-aviso-grafico` (bajo el mínimo, ámbar) | Comprobados para daltonismo. `--ui-aviso` es para texto y bordes; `--ui-aviso-grafico`, para rellenos. Un aviso nunca va solo con color: lleva ⚠️ y texto |
+| Tipografía | `--font-titulo` (Lora), `--font-cuerpo` (Raleway), `--font-dato` (JetBrains Mono); tamaños `--sdc-texto-xs…xl` y `--sdc-texto-cifra`; pesos `--sdc-peso-normal/medio/fuerte/extra` (400/600/700/800) | Mínimo 0,7 rem; los campos de formulario, 1 rem (evita el zoom del móvil) |
+| Espaciado | `--sdc-espacio-1…6` (4, 6, 8, 12, 16, 20 px) | Márgenes, rellenos y huecos. Solo los ajustes de 1–2 px van a mano |
+| Bordes y sombras | `--sdc-radio-barra/xs/sm/md/pildora` (4, 6, 10, 16, 999 px), `--sdc-sombra`, `--sdc-sombra-acento` | Los avatares usan `50%` |
+| Estados | `--sdc-transicion`, `--sdc-opacidad-apagado`, `--sdc-objetivo-tactil` (44 px) | Lo que se pulsa mide al menos 44 px; lo deshabilitado se apaga |
+| Diálogos | `--sdc-dialogo-sm/md/lg` (560, 640, 720 px) y `--sdc-velo-dialogo` | Ancho de cada diálogo según su contenido |
+| Capas | `--sdc-capa-*`: `emergente` 2, `escena-etiqueta` 4, `escena-control` 5, `escena-menu` 6, `escena-panel` 7, `paneles` 10, `navegacion` 20, `menu` 30, `lateral` 60, `aviso` 70 | Un elemento nuevo que flota usa una de estas capas, nunca un número suelto |
+
+**Componentes base:**
+
+| Componente | Clases | Estados |
+|---|---|---|
+| Botón | `btn-primary` (acción principal), `btn-secondary` (alternativa), `btn-texto` (acción menor), `btn-peligro` (con `btn-texto`, para quitar o rechazar) | hover, foco (`--ui-foco`), deshabilitado. Mientras una acción se envía, el botón se deshabilita (`disabled`) |
+| Campo | `form-group` (etiqueta + campo + error) | foco común a todos los campos, error con `aria-invalid="true"` y `.form-error`, deshabilitado |
+| Diálogo | `dialogo` (+ `dialogo-tablero`, `dialogo-reporte`, `dialogo-indicadores` para el ancho), `dialogo-form`, `dialogo-subtitulo`, `dialogo-nota`, `modal-actions` | `<dialog>` nativo con `showModal()`: Escape cierra, salvo el reporte semanal bloqueado |
+| Aviso flotante | `aviso-flotante` (`data-tipo`: normal, `alerta`, `error`), con `window.equipo.mostrarAviso()` | — |
+| Etiqueta | `etiqueta` | — |
+| Ficha de cifra | `metric-card` (escena) e `indicadores-ficha` (panel) | `-aviso` con borde ámbar y ⚠️ |
+
+**Nombres de clases:** en español y con el prefijo de su pantalla (`chat-`, `tablero-`, `mapa-`, `ig-`,
+`indicadores-`, `reporte-`, `cotizador-`). `panel-` es solo del panel lateral de la escena. Lo heredado en inglés
+(`btn-primary`, `btn-secondary`, `modal-actions`, `metric-card`, `nav-tab`, `table-container`, `brand-*`) se
+mantiene por compatibilidad; lo nuevo, en español. Antes de crear una clase, búscala en `style.css`: dos
+pantallas con la misma clase se pisan los estilos.
+
+**Accesibilidad:** contraste mínimo 4,5:1 en el tema claro (pensado para leer a pleno sol), foco visible en todo lo
+que se pulsa, `prefers-reduced-motion` respetado y alto contraste de Windows (`forced-colors`) en barras, botón
+principal y etiquetas.
 
 ---
 

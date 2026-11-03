@@ -108,24 +108,24 @@ class PanelIndicadores {
     // ----- Pantalla -----
     crearDialogo() {
         const d = document.createElement('dialog');
-        d.className = 'dialogo dialogo-panel';
-        d.setAttribute('aria-labelledby', 'panel-titulo');
+        d.className = 'dialogo dialogo-indicadores';
+        d.setAttribute('aria-labelledby', 'indicadores-titulo');
         d.innerHTML = `
             <div class="dialogo-form">
                 <div class="tablero-cabecera">
                     <div>
-                        <h3 id="panel-titulo">Panel de indicadores</h3>
-                        <p class="panel-alcance"></p>
+                        <h3 id="indicadores-titulo">Panel de indicadores</h3>
+                        <p class="dialogo-subtitulo"></p>
                     </div>
-                    <button type="button" class="btn-texto panel-cerrar">Cerrar</button>
+                    <button type="button" class="btn-texto indicadores-cerrar">Cerrar</button>
                 </div>
-                <div class="panel-contenido"></div>
+                <div class="indicadores-contenido"></div>
             </div>`;
         document.body.appendChild(d);
-        d.querySelector('.panel-cerrar').addEventListener('click', () => d.close());
+        d.querySelector('.indicadores-cerrar').addEventListener('click', () => d.close());
         this.dialogo = d;
         this.tooltip = document.createElement('div');
-        this.tooltip.className = 'panel-tooltip';
+        this.tooltip.className = 'indicadores-tooltip';
         this.tooltip.hidden = true;
         d.appendChild(this.tooltip);
     }
@@ -153,13 +153,13 @@ class PanelIndicadores {
     pintar() {
         const datos = (window.crm && window.crm.datos) || {};
         const r = this.calcular(datos);
-        this.dialogo.querySelector('.panel-alcance').textContent = this.textoAlcance();
-        const cont = this.dialogo.querySelector('.panel-contenido');
+        this.dialogo.querySelector('.dialogo-subtitulo').textContent = this.textoAlcance();
+        const cont = this.dialogo.querySelector('.indicadores-contenido');
         cont.innerHTML = '';
 
         // Fichas con los números principales
         const fichas = document.createElement('div');
-        fichas.className = 'panel-fichas';
+        fichas.className = 'indicadores-fichas';
         if (this.puedeVer('clientes')) {
             fichas.appendChild(this.ficha(r.vendedor ? 'Mis clientes' : 'Clientes', numero(r.clientes.mios),
                 [r.vendedor && `de ${numero(r.clientes.visibles)} en tu país y casa`, r.clientes.vencidos && `${r.clientes.vencidos} seguimiento${r.clientes.vencidos === 1 ? '' : 's'} vencido${r.clientes.vencidos === 1 ? '' : 's'}`].filter(Boolean).join(' · ') || 'Sin seguimientos vencidos',
@@ -232,14 +232,14 @@ class PanelIndicadores {
 
     ficha(titulo, valor, detalle, aviso = false) {
         const f = document.createElement('div');
-        f.className = `panel-ficha${aviso ? ' panel-ficha-aviso' : ''}`;
+        f.className = `indicadores-ficha${aviso ? ' indicadores-ficha-aviso' : ''}`;
         const t = document.createElement('span');
-        t.className = 'panel-ficha-titulo';
+        t.className = 'indicadores-ficha-titulo';
         t.textContent = titulo;
         const v = document.createElement('strong');
         v.textContent = valor;
         const d = document.createElement('span');
-        d.className = 'panel-ficha-detalle';
+        d.className = 'indicadores-ficha-detalle';
         d.textContent = `${aviso ? '⚠️ ' : ''}${detalle}`;
         f.append(t, v, d);
         return f;
@@ -247,11 +247,11 @@ class PanelIndicadores {
 
     seccion(cont, titulo, subtitulo) {
         const s = document.createElement('section');
-        s.className = 'panel-seccion';
+        s.className = 'indicadores-seccion';
         const h = document.createElement('h4');
         h.textContent = titulo;
         const p = document.createElement('p');
-        p.className = 'panel-subtitulo';
+        p.className = 'nota-suave';
         p.textContent = subtitulo;
         s.append(h, p);
         cont.appendChild(s);
@@ -268,29 +268,29 @@ class PanelIndicadores {
     // Barras horizontales: etiqueta, barra desde la izquierda y su valor escrito al lado
     barras(filas, maximo, linea = null) {
         const ul = document.createElement('ul');
-        ul.className = 'panel-barras';
+        ul.className = 'indicadores-barras';
         filas.forEach(f => {
             const li = document.createElement('li');
-            li.className = `panel-barra${f.aviso ? ' panel-barra-aviso' : ''}`;
+            li.className = `indicadores-barra${f.aviso ? ' indicadores-barra-aviso' : ''}`;
             li.tabIndex = 0;
             li.setAttribute('aria-label', f.ayuda);
             const etiqueta = document.createElement('span');
-            etiqueta.className = 'panel-barra-etiqueta';
+            etiqueta.className = 'indicadores-barra-etiqueta';
             etiqueta.textContent = f.etiqueta;
             const pista = document.createElement('span');
-            pista.className = 'panel-barra-pista';
+            pista.className = 'indicadores-barra-pista';
             const relleno = document.createElement('span');
-            relleno.className = 'panel-barra-relleno';
+            relleno.className = 'indicadores-barra-relleno';
             relleno.style.width = `${maximo > 0 ? Math.max(1, (f.valor / maximo) * 100) : 0}%`;
             pista.appendChild(relleno);
             if (linea !== null) {
                 const marca = document.createElement('span');
-                marca.className = 'panel-barra-linea';
+                marca.className = 'indicadores-barra-linea';
                 marca.style.left = `${(linea / maximo) * 100}%`;
                 pista.appendChild(marca);
             }
             const valor = document.createElement('span');
-            valor.className = 'panel-barra-valor';
+            valor.className = 'indicadores-barra-valor';
             valor.textContent = f.texto;
             li.append(etiqueta, pista, valor);
             const mostrar = (x, y) => {
@@ -312,7 +312,7 @@ class PanelIndicadores {
 
     tabla(cabeceras, filas, pie = '') {
         const envoltura = document.createElement('div');
-        envoltura.className = 'panel-tabla';
+        envoltura.className = 'indicadores-tabla';
         const t = document.createElement('table');
         const thead = document.createElement('thead');
         const tr = document.createElement('tr');
@@ -325,7 +325,7 @@ class PanelIndicadores {
                 const td = document.createElement('td');
                 const c = typeof celda === 'object' ? celda : { texto: celda };
                 td.textContent = c.texto;
-                if (c.aviso) td.className = 'panel-aviso';
+                if (c.aviso) td.className = 'indicadores-aviso';
                 tr2.appendChild(td);
             });
             tbody.appendChild(tr2);

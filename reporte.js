@@ -94,7 +94,7 @@ class ReporteSemanal {
                 <div class="tablero-cabecera">
                     <div>
                         <h3 id="reporte-titulo">Reporte semanal</h3>
-                        <p class="panel-alcance reporte-semana"></p>
+                        <p class="dialogo-subtitulo reporte-semana"></p>
                     </div>
                     <button type="button" class="btn-texto reporte-cerrar">Cerrar</button>
                 </div>
@@ -184,7 +184,7 @@ class ReporteSemanal {
             cabecera.appendChild(titulo);
             if (a.vence) {
                 const vence = document.createElement('span');
-                vence.className = 'panel-subtitulo';
+                vence.className = 'nota-suave';
                 vence.textContent = `para el ${formatearFecha(a.vence)}`;
                 cabecera.appendChild(vence);
             }
@@ -258,7 +258,7 @@ class ReporteSemanal {
                     <div class="tablero-cabecera">
                         <div>
                             <h3 id="reportes-equipo-titulo">Reportes del equipo</h3>
-                            <p class="panel-alcance reportes-semana"></p>
+                            <p class="dialogo-subtitulo reportes-semana"></p>
                         </div>
                         <button type="button" class="btn-texto">Cerrar</button>
                     </div>
