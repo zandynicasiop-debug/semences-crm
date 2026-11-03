@@ -246,7 +246,7 @@ describe('esquema de las variables de entorno (.env.example)', () => {
     test('los orígenes de las apps (Capacitor y Electron) son válidos y vienen por defecto', () => {
         assert.deepEqual(validarEntorno({ ORIGENES: ORIGENES_POR_DEFECTO }).errores, []);
         const origenes = leerConfig({}).origenes;
-        for (const o of ['https://localhost', 'capacitor://localhost', 'app://semences', 'https://appassets.androidplatform.net']) assert.ok(origenes.includes(o), o);
+        for (const o of ['https://localhost', 'capacitor://localhost', 'app://semences', 'https://appassets.androidplatform.net', 'https://semillasdata.com', 'https://app.semillasdata.com']) assert.ok(origenes.includes(o), o);
     });
 
     test('valores mal escritos: arranca con el valor por defecto, pero lo avisa', () => {

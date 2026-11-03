@@ -8,8 +8,9 @@
 
 const lista = (texto) => String(texto || '').split(',').map(s => s.trim()).filter(Boolean);
 
+// app.semillasdata.com: por si la web corporativa ocupa semillasdata.com y la app va en su subdominio
 export const ORIGENES_POR_DEFECTO = [
-    'https://semillasdata.com', 'https://zandynicasiop-debug.github.io', 'https://appassets.androidplatform.net',
+    'https://semillasdata.com', 'https://app.semillasdata.com', 'https://zandynicasiop-debug.github.io', 'https://appassets.androidplatform.net',
     'https://localhost', 'capacitor://localhost', 'app://semences'
 ].join(',');
 
