@@ -7,6 +7,9 @@
  * - Desde el lunes, quien no entregó el de la semana pasada solo ve esta pantalla hasta entregarlo
  *   (el servidor responde 423 'reporte' a todo lo demás). El viernes se le recuerda.
  * - Reportes del equipo (Master y administrativos): quién lo entregó y quién no, con cada reporte.
+ *   Si el servidor tiene la revisión con IA (Claude), cada reporte trae su revisión (resumen, atascos,
+ *   comentarios que no explican nada) y se puede pedir el resumen de todo el equipo. Es una ayuda para
+ *   leer: no decide nada. A quien entrega se le dice que su reporte lo resume una IA.
  * El servidor comprueba todo: esto solo lo enseña.
  */
 const NOMBRE_CARGO_REPORTE = { vendedor: 'Vendedor', tecnico: 'Técnico', plantulador: 'Plantulador', administrativo: 'Administrativo', master: 'Master' };
@@ -100,6 +103,7 @@ class ReporteSemanal {
                 </div>
                 <p class="reporte-bloqueo" role="alert" hidden></p>
                 <p class="dialogo-nota">Pon a cada actividad su estado y cuenta en una frase cómo va. Lo que quede en progreso o retrasado vuelve a salir la semana que viene.</p>
+                <p class="dialogo-nota reporte-nota-ia" hidden>Administración recibe un resumen de tu reporte hecho con IA (Claude, de Anthropic). Escribe hechos concretos: es lo que mejor se resume.</p>
                 <ul class="reporte-actividades" aria-label="Actividades de la semana"></ul>
                 <button type="button" class="btn-secondary reporte-anadir">Añadir otra actividad</button>
                 <div class="form-group">
@@ -145,6 +149,7 @@ class ReporteSemanal {
         const d = this.dialogo;
         d.querySelector('.reporte-semana').textContent = `Semana ${this.numeroSemana(r.semana)} · ${this.textoDias(r.dias)}${r.entregado ? ' · ya entregado, puedes corregirlo' : ''}`;
         d.querySelector('.reporte-cerrar').hidden = r.bloqueado;
+        d.querySelector('.reporte-nota-ia').hidden = !r.ia;
         const bloqueo = d.querySelector('.reporte-bloqueo');
         bloqueo.hidden = !r.bloqueado;
         bloqueo.textContent = r.bloqueado ? '⚠️ Falta tu reporte de la semana pasada. Entrégalo para seguir usando la app; tus cambios sin subir no se pierden.' : '';
@@ -263,6 +268,7 @@ class ReporteSemanal {
                         <button type="button" class="btn-texto">Cerrar</button>
                     </div>
                     <div class="tablero-botones reportes-semanas"></div>
+                    <section class="reportes-resumen" aria-label="Resumen del equipo" hidden></section>
                     <ul class="reportes-equipo" aria-label="Personas del equipo"></ul>
                 </div>`;
             d.querySelector('.tablero-cabecera button').addEventListener('click', () => d.close());
@@ -294,6 +300,7 @@ class ReporteSemanal {
             b.addEventListener('click', () => this.abrirEquipo(s));
             botones.appendChild(b);
         });
+        this.pintarResumenEquipo(r, entregados);
         if (!r.equipo.length) {
             const li = document.createElement('li');
             li.className = 'dialogo-nota';
@@ -339,9 +346,88 @@ class ReporteSemanal {
                 });
                 det.appendChild(lista);
                 li.appendChild(det);
+                if (p.revision) li.insertBefore(this.bloqueRevision(p.revision), det);
             }
             ul.appendChild(li);
         });
+    }
+
+    // Revisión de un reporte hecha con IA: siempre rotulada como tal
+    bloqueRevision(rev) {
+        const caja = document.createElement('div');
+        caja.className = `reporte-ia${rev.atencion ? ' reporte-ia-atencion' : ''}`;
+        const titulo = document.createElement('span');
+        titulo.className = 'reporte-ia-titulo';
+        titulo.textContent = `${rev.atencion ? '⚠️ Conviene hablar · ' : ''}Revisión automática (IA)`;
+        const resumen = document.createElement('p');
+        resumen.textContent = rev.resumen;
+        caja.append(titulo, resumen);
+        const lista = (rotulo, items) => {
+            if (!items || !items.length) return;
+            const p = document.createElement('p');
+            const b = document.createElement('strong');
+            b.textContent = `${rotulo}: `;
+            p.append(b, document.createTextNode(items.join(' · ')));
+            caja.appendChild(p);
+        };
+        lista('Atascos', rev.atascos);
+        lista('Comentarios a mejorar', (rev.comentariosPobres || []).map(c => `${c.actividad} (${c.motivo})`));
+        return caja;
+    }
+
+    // Resumen de todo el equipo (IA): el guardado, o un botón para pedirlo
+    pintarResumenEquipo(r, entregados) {
+        const caja = this.dialogoEquipo.querySelector('.reportes-resumen');
+        caja.innerHTML = '';
+        caja.hidden = !r.ia || !entregados;
+        if (caja.hidden) return;
+        const titulo = document.createElement('h4');
+        titulo.textContent = 'Resumen del equipo (IA)';
+        caja.appendChild(titulo);
+        const res = r.resumenEquipo;
+        if (!res) {
+            const nota = document.createElement('p');
+            nota.className = 'dialogo-nota';
+            nota.textContent = 'Claude lee todos los reportes de la semana y resume los atascos que se repiten. Tarda unos segundos.';
+            const boton = document.createElement('button');
+            boton.type = 'button';
+            boton.className = 'btn-secondary';
+            boton.textContent = 'Hacer el resumen del equipo';
+            boton.addEventListener('click', async () => {
+                boton.disabled = true;
+                boton.textContent = 'Leyendo los reportes…';
+                const respuesta = await this.google.enviar('reporteSemanal', { operacion: 'resumenEquipo', semana: r.semana }, true);
+                if (!respuesta || !respuesta.ok) {
+                    boton.disabled = false;
+                    boton.textContent = 'Hacer el resumen del equipo';
+                    this.aviso((respuesta && respuesta.error) || 'No se pudo hacer el resumen. Revisa la conexión.', 'error');
+                    return;
+                }
+                this.pintarResumenEquipo({ ...r, resumenEquipo: respuesta.resumenEquipo }, entregados);
+            });
+            caja.append(nota, boton);
+            return;
+        }
+        const texto = document.createElement('p');
+        texto.textContent = res.resumen;
+        caja.appendChild(texto);
+        const lista = (rotulo, items) => {
+            if (!items || !items.length) return;
+            const h = document.createElement('strong');
+            h.textContent = rotulo;
+            const ul = document.createElement('ul');
+            items.forEach(t => { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); });
+            caja.append(h, ul);
+        };
+        lista('Atascos que se repiten', (res.atascosComunes || []).map(a => `${a.tema}${a.personas.length ? ` (${a.personas.join(', ')})` : ''}`));
+        lista('Destacados', res.destacados);
+        lista('Conviene hablar con', res.hablarCon);
+        const pie = document.createElement('p');
+        pie.className = 'nota-suave';
+        // La hora va entre paréntesis: "p. m." ya termina en punto
+        const creado = new Date(res.creado);
+        pie.textContent = `Hecho con IA el ${creado.toLocaleDateString('es-DO', { weekday: 'long', day: 'numeric', month: 'short' })} (${creado.toLocaleTimeString('es-DO', { hour: 'numeric', minute: '2-digit' })}). Revisa los reportes antes de decidir nada.`;
+        caja.appendChild(pie);
     }
 }
 

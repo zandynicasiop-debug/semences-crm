@@ -12,6 +12,9 @@
  *   desbloquea al momento.
  * - Lo ven en la app los Master y los administrativos que comparten país y casa con esa persona; al
  *   entregarlo les llega un push. No genera PDF, ni reuniones, ni correos.
+ * - Con ANTHROPIC_API_KEY (ia.js), después de entregarse Claude escribe para ellos una revisión (resumen,
+ *   avances, atascos, comentarios pobres) y el push lleva ese resumen; el lunes, el resumen del equipo
+ *   para los Master. La revisión nunca bloquea ni desbloquea: se hace después, sin hacer esperar a nadie.
  */
 import crypto from 'node:crypto';
 import { ambitoDe } from './permisos.js';
@@ -32,9 +35,30 @@ export const ESQUEMA_REPORTES = [
         semana CHAR(8) NOT NULL,
         resumen TEXT NOT NULL,
         actividades MEDIUMTEXT NOT NULL,
-        entregado DATETIME NOT NULL,
+        entregado DATETIME(3) NOT NULL,
         PRIMARY KEY (usuario_id, semana),
         INDEX (semana)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS reportes_revisiones (
+        usuario_id INT UNSIGNED NOT NULL,
+        semana CHAR(8) NOT NULL,
+        revision MEDIUMTEXT NULL,
+        modelo VARCHAR(60) NOT NULL DEFAULT '',
+        intentos TINYINT UNSIGNED NOT NULL DEFAULT 0,
+        error VARCHAR(300) NOT NULL DEFAULT '',
+        entrega DATETIME(3) NOT NULL,     -- La entrega revisada (o intentada): si el reporte se corrige, cambia
+        revisado DATETIME(3) NOT NULL,    -- Último intento
+        PRIMARY KEY (usuario_id, semana)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS reportes_resumenes (
+        clave CHAR(64) PRIMARY KEY,
+        semana CHAR(8) NOT NULL,
+        resumen MEDIUMTEXT NOT NULL,
+        modelo VARCHAR(60) NOT NULL DEFAULT '',
+        creado DATETIME NOT NULL
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS reportes_avisos_equipo (
+        semana CHAR(8) PRIMARY KEY
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS reportes_recordatorios (
         usuario_id INT UNSIGNED NOT NULL,
@@ -131,6 +155,60 @@ function veReporteDe(ambito, persona, config) {
 }
 
 const leerReporte = (fila) => fila && ({ semana: fila.semana, resumen: fila.resumen, actividades: JSON.parse(fila.actividades || '[]'), entregado: fila.entregado });
+const leerRevision = (fila) => (fila && fila.revision ? { ...JSON.parse(fila.revision), modelo: fila.modelo, revisado: fila.revisado } : null);
+const iaActiva = (contexto) => Boolean(contexto.ia && contexto.ia.activo);
+
+// Push a quien revisa los reportes de esta persona (Master y administrativos de su país y casa)
+async function avisarRevisores({ pool, config, avisos }, persona, texto) {
+    if (!avisos.pushActivo) return 0;
+    const [personas] = await pool.query(`SELECT * FROM usuarios WHERE id <> ? AND (estado = 'aprobado' OR email IN (?))`,
+        [persona.id, config.google.admins.length ? config.google.admins : ['']]);
+    const revisan = personas.filter(p => veReporteDe(ambitoDe(p, config), persona, config));
+    if (!revisan.length) return 0;
+    const { huellas } = await destinosDe(pool, revisan.map(p => p.id));
+    return encolar(pool, 'push', huellas, texto);
+}
+
+const textoCuentas = (actividades) => {
+    const cuenta = (e) => actividades.filter(a => a.estado === e).length;
+    return `${cuenta('Completada')} completadas · ${cuenta('En progreso')} en progreso · ${cuenta('Retrasada')} retrasadas · ${cuenta('Terminada sin éxito')} sin éxito`;
+};
+
+// Las personas cuyo reporte ve esta persona de administración, con su reporte y su revisión de esa semana
+async function equipoVisible(pool, config, ambito, excluirId, semana) {
+    const [personas] = await pool.query(`SELECT * FROM usuarios WHERE estado = 'aprobado' AND id <> ? ORDER BY nombre`, [excluirId]);
+    const [filas] = await pool.query('SELECT * FROM reportes_semanales WHERE semana = ?', [semana]);
+    const [revisiones] = await pool.query('SELECT * FROM reportes_revisiones WHERE semana = ?', [semana]);
+    const reportes = new Map(filas.map(f => [f.usuario_id, f]));
+    const revisadas = new Map(revisiones.map(f => [f.usuario_id, f]));
+    return personas.filter(p => debeReportar(p, config) && veReporteDe(ambito, p, config)).map(p => ({
+        id: p.id, email: p.email, nombre: p.nombre || p.email, cargo: ambitoDe(p, config).cargo,
+        reporte: leerReporte(reportes.get(p.id)) || null,
+        revision: leerRevision(revisadas.get(p.id))
+    }));
+}
+
+// El resumen del equipo se guarda por semana y por grupo de reportes: si nadie entrega ni corrige nada, no se repite
+const claveResumen = (semana, equipo) => crypto.createHash('sha256')
+    .update(JSON.stringify([semana, equipo.filter(p => p.reporte).map(p => [p.id, new Date(p.reporte.entregado).getTime()]).sort((a, b) => a[0] - b[0])]))
+    .digest('hex');
+
+async function resumenGuardado(pool, semana, equipo) {
+    const [[fila]] = await pool.query('SELECT * FROM reportes_resumenes WHERE clave = ?', [claveResumen(semana, equipo)]);
+    return fila ? { ...JSON.parse(fila.resumen), modelo: fila.modelo, creado: fila.creado } : null;
+}
+
+async function resumirEquipo({ pool, ia }, semana, equipo) {
+    const guardado = await resumenGuardado(pool, semana, equipo);
+    if (guardado) return guardado;
+    const entregados = equipo.filter(p => p.reporte);
+    const { datos, modelo } = await ia.resumirEquipo({
+        semana, reportes: entregados, sinEntregar: equipo.filter(p => !p.reporte).map(p => p.nombre)
+    });
+    await pool.query('INSERT IGNORE INTO reportes_resumenes (clave, semana, resumen, modelo, creado) VALUES (?, ?, ?, ?, UTC_TIMESTAMP())',
+        [claveResumen(semana, equipo), semana, JSON.stringify(datos), modelo]);
+    return { ...datos, modelo, creado: new Date() };
+}
 
 /**
  * Acción "reporteSemanal". operacion:
@@ -154,6 +232,7 @@ export async function accionReporte(datos, contexto, { errorApp }) {
             semana, dias: diasDeSemana(semana),
             entregado: leerReporte(fila) || null,
             estados: ESTADOS_ACTIVIDAD,
+            ia: iaActiva(contexto), // Para avisar a la persona de que administración recibe un resumen hecho con IA
             actividades: await actividadesDe(pool, usuario, inicioDelDia(diasDeSemana(semana).lunes, config.zonaHoraria).toISOString())
         };
     }
@@ -197,8 +276,8 @@ export async function accionReporte(datos, contexto, { errorApp }) {
                 a.id = tarea.id;
             }
             await conexion.query(
-                `INSERT INTO reportes_semanales (usuario_id, semana, resumen, actividades, entregado) VALUES (?, ?, ?, ?, UTC_TIMESTAMP())
-                 ON DUPLICATE KEY UPDATE resumen = VALUES(resumen), actividades = VALUES(actividades), entregado = UTC_TIMESTAMP()`,
+                `INSERT INTO reportes_semanales (usuario_id, semana, resumen, actividades, entregado) VALUES (?, ?, ?, ?, UTC_TIMESTAMP(3))
+                 ON DUPLICATE KEY UPDATE resumen = VALUES(resumen), actividades = VALUES(actividades), entregado = UTC_TIMESTAMP(3)`,
                 [usuario.id, semana, resumen, JSON.stringify(actividades.map(({ id, titulo, estado, comentario }) => ({ id, titulo, estado, comentario })))]);
             await conexion.commit();
         } catch (error) {
@@ -207,16 +286,12 @@ export async function accionReporte(datos, contexto, { errorApp }) {
         } finally {
             conexion.release();
         }
-        // Aviso a quien lo revisa (Master y administrativos de su país y casa)
-        if (avisos.pushActivo) {
-            const [personas] = await pool.query(`SELECT * FROM usuarios WHERE id <> ? AND (estado = 'aprobado' OR email IN (?))`,
-                [usuario.id, config.google.admins.length ? config.google.admins : ['']]);
-            const revisan = personas.filter(p => veReporteDe(ambitoDe(p, config), usuario, config));
-            if (revisan.length) {
-                const cuenta = (e) => actividades.filter(a => a.estado === e).length;
-                const { huellas } = await destinosDe(pool, revisan.map(p => p.id));
-                await encolar(pool, 'push', huellas, `📋 Reporte semanal · ${nombre}\n${cuenta('Completada')} completadas · ${cuenta('En progreso')} en progreso · ${cuenta('Retrasada')} retrasadas · ${cuenta('Terminada sin éxito')} sin éxito`);
-            }
+        // Con IA: la revisión se hace después (sin hacer esperar a nadie) y su resumen va en el aviso a
+        // administración. Sin IA: el aviso sale ya, con las cuentas
+        if (iaActiva(contexto)) {
+            setImmediate(() => revisarPendientes(contexto).catch(e => (contexto.registrar || console).error('Revisión del reporte semanal:', e.message)));
+        } else {
+            await avisarRevisores(contexto, usuario, `📋 Reporte semanal · ${nombre}\n${textoCuentas(actividades)}`);
         }
         return { ok: true, semana, desbloqueado: true };
     }
@@ -224,17 +299,101 @@ export async function accionReporte(datos, contexto, { errorApp }) {
     if (op === 'equipo') {
         if (!(ambito.master || ambito.cargo === 'administrativo')) throw errorApp('Los reportes del equipo los ven los Master y administración', 403, 'acceso');
         const semana = semanaValida(datos.semana) ? datos.semana : s.anterior;
-        const [personas] = await pool.query(`SELECT * FROM usuarios WHERE estado = 'aprobado' AND id <> ? ORDER BY nombre`, [usuario.id]);
-        const [filas] = await pool.query('SELECT * FROM reportes_semanales WHERE semana = ?', [semana]);
-        const porPersona = new Map(filas.map(f => [f.usuario_id, f]));
-        const equipo = personas.filter(p => debeReportar(p, config) && veReporteDe(ambito, p, config)).map(p => ({
-            email: p.email, nombre: p.nombre || p.email, cargo: ambitoDe(p, config).cargo,
-            reporte: leerReporte(porPersona.get(p.id)) || null
-        }));
-        return { ok: true, semana, dias: diasDeSemana(semana), actual: s.actual, anterior: s.anterior, equipo };
+        const equipo = await equipoVisible(pool, config, ambito, usuario.id, semana);
+        return {
+            ok: true, semana, dias: diasDeSemana(semana), actual: s.actual, anterior: s.anterior, ia: iaActiva(contexto),
+            resumenEquipo: equipo.some(p => p.reporte) ? await resumenGuardado(pool, semana, equipo) : null,
+            equipo: equipo.map(({ id, ...p }) => p)
+        };
+    }
+
+    // Resumen del equipo con IA (Master y administrativos, de las personas que ven)
+    if (op === 'resumenEquipo') {
+        if (!(ambito.master || ambito.cargo === 'administrativo')) throw errorApp('Los reportes del equipo los ven los Master y administración', 403, 'acceso');
+        if (!iaActiva(contexto)) throw errorApp('La revisión con IA no está configurada en el servidor (ANTHROPIC_API_KEY)', 503, 'configuracion');
+        const semana = semanaValida(datos.semana) ? datos.semana : s.anterior;
+        const equipo = await equipoVisible(pool, config, ambito, usuario.id, semana);
+        if (!equipo.some(p => p.reporte)) throw errorApp('Nadie de tu equipo entregó el reporte de esa semana');
+        try {
+            return { ok: true, semana, resumenEquipo: await resumirEquipo(contexto, semana, equipo) };
+        } catch (error) {
+            (contexto.registrar || console).error('Resumen del equipo:', error.message);
+            throw errorApp('No se pudo hacer el resumen ahora. Inténtalo en unos minutos.', 502, 'ia');
+        }
     }
 
     throw errorApp('Operación desconocida del reporte semanal');
+}
+
+/**
+ * Revisa con IA los reportes entregados (o corregidos) sin revisión de las últimas tres semanas. Si
+ * falla, lo reintenta cada 10 minutos hasta 3 veces; a la tercera, el aviso a administración sale sin
+ * revisión, con las cuentas. Dentro del proceso, una sola pasada a la vez.
+ */
+let revisando = false;
+export async function revisarPendientes(contexto, { limite = 5 } = {}) {
+    const { pool, config, ia } = contexto;
+    if (!ia || !ia.activo || revisando) return 0;
+    revisando = true;
+    let hechas = 0;
+    try {
+        const [pendientes] = await pool.query(
+            `SELECT r.*, u.id AS uid, u.nombre, u.email, u.cargo, u.estado, u.paises, u.casas, v.intentos
+             FROM reportes_semanales r JOIN usuarios u ON u.id = r.usuario_id
+             LEFT JOIN reportes_revisiones v ON v.usuario_id = r.usuario_id AND v.semana = r.semana
+             WHERE r.entregado > UTC_TIMESTAMP() - INTERVAL 21 DAY
+               AND (v.usuario_id IS NULL OR v.entrega < r.entregado
+                    OR (v.revision IS NULL AND v.intentos < 3 AND v.revisado < UTC_TIMESTAMP() - INTERVAL 10 MINUTE))
+             ORDER BY r.entregado LIMIT ?`, [limite]);
+        for (const fila of pendientes) {
+            const persona = { id: fila.uid, nombre: fila.nombre || fila.email, email: fila.email, cargo: fila.cargo, estado: fila.estado, paises: fila.paises, casas: fila.casas };
+            const reporte = leerReporte(fila);
+            const [[previa]] = await pool.query('SELECT * FROM reportes_semanales WHERE usuario_id = ? AND semana < ? ORDER BY semana DESC LIMIT 1', [persona.id, fila.semana]);
+            try {
+                const { datos, modelo } = await ia.revisarReporte({
+                    persona: { nombre: persona.nombre, cargo: ambitoDe(persona, config).cargo }, reporte, anterior: leerReporte(previa)
+                });
+                await pool.query(
+                    `INSERT INTO reportes_revisiones (usuario_id, semana, revision, modelo, intentos, error, entrega, revisado) VALUES (?, ?, ?, ?, 0, '', ?, UTC_TIMESTAMP(3))
+                     ON DUPLICATE KEY UPDATE revision = VALUES(revision), modelo = VALUES(modelo), intentos = 0, error = '', entrega = VALUES(entrega), revisado = UTC_TIMESTAMP(3)`,
+                    [persona.id, fila.semana, JSON.stringify(datos), modelo, fila.entregado]);
+                await avisarRevisores(contexto, persona, `📋 Reporte semanal · ${persona.nombre}${datos.atencion ? ' · ⚠️ conviene hablar' : ''}\n${String(datos.resumen).slice(0, 300)}`);
+                hechas++;
+            } catch (error) {
+                (contexto.registrar || console).error(`Revisión del reporte de ${persona.email} (${fila.semana}):`, error.message);
+                await pool.query(
+                    `INSERT INTO reportes_revisiones (usuario_id, semana, revision, intentos, error, entrega, revisado) VALUES (?, ?, NULL, 1, ?, ?, UTC_TIMESTAMP(3))
+                     ON DUPLICATE KEY UPDATE revision = NULL, intentos = IF(entrega < VALUES(entrega), 1, intentos + 1),
+                         error = VALUES(error), entrega = VALUES(entrega), revisado = UTC_TIMESTAMP(3)`,
+                    [persona.id, fila.semana, String(error.message).slice(0, 300), fila.entregado]);
+                const [[estado]] = await pool.query('SELECT intentos FROM reportes_revisiones WHERE usuario_id = ? AND semana = ?', [persona.id, fila.semana]);
+                if (estado.intentos >= 3) await avisarRevisores(contexto, persona, `📋 Reporte semanal · ${persona.nombre}\n${textoCuentas(reporte.actividades)}`);
+            }
+        }
+    } finally {
+        revisando = false;
+    }
+    return hechas;
+}
+
+// Lunes desde REPORTE_RESUMEN_HORA: resumen de la semana pasada de todo el equipo para los Master (una vez)
+export async function resumenDelLunes(contexto, ahora = new Date()) {
+    const { pool, config, avisos } = contexto;
+    if (!iaActiva(contexto) || !config.reporteSemanal) return false;
+    const local = enZona(ahora, config.zonaHoraria);
+    if (diaSemana(local.fecha) !== 0 || local.hora < config.reporteResumenHora) return false;
+    const semana = semanaDe(sumarDias(local.fecha, -7));
+    const [[hecho]] = await pool.query('SELECT 1 AS si FROM reportes_avisos_equipo WHERE semana = ?', [semana]);
+    if (hecho) return false;
+    const equipo = await equipoVisible(pool, config, { master: true }, 0, semana);
+    if (!equipo.some(p => p.reporte)) return false;
+    const resumen = await resumirEquipo(contexto, semana, equipo);
+    const [r] = await pool.query('INSERT IGNORE INTO reportes_avisos_equipo (semana) VALUES (?)', [semana]);
+    if (!r.affectedRows || !avisos.pushActivo || !config.google.admins.length) return true;
+    const [masters] = await pool.query('SELECT id FROM usuarios WHERE email IN (?)', [config.google.admins]);
+    const { huellas } = await destinosDe(pool, masters.map(m => m.id));
+    await encolar(pool, 'push', huellas, `📋 Semana ${Number(semana.slice(6))} del equipo · ${equipo.filter(p => p.reporte).length} de ${equipo.length} reportes\n${String(resumen.resumen).slice(0, 300)}`);
+    return true;
 }
 
 // Recordatorio del viernes a REPORTE_HORA a quien no entregó el de esta semana (una vez por semana)
@@ -258,9 +417,14 @@ export async function recordarReportes({ pool, config, avisos }, ahora = new Dat
     return n;
 }
 
+// Cada 5 minutos: recordatorio del viernes y, con IA, revisiones pendientes y resumen del lunes
 export function iniciarRecordatorios(contexto, { cadaMs = 5 * 60000 } = {}) {
+    const registrar = contexto.registrar || console;
     const temporizador = setInterval(() => {
-        recordarReportes(contexto).catch(e => (contexto.registrar || console).error('Recordatorio del reporte semanal:', e.message));
+        recordarReportes(contexto).catch(e => registrar.error('Recordatorio del reporte semanal:', e.message));
+        // Con IA: las revisiones que quedaron pendientes (reinicio del servidor, fallo de la API) y el resumen del lunes
+        revisarPendientes(contexto).catch(e => registrar.error('Revisión de reportes:', e.message));
+        resumenDelLunes(contexto).catch(e => registrar.error('Resumen del equipo del lunes:', e.message));
     }, cadaMs);
     temporizador.unref();
     return () => clearInterval(temporizador);

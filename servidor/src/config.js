@@ -86,6 +86,9 @@ export function leerConfig(entorno = process.env) {
         resumenHora: horaResumen(entorno.RESUMEN_HORA),
         // Reporte semanal obligatorio (bloquea desde el lunes a quien no lo entregó) y hora del recordatorio del viernes
         reporteSemanal: !/^no$/i.test(String(entorno.REPORTE_SEMANAL || '').trim()),
+        reporteResumenHora: Number.isFinite(Number(entorno.REPORTE_RESUMEN_HORA)) && String(entorno.REPORTE_RESUMEN_HORA ?? '').trim() !== '' ? Math.min(23, Math.max(0, Math.trunc(Number(entorno.REPORTE_RESUMEN_HORA)))) : 8,
+        // Revisión de los reportes semanales con Claude (ia.js): sin clave, apagada
+        ia: { clave: entorno.ANTHROPIC_API_KEY || '', modelo: entorno.IA_MODELO || 'claude-opus-5-5' },
         reporteHora: Number.isFinite(Number(entorno.REPORTE_HORA)) && String(entorno.REPORTE_HORA ?? '').trim() !== '' ? Math.min(23, Math.max(0, Math.trunc(Number(entorno.REPORTE_HORA)))) : 16,
 
         chatWebhook: entorno.CHAT_WEBHOOK || '',
@@ -183,6 +186,9 @@ export function validarEntorno(e = {}) {
     entero('RESPALDO_CONSERVAR', 1, 3650);
     entero('RASTREO_MINUTOS', 15, 1440);
     entero('REPORTE_HORA', 0, 23);
+    entero('REPORTE_RESUMEN_HORA', 0, 23);
+    if (valor('ANTHROPIC_API_KEY') && !/^sk-ant-[\w-]{20,}$/.test(valor('ANTHROPIC_API_KEY'))) avisos.push('ANTHROPIC_API_KEY no parece una clave de la API de Anthropic (empieza por sk-ant-)');
+    if (valor('IA_MODELO') && !/^claude-[a-z0-9-]+$/.test(valor('IA_MODELO'))) avisos.push('IA_MODELO debe ser un id de modelo de Claude, p. ej. claude-opus-5-5');
     if (valor('RESUMEN_HORA') && !/^no$/i.test(valor('RESUMEN_HORA'))) entero('RESUMEN_HORA', 0, 23);
     for (const nombre of ['CUENTAS_PERSONALES', 'CHAT_TARJETAS', 'CORREOS_AVISOS', 'AGENDA_AUTOMATICA', 'REPORTE_SEMANAL']) siNo(nombre);
 

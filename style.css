@@ -3107,6 +3107,44 @@ body.ventana-flotante {
     border-left: 3px solid var(--ui-borde);
 }
 
+/* Revisión y resumen hechos con IA (reporte.js): siempre rotulados, con borde de "ayuda", no de dato */
+.reporte-ia,
+.reportes-resumen {
+    display: grid;
+    gap: var(--sdc-espacio-2);
+    padding: var(--sdc-espacio-3) var(--sdc-espacio-4);
+    border: 1px dashed var(--ui-borde);
+    border-radius: var(--sdc-radio-sm);
+    color: var(--ui-texto);
+    font-size: var(--sdc-texto-sm);
+}
+
+.reportes-resumen[hidden] {
+    display: none;
+}
+
+.reportes-resumen h4 {
+    color: var(--ui-titulo);
+    font-size: var(--sdc-texto-md);
+}
+
+.reportes-resumen ul {
+    padding-left: var(--sdc-espacio-5);
+}
+
+.reporte-ia-atencion {
+    border-style: solid;
+    border-color: var(--ui-aviso);
+}
+
+.reporte-ia-titulo {
+    color: var(--ui-texto-suave);
+    font-size: var(--sdc-texto-xs);
+    font-weight: var(--sdc-peso-fuerte);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
 /* ----- Alto contraste (forced-colors) ----- */
 @media (forced-colors: active) {
     /* Los fondos se quitan: las barras y el botón principal necesitan color del sistema o borde */

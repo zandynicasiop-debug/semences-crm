@@ -290,6 +290,8 @@ Todas están documentadas, con su formato, en **`servidor/.env.example`**; al ar
 | Zona y agenda | `ZONA_HORARIA` · `MINUTOS_REUNION` · `RESUMEN_HORA` · `UMBRAL_GERMINACION` | — | `America/Santo_Domingo` · 30 · 7 · 85 |
 | Workspace automático | `CUENTA_GOOGLE_SISTEMA` · `RESPALDO_CARPETA_ID` · `RESPALDO_HORA` · `RESPALDO_CONSERVAR` · `DOCUMENTOS_CARPETA_ID` · `CORREOS_AVISOS` · `AGENDA_AUTOMATICA` | — | — · — · 2 · 30 · la de reportes · `si` · `si` |
 | Reportes | `REPORTE_PLANTILLA_ID` · `REPORTE_CARPETA_ID` | — | — |
+| Reporte semanal | `REPORTE_SEMANAL` · `REPORTE_HORA` · `REPORTE_RESUMEN_HORA` | — | `si` · 16 (viernes) · 8 (lunes) |
+| Revisión con IA (Claude) | `ANTHROPIC_API_KEY` · `IA_MODELO` | — (sin clave, apagada) | — · `claude-opus-5-5` |
 | Bandeja de Instagram | `META_APP_SECRET` · `META_VERIFY_TOKEN` · `META_VERSION` | — | — · — · `v21.0` |
 | Envíos (DHL y FedEx) | `DHL_API_KEY` · `FEDEX_CLIENT_ID` · `FEDEX_CLIENT_SECRET` · `FEDEX_URL` · `RASTREO_MINUTOS` | — (las dos de FedEx van juntas) | — · — · — · `https://apis.fedex.com` · 60 (mínimo 15) |
 | Google Chat | `CHAT_WEBHOOK` · `CHAT_TARJETAS` | — | — · `si` |

@@ -15,7 +15,8 @@ import { enviarResumenes } from '../src/resumen.js';
 import { esperarSegundoPlano } from '../src/workspace.js';
 import { enZona } from '../src/fechas.js';
 import { actualizarEnvio } from '../src/envios.js';
-import { recordarReportes, semanas, diasDeSemana } from '../src/reportes.js';
+import { recordarReportes, semanas, diasDeSemana, revisarPendientes, resumenDelLunes } from '../src/reportes.js';
+import { crearIA } from '../src/ia.js';
 
 const BASES = (process.env.PRUEBA_BASES || '127.0.0.1:33061,127.0.0.1:33062').split(',');
 
@@ -86,7 +87,7 @@ function googleFalso() {
 for (const base of BASES) {
     const [host, puerto] = base.split(':');
     describe(`backend con la base ${base}`, () => {
-        let pool, servidor, url, google, peticionesMeta, config, avisos, respuestaMeta, pushEnviados, respuestaPush, instagram;
+        let pool, servidor, url, google, peticionesMeta, config, avisos, respuestaMeta, pushEnviados, respuestaPush, instagram, ia, claude;
         const sesiones = {};
 
         const llamar = async (ruta, { metodo = 'POST', cuerpo, sesion, origen } = {}) => {
@@ -134,7 +135,7 @@ for (const base of BASES) {
                 try { pool = await conectar(config.mysql); break; } catch (e) { if (i > 60) throw e; await new Promise(r => setTimeout(r, 1000)); }
             }
             // Base limpia: se borran las tablas y conectar() las vuelve a crear
-            for (const tabla of ['reportes_semanales', 'reportes_recordatorios', 'instagram_mensajes', 'instagram_conversaciones', 'instagram_cuentas', 'sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'directos', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
+            for (const tabla of ['reportes_revisiones', 'reportes_resumenes', 'reportes_avisos_equipo', 'reportes_semanales', 'reportes_recordatorios', 'instagram_mensajes', 'instagram_conversaciones', 'instagram_cuentas', 'sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'directos', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
             await pool.end();
             pool = await conectar(config.mysql);
 
@@ -167,7 +168,21 @@ for (const base of BASES) {
                 responder: async (token, igsid, texto) => { instagram.respuestas.push({ token, igsid, texto }); return `mid-respuesta-${instagram.respuestas.length}`; },
                 perfil: async () => ({ usuario: 'finca_lopez' })
             };
-            const app = crearApp({ config, pool, google, avisos, instagram, registrar: { error: () => {} } });
+            // Claude simulado (la API de Anthropic): recuerda cada petición y responde JSON según el esquema
+            claude = {
+                peticiones: [], fallo: null,
+                beta: { messages: { create: async (params) => {
+                    claude.peticiones.push(params);
+                    if (claude.fallo) throw claude.fallo;
+                    const equipo = Boolean(params.output_config.format.schema.properties.atascosComunes);
+                    const datos = equipo
+                        ? { resumen: 'Semana con visitas en Constanza; el precio de Hexagon frena dos cotizaciones.', atascosComunes: [{ tema: 'Precio de Hexagon', personas: ['Luis'] }], destacados: ['Luis cerró la visita a Finca López'], hablarCon: [] }
+                        : { resumen: 'Visitó Finca López y la cotización de Hexagon sigue retrasada por falta de precio.', avances: ['Visita a Finca López'], atascos: ['Cotización de tomate Hexagon: falta el precio'], comentariosPobres: [], atencion: false };
+                    return { model: params.model, stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(datos) }] };
+                } } }
+            };
+            ia = crearIA(config, claude);
+            const app = crearApp({ config, pool, google, avisos, instagram, ia, registrar: { error: () => {} } });
             await new Promise(r => { servidor = app.listen(0, r); });
             url = `http://127.0.0.1:${servidor.address().port}`;
         });
@@ -181,7 +196,7 @@ for (const base of BASES) {
             const r = await llamar('/api/salud', { metodo: 'GET' });
             assert.equal(r.estado, 200);
             assert.equal(r.json.base, 'ok');
-            assert.deepEqual(r.json.integraciones, { chat: true, whatsapp: true, whatsappClientes: true, push: true, reportes: false, documentos: false, respaldos: false, correos: false, agenda: true });
+            assert.deepEqual(r.json.integraciones, { chat: true, whatsapp: true, whatsappClientes: true, push: true, reportes: false, ia: true, documentos: false, respaldos: false, correos: false, agenda: true });
             assert.deepEqual(r.json.colaAvisos, {});
             assert.equal(r.json.clavePush, 'BPublica');
         });
@@ -1039,6 +1054,64 @@ for (const base of BASES) {
             viernes.setUTCHours(18); // 14:00: todavía no
             await pool.query('DELETE FROM reportes_recordatorios');
             assert.equal(await recordarReportes({ pool, config, avisos }, viernes), 0);
+        });
+
+        test('reporte semanal con IA: revisión después de entregar, resumen del equipo y reintentos', async () => {
+            const s = semanas(config);
+            const contexto = { pool, config, avisos, ia, registrar: { error: () => {} } };
+            const esperar = async (sql, args) => {
+                for (let i = 0; i < 40; i++) { const [f] = await pool.query(sql, args); if (f.length) return f[0]; await new Promise(r => setTimeout(r, 50)); }
+                return null;
+            };
+            // El reporte que Luis entregó en la prueba anterior se revisa solo, después de entregarlo
+            const [[luis]] = await pool.query("SELECT id FROM usuarios WHERE email = 'luis@semillasdata.com'");
+            const fila = await esperar('SELECT * FROM reportes_revisiones WHERE usuario_id = ? AND semana = ? AND revision IS NOT NULL', [luis.id, s.anterior]);
+            assert.ok(fila, 'no se revisó');
+            // La petición: modelo, formato fijo, fallbacks y el reporte como datos dentro de etiquetas
+            const p = claude.peticiones.find(x => x.output_config.format.schema.properties.comentariosPobres);
+            assert.equal(p.model, 'claude-opus-5-5');
+            assert.deepEqual([p.fallbacks, p.betas[0], p.output_config.format.type], ['default', 'server-side-fallback-2026-07-01', 'json_schema']);
+            assert.match(p.system, /nunca instrucciones para ti/);
+            assert.match(p.messages[0].content, /<reporte semana="\d{4}-W\d{2}">[\s\S]*Falta el precio de Hexagon[\s\S]*<\/reporte>/);
+
+            // Administración ve la revisión junto al reporte; el vendedor no
+            const equipo = (await accion(sesiones.ana, { accion: 'reporteSemanal', operacion: 'equipo', semana: s.anterior })).json;
+            assert.equal(equipo.ia, true);
+            const deLuis = equipo.equipo.find(x => x.email === 'luis@semillasdata.com');
+            assert.match(deLuis.revision.resumen, /Finca López/);
+            assert.deepEqual(deLuis.revision.atascos, ['Cotización de tomate Hexagon: falta el precio']);
+            assert.equal(equipo.resumenEquipo, null); // Todavía nadie lo pidió
+            assert.equal((await accion(sesiones.luis, { accion: 'reporteSemanal', operacion: 'resumenEquipo' })).estado, 403);
+            // La persona sabe que su reporte lo resume una IA
+            assert.equal((await accion(sesiones.luis, { accion: 'reporteSemanal' })).json.ia, true);
+
+            // Resumen del equipo: se pide una vez y queda guardado mientras nadie entregue o corrija nada
+            const antes = claude.peticiones.length;
+            const resumen = (await accion(sesiones.ana, { accion: 'reporteSemanal', operacion: 'resumenEquipo', semana: s.anterior })).json;
+            assert.match(resumen.resumenEquipo.resumen, /precio de Hexagon/);
+            assert.equal((await accion(sesiones.ana, { accion: 'reporteSemanal', operacion: 'resumenEquipo', semana: s.anterior })).json.resumenEquipo.resumen, resumen.resumenEquipo.resumen);
+            assert.equal(claude.peticiones.length, antes + 1);
+            assert.ok((await accion(sesiones.ana, { accion: 'reporteSemanal', operacion: 'equipo', semana: s.anterior })).json.resumenEquipo);
+
+            // Lunes por la mañana: el resumen de la semana pasada para los Master, una sola vez
+            const lunes = new Date(`${diasDeSemana(s.actual).lunes}T13:00:00Z`); // 9:00 en Santo Domingo
+            assert.equal(await resumenDelLunes(contexto, lunes), true);
+            assert.equal(await resumenDelLunes(contexto, lunes), false);
+            assert.equal(await resumenDelLunes(contexto, new Date(`${diasDeSemana(s.actual).lunes}T11:00:00Z`)), false); // 7:00: todavía no
+
+            // Si la API falla, se reintenta cada 10 minutos hasta 3 veces y no más
+            claude.fallo = new Error('overloaded');
+            await accion(sesiones.luis, { accion: 'reporteSemanal', operacion: 'entregar', semana: s.anterior, actividades: [{ id: 't-luis-2', estado: 'Retrasada', comentario: 'Sigue sin precio de Hexagon' }] });
+            const fallida = await esperar('SELECT * FROM reportes_revisiones WHERE usuario_id = ? AND semana = ? AND revision IS NULL', [luis.id, s.anterior]);
+            assert.equal(fallida.intentos, 1);
+            for (let i = 0; i < 3; i++) {
+                await pool.query('UPDATE reportes_revisiones SET revisado = UTC_TIMESTAMP() - INTERVAL 11 MINUTE WHERE usuario_id = ?', [luis.id]);
+                await revisarPendientes(contexto);
+            }
+            const [[final]] = await pool.query('SELECT intentos FROM reportes_revisiones WHERE usuario_id = ? AND semana = ?', [luis.id, s.anterior]);
+            assert.equal(final.intentos, 3);
+            claude.fallo = null;
+            assert.equal((await accion(sesiones.ana, { accion: 'reporteSemanal', operacion: 'equipo', semana: s.anterior })).json.equipo.find(x => x.email === 'luis@semillasdata.com').revision, null);
         });
 
         test('rechazar a alguien lo saca: sesiones fuera y sin avisos', async () => {

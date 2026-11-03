@@ -7,6 +7,7 @@ import { construirCorreo } from '../src/correo.js';
 import { normalizarTelefono, tarjetaChat } from '../src/avisos.js';
 import { esPasajero, conReintentos, conVariacion } from '../src/reintentos.js';
 import { semanaDe, diasDeSemana, semanas, semanaValida } from '../src/reportes.js';
+import { crearIA, ErrorIA } from '../src/ia.js';
 
 const CLAVE = crypto.randomBytes(32).toString('hex');
 
@@ -221,4 +222,16 @@ test('reporte semanal: semanas ISO (de lunes a domingo) en la zona del equipo', 
     assert.deepEqual([s.actual, s.anterior], ['2026-W45', '2026-W44']);
     // El viernes de la semana pasada (30 de octubre) a las 00:00 locales
     assert.equal(s.viernesAnterior.toISOString(), '2026-10-30T04:00:00.000Z');
+});
+
+test('IA: sin clave está apagada; rechazos, respuestas cortadas y JSON roto se tratan como error', async () => {
+    const config = { ia: { clave: '', modelo: 'claude-opus-5-5' } };
+    assert.equal(crearIA(config).activo, false);
+    const responder = (respuesta) => crearIA(config, { beta: { messages: { create: async () => respuesta } } });
+    const reporte = { persona: { nombre: 'Luis', cargo: 'vendedor' }, reporte: { semana: '2026-W44', resumen: '', actividades: [] }, anterior: null };
+    await assert.rejects(responder({ stop_reason: 'refusal', content: [] }).revisarReporte(reporte), ErrorIA);
+    await assert.rejects(responder({ stop_reason: 'max_tokens', content: [{ type: 'text', text: '{"resu' }] }).revisarReporte(reporte), /cortada/);
+    await assert.rejects(responder({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'no es json' }] }).revisarReporte(reporte), /formato/);
+    const bien = await responder({ stop_reason: 'end_turn', model: 'claude-opus-5-5', content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: '{"resumen":"ok"}' }] }).revisarReporte(reporte);
+    assert.deepEqual(bien, { datos: { resumen: 'ok' }, modelo: 'claude-opus-5-5' });
 });

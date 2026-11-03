@@ -42,7 +42,7 @@ function leerEstado(config, estado) {
 // Lo único que puede hacer quien aún no está aprobado
 const SIN_APROBAR = ['sala', 'telefono', 'push'];
 
-export function crearApp({ config, pool, google, avisos, transportistas = null, instagram = null, registrar = console }) {
+export function crearApp({ config, pool, google, avisos, transportistas = null, instagram = null, ia = { activo: false }, registrar = console }) {
     const app = express();
     app.disable('x-powered-by');
     app.set('trust proxy', 1); // Detrás del proxy de cPanel (Passenger): la IP real viene en X-Forwarded-For
@@ -138,6 +138,7 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
             integraciones: {
                 chat: avisos.chatActivo, whatsapp: avisos.whatsappActivo, whatsappClientes: avisos.whatsappClientesActivo, push: avisos.pushActivo,
                 reportes: Boolean(config.reportes.plantillaId),
+                ia: Boolean(ia.activo),
                 documentos: Boolean(config.workspace.documentosCarpetaId),
                 respaldos: Boolean(config.workspace.respaldoCarpetaId && config.workspace.cuentaSistema),
                 correos: Boolean(config.workspace.correosAvisos && config.workspace.cuentaSistema),
@@ -238,7 +239,7 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
                 const semana = await semanaBloqueada(pool, config, req.usuario);
                 if (semana) throw errorApp(`Entrega tu reporte semanal (semana ${semana.slice(6)}) para seguir usando la app`, 423, 'reporte');
             }
-            res.json(await accion(datos, { pool, config, google, avisos, transportistas, instagram, usuario: req.usuario, ambito: req.ambito }));
+            res.json(await accion(datos, { pool, config, google, avisos, transportistas, instagram, ia, registrar, usuario: req.usuario, ambito: req.ambito }));
         } catch (error) {
             next(error);
         }

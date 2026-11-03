@@ -176,6 +176,15 @@ Cada persona aprobada (todos menos los Master) entrega cada semana su **reporte 
 - Menú › **Reportes del equipo** (Master y administrativos que comparten país y casa con esa persona): quién lo entregó y quién no, con cada reporte. Al entregarse les llega un push.
 - No genera PDF, ni reuniones, ni correos. `REPORTE_SEMANAL=no` lo apaga.
 
+**Revisión con IA (opcional, Claude de Anthropic).** Con `ANTHROPIC_API_KEY` en el `.env` (console.anthropic.com › *API keys*; se paga por uso):
+
+- Después de entregarse un reporte, Claude escribe para administración una **revisión**: resumen de dos o tres frases, avances, atascos (y si ya venían de la semana anterior), comentarios que no explican nada, y una marca de **"conviene hablar"**. El push a administración lleva ese resumen.
+- En *Reportes del equipo*, cada reporte muestra su revisión rotulada **"Revisión automática (IA)"**, y el botón **Hacer el resumen del equipo** resume la semana de todas las personas que ve quien lo pide (atascos que se repiten, destacados, con quién hablar). Se guarda: mientras nadie entregue ni corrija, no se vuelve a pedir.
+- El **lunes a `REPORTE_RESUMEN_HORA`** (8 por defecto) los Master reciben por push el resumen de la semana pasada.
+- **No decide nada:** la revisión se hace después de entregar, no bloquea ni desbloquea, no cambia tareas ni escribe a nadie más. Si la API falla se reintenta cada 10 minutos hasta 3 veces; después, el aviso sale sin revisión.
+- **Privacidad:** los reportes (actividades y comentarios) se envían a Anthropic para resumirlos. A quien entrega se le dice en la pantalla del reporte. El texto de los empleados va como datos y se le indica a Claude que no siga instrucciones que vengan dentro.
+- Modelo: `IA_MODELO` (por defecto `claude-opus-5-5`). Coste orientativo: menos de 1 US$ por semana para unas 30 personas.
+
 ## Panel de indicadores
 
 Menú › **Panel de indicadores**, para todos: los números de cada persona, **solo para mirar** (no envía nada a nadie). Sale de los datos reales del CRM, que el servidor ya filtra por cargo, país y casa; un **vendedor** ve solo sus clientes asignados, sus seguimientos y los envíos de esos clientes. Cada sección aparece solo si el cargo ve ese módulo.
