@@ -2,6 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { cifrar, descifrar } from '../src/cifrado.js';
 import { construirCorreo } from '../src/correo.js';
 import { normalizarTelefono, tarjetaChat } from '../src/avisos.js';
@@ -260,4 +262,12 @@ test('auditoría: diferencias campo a campo sin ruido y nombre legible de cada r
     assert.equal(nombreDeRegistro({ id: 'e1', transportista: 'DHL', guia: 'JD1' }), 'DHL JD1');
     assert.equal(nombreDeRegistro({ id: 'l1', lote: 'L-7' }), 'Lote L-7');
     assert.equal(nombreDeRegistro({ id: 'x9' }), 'x9');
+});
+
+test('arranque en cPanel: inicio.cjs se puede cargar con require() (LiteSpeed y Passenger lo hacen así)', () => {
+    const carpeta = fileURLToPath(new URL('..', import.meta.url));
+    // Sin configuración: tiene que llegar a app.js y decir qué falta, no fallar al cargarse (ERR_REQUIRE_ASYNC_MODULE)
+    const r = spawnSync(process.execPath, ['-e', "require('./inicio.cjs')"], { cwd: carpeta, env: { PATH: process.env.PATH }, encoding: 'utf8', timeout: 20000 });
+    assert.doesNotMatch(r.stderr, /ERR_REQUIRE_ASYNC_MODULE|ERR_REQUIRE_ESM/);
+    assert.match(r.stderr, /Falta configurar/);
 });

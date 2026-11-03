@@ -528,7 +528,8 @@ salen conectadas cuando el backend ya responde y existe el secreto `SEMENCES_API
    rechaza los `.zip` con archivos `.js`), `semences-servidor.zip` y `semences-web-dominio.zip`.
 2. cPanel › Setup Node.js App › la app › **Stop App**. File Manager: sube `semences-servidor.tar.gz` a
    `~/semences-servidor` (fuera de `public_html`) y **Extract**.
-3. En la app Node: Node **22 o 24**, modo **Production**, archivo de inicio `app.js`. Variables de entorno
+3. En la app Node: Node **22 o 24**, modo **Production**, archivo de inicio **`inicio.cjs`** (con `app.js`, LiteSpeed
+   falla con `ERR_REQUIRE_ASYNC_MODULE`). Variables de entorno
    (todas en `servidor/.env.example`):
    - Obligatorias: `URL_PUBLICA`, `DOMINIO` y/o `ADMINS`, `MYSQL_*`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
      `CLAVE_CIFRADO`. `ORIGENES` vacía ya acepta semillasdata.com, GitHub Pages y las apps.

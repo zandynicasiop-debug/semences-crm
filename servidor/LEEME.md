@@ -64,7 +64,7 @@ cPanel › **Dominios** › crea `api.semillasdata.com` (con su carpeta, p. ej. 
    - Application mode: **Production**
    - Application root: `semences-servidor`
    - Application URL: `api.semillasdata.com`
-   - Application startup file: `app.js`
+   - Application startup file: **`inicio.cjs`** (no `app.js`: el servidor de FastComet carga la app con `require()` y `app.js` es un módulo ES que espera a la base al arrancar; con `app.js` sale `ERR_REQUIRE_ASYNC_MODULE` en `stderr.log`)
 3. En la misma pantalla, **Environment variables**: añade las de `.env.example`. Las obligatorias son:
    - `URL_PUBLICA`, `ORIGENES` y `DOMINIO`/`ADMINS`;
    - `MYSQL_*` (host `localhost`);
