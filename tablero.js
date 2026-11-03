@@ -83,6 +83,8 @@ class TableroEquipo {
         }
         this.sinLeer = respuesta.sinLeer || 0;
         this.pintarOpcion();
+        // Contadores de Mensajes y Avisos en la barra de iconos (accesos.js)
+        window.dispatchEvent(new CustomEvent('sdc-presencia', { detail: respuesta }));
         return respuesta;
     }
 

@@ -10,7 +10,9 @@ export const PESTANAS = [
     ['rendimiento', 'Rendimiento', { cliente: 'Cliente', lote: 'Lote', fecha: 'Fecha', rendimientoPlanta: 'Rendimiento por planta', canastos: 'Canastos', unidades: 'Unidades', detalles: 'Detalles' }],
     ['germinador', 'Germinador', { lote: 'Lote', cliente: 'Cliente', variedad: 'Variedad', estado: 'Estado', siembra: 'Siembra', trasplante: 'Trasplante previsto', bandejas: 'Bandejas', semillasMiles: 'Semillas (miles)', germinacion: 'Germinación (%)', temperatura: 'Temperatura (°C)', humedad: 'Humedad (%)', comentarios: 'Comentarios', pais: 'País', casa: 'Casa comercial' }],
     ['envios', 'Envíos', { guia: 'Guía', transportista: 'Transportista', cliente: 'Cliente', estado: 'Estado', ubicacion: 'Ubicación', eta: 'Llegada estimada', contenido: 'Contenido', semillasMiles: 'Semillas (miles)', detalle: 'Detalle del transportista', rastreado: 'Último rastreo', pais: 'País', casa: 'Casa comercial' }],
-    ['tareas', 'Tareas', { titulo: 'Tarea', prioridad: 'Prioridad', vence: 'Vence', para: 'Para', creadaPor: 'Creada por', creada: 'Creada', hecha: 'Hecha', hechaPor: 'Hecha por' }]
+    ['pedidos', 'Pedidos', { fecha: 'Fecha', cliente: 'Cliente', variedad: 'Variedad', semillasMiles: 'Semillas (miles)', precioMil: 'Precio por mil', estado: 'Estado', notas: 'Notas', pais: 'País', casa: 'Casa comercial' }],
+    ['tareas', 'Tareas', { titulo: 'Tarea', prioridad: 'Prioridad', vence: 'Vence', para: 'Para', creadaPor: 'Creada por', creada: 'Creada', hecha: 'Hecha', hechaPor: 'Hecha por' }],
+    ['reuniones', 'Reuniones', { titulo: 'Reunión', inicio: 'Inicio', organizadorNombre: 'Organiza', participantesTexto: 'Participantes', meet: 'Meet', temas: 'Temas', acuerdosTexto: 'Acuerdos' }]
 ];
 
 const COMUNES = { responsable: 'Registró', cuenta: 'Cuenta', id: 'Id' };

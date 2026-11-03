@@ -124,8 +124,8 @@ class TareasEquipo {
     }
 
     alternarPanel(abrir = this.panel.hidden) {
-        // Un panel lateral a la vez: si el chat está abierto, se cierra
-        if (abrir && window.equipo && !window.equipo.panel.hidden) window.equipo.panel.hidden = true;
+        // Un panel lateral a la vez (accesos.js cierra los demás)
+        if (abrir && window.cerrarPanelesLaterales) window.cerrarPanelesLaterales(this.panel);
         this.panel.hidden = !abrir;
         this.boton.setAttribute('aria-expanded', String(abrir));
         if (abrir) this.inputTitulo.focus();

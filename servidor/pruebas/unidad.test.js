@@ -114,7 +114,7 @@ test('resumen: horas locales, secciones según el cargo y textos para cada canal
         agronomia: [{ proceso: 'Trasplante', cliente: 'Finca Hoy', lote: 'L1', fechaInicio: '2026-11-03' }]
     };
     const persona = { nombre: 'Luis Vendedor', email: 'luis@x.com' };
-    const vendedor = { modulos: ['clientes', 'visitas', 'tareas', 'mensajes', 'sitios'] };
+    const vendedor = { modulos: ['clientes', 'visitas', 'pedidos', 'tareas', 'mensajes', 'sitios', 'reuniones'] };
     const eventos = [{ inicio: '2026-11-03T13:30:00Z', titulo: 'Visita a Constanza', meet: '' }, { inicio: '2026-11-03', todoElDia: true, titulo: 'Feria' }];
     const s = componerResumen({ persona, ambito: vendedor, datos, eventos, sinLeer: 2, hoy: '2026-11-03', zona: 'America/Santo_Domingo' });
     assert.deepEqual(s.map(x => x.titulo), ['📅 Tu agenda de hoy', '🤝 Seguimientos de clientes', '📋 Tus tareas', '💬 Tablero del equipo']);

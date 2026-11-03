@@ -13,6 +13,7 @@ import * as db from './db.js';
 import { ambitoDe, puedeLeer, dentroDelAmbito } from './permisos.js';
 import { destinosDe } from './cuentas.js';
 import { encolar } from './cola.js';
+import { registrarAviso } from './campana.js';
 
 export const ESTADOS_ENVIO = ['Registrado', 'En tránsito', 'Retenido en aduana', 'En reparto', 'Entregado', 'Incidencia'];
 export const TRANSPORTISTAS = ['DHL', 'FedEx'];
@@ -118,7 +119,6 @@ const fechaCorta = (iso) => { const [, m, d] = String(iso || '').split('-'); ret
  */
 export async function avisarEnvio({ pool, config, avisos }, registro, anterior, autorId = null) {
     if (anterior && anterior.estado === registro.estado) return 0;
-    if (!(avisos.pushActivo || avisos.whatsappActivo)) return 0;
     const cliente = registro.clienteId ? await db.leerRegistro(pool, 'clientes', registro.clienteId) : null;
     const [personas] = await pool.query(`SELECT * FROM usuarios WHERE id <> ? AND (estado = 'aprobado' OR email IN (?))`,
         [autorId || 0, config.google.admins.length ? config.google.admins : ['']]);
@@ -135,6 +135,7 @@ export async function avisarEnvio({ pool, config, avisos }, registro, anterior, 
     const texto = `📦 Envío ${registro.transportista || ''} ${registro.guia || ''} · ${registro.cliente || 'sin cliente'}\n`
         + `${registro.estado}${registro.ubicacion ? ` · ${registro.ubicacion}` : ''}${registro.eta ? ` · llegada estimada ${fechaCorta(registro.eta)}` : ''}${contenido ? ` — ${contenido}` : ''}`;
     const { huellas, telefonos } = await destinosDe(pool, destino.map(p => p.id));
+    await registrarAviso(pool, destino.map(p => p.id), 'envio', texto.replace(/^📦\s*/, '').replace('\n', ': '));
     let n = 0;
     if (avisos.pushActivo) n += await encolar(pool, 'push', huellas, texto);
     if (avisos.whatsappActivo) n += await encolar(pool, 'whatsapp', telefonos, texto);

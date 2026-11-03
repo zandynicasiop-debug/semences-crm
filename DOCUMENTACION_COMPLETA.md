@@ -100,10 +100,13 @@ semences-crm/
 ├── usuario.js              Quién usa la app: entrar con Google, sala de espera, cuenta, sesión
 ├── mapa.js                 Fichas editables de edificios y parcelas del 3D (lista de precios, notas)
 ├── cotizador.js            Cotización desde la lista de precios de la oficina → PDF o correo
-├── crm.js                  Módulos del CRM: clientes, visitas, procesos, rendimiento, germinador
+├── crm.js                  Módulos del CRM: clientes, visitas, procesos, rendimiento, germinador, pedidos
 ├── equipo.js               Chat del equipo y "Notificar al equipo" (alertas)
 ├── tareas.js               Tareas del equipo
 ├── tablero.js              Tablero del equipo (presencia, directos, Meet) y accesos (Master)
+├── accesos.js              Barra de accesos (cabecera y barra inferior del móvil), campana y mensajes 1 a 1
+├── agenda.js               Agenda de la semana: datos de la app + Google Calendar
+├── reunionesMetas.js       Reuniones (programar con Meet, acta → tareas) y metas mensuales
 ├── pwa.js                  Instalar la app y compartirla
 ├── ventana.js              Finca 3D en ventana flotante (Picture-in-Picture de documentos)
 ├── iconos/, marcas/        Iconos de la PWA y logos de las casas comerciales
@@ -142,7 +145,8 @@ Si hay `api`, manda el backend y se ignoran `url` y `token`.
 
 `index.html` carga, en este orden: `tema.js` (en `<head>`), las librerías del CDN y después, al final del `<body>`,
 `googleSync.js → app.js → datos.js → usuario.js → mapa.js → cotizador.js → crm.js → equipo.js → tareas.js →
-tablero.js → bandejaInstagram.js → panel.js → reporte.js → pwa.js → ventana.js`. Son scripts clásicos que comparten el ámbito global (`window.baseDatos`,
+tablero.js → bandejaInstagram.js → panel.js → reporte.js → accesos.js → agenda.js → reunionesMetas.js → pwa.js →
+ventana.js`. Son scripts clásicos que comparten el ámbito global (`window.baseDatos`,
 `window.responsable`, `window.cotizador`, `window.appDashboard`, `window.equipo`…). Los módulos que dependen del
 3D se crean en el evento `load`.
 
@@ -247,6 +251,15 @@ Al publicar cambios grandes hay que subir `VERSION` (ahora `semences-v10`) para 
 - **`pwa.js`, `ventana.js`, `tema.js`:** instalar y compartir la app, ventana flotante en el ordenador y tema.
 - **`bandejaInstagram.js` / `panel.js` / `reporte.js`:** bandeja de Instagram (administración), panel de
   indicadores por cargo y reporte semanal de actividades.
+- **`accesos.js` / `agenda.js` / `reunionesMetas.js`:** los botones de Agenda, Mensajes, Avisos, Equipo, Reuniones,
+  Metas, Tareas y Chat, en la cabecera (solo iconos en pantallas medianas) y, en el móvil, en una barra inferior con
+  Agenda, Mensajes, Avisos, Tareas y "Más". Solo hay un panel lateral abierto a la vez (`cerrarPanelesLaterales`).
+  La **campana** reúne los avisos de cada persona (mensajes, clientes, tareas, reuniones, germinador, envíos,
+  Instagram, reportes y metas) y cada uno lleva a su sitio. **Mensajes**: el chat general y conversaciones 1 a 1.
+  **Agenda**: la semana con seguimientos, reuniones, tareas, llegadas de envíos y trasplantes, más los eventos de
+  Google Calendar. **Reuniones**: se programan con Meet e invitación; el acta convierte cada acuerdo con
+  responsable en una tarea suya. **Metas**: las fijan Master y administración; el avance se calcula solo.
+  Sin backend quedan la Agenda (con los datos del dispositivo), Tareas y Chat.
 
 ### 4.8 Sistema de diseño (`style.css`)
 
@@ -334,6 +347,9 @@ de la mañana (cada minuto).
 | `correo.js` | Mensajes MIME para Gmail (sin inyección de cabeceras) |
 | `exportar.js` | Pestañas y filas para la exportación a Google Sheets |
 | `resumen.js` | "Borja": el resumen de la mañana de cada persona |
+| `campana.js` | Avisos de cada persona en la app (tabla `avisos_persona`): registrar, listar y marcar leídos |
+| `reuniones.js` | Reuniones: evento con Meet e invitados, acta y acuerdos convertidos en tareas |
+| `metas.js` | Metas mensuales por persona y su avance calculado con los datos del CRM |
 
 ### 6.3 Rutas
 
@@ -359,7 +375,12 @@ Todas bajo `/api` (y también en la raíz, por si el proxy de cPanel quita el pr
 | `correo` | Aprobados | Correo desde el Gmail de la persona (PDF adjunto opcional) + WhatsApp al cliente |
 | `reporte` | Aprobados | PDF desde plantilla de Docs, en la carpeta de Drive del cliente |
 | `exportar` | Aprobados | Todo lo visible a una hoja de Sheets de la persona |
-| `presencia` / `directo` / `bandeja` / `pasarCliente` | Aprobados | Tablero del equipo |
+| `presencia` / `directo` / `bandeja` / `pasarCliente` | Aprobados | Tablero del equipo (`presencia` devuelve también los avisos sin leer) |
+| `conversaciones` / `conversacion` | Aprobados | Mensajes 1 a 1: lista con el último y los sin leer / los 100 últimos con una persona (los marca leídos) |
+| `avisos` | Aprobados | La campana: listar, o `operacion: 'leer'` (con `ids` o todos) |
+| `agenda` | Aprobados | Eventos de Google Calendar entre `desde` y `hasta` (hasta 62 días); `{ conectado: false }` sin Google |
+| `reunion` | Aprobados | `crear` (evento con Meet, invitación y aviso) / `acta` (organizador, participante o Master) |
+| `metas` | Aprobados (fijar: Master y administración) | `listar` con avance / `guardar` / `quitar` |
 | `sala` / `telefono` / `push` | **También en sala de espera** | Pedir acceso / mi WhatsApp / activar avisos push |
 | `resumen` | Aprobados | Recibir o no el resumen de la mañana |
 | `accesos` | Master | Aprobar (cargo, países, casas), rechazar o reabrir |
@@ -374,7 +395,9 @@ Todas bajo `/api` (y también en la raíz, por si el proxy de cPanel quita el pr
 | `codigos` | Huella del código de un solo uso, reto PKCE, caducidad (2 min) |
 | `equipo` | Cuentas de fuera del dominio autorizadas, con su teléfono |
 | `registros` | El CRM: `(modulo, id)` → JSON completo, autor y fecha. Un campo nuevo no necesita tocar la base |
-| `directos` | Mensajes directos del tablero |
+| `directos` | Mensajes directos del tablero y conversaciones 1 a 1 |
+| `avisos_persona` | La campana: avisos de cada persona, con tipo, enlace y si se leyó |
+| `metas` | Meta de cada persona por mes e indicador, y quién la fijó |
 | `push_suscripciones` | Suscripciones Web Push por dispositivo |
 | `cola_avisos` | WhatsApp y push pendientes, enviados o fallidos (se limpian a los 30 días) |
 | `metricas` | Métricas del simulador |
@@ -411,7 +434,7 @@ países y casas comerciales:
 
 | Cargo | Módulos | Clientes |
 |---|---|---|
-| Vendedor | clientes, visitas, tareas, chat, mapa | completos |
+| Vendedor | clientes, visitas, pedidos, tareas, chat, mapa | completos |
 | Técnico | procesos, rendimiento, visitas, germinador, tareas, chat, mapa | solo id, nombre, país, casa, ubicación |
 | Plantulador | germinador, tareas, chat, mapa | solo id, nombre, país, casa, ubicación |
 | Administrativo | todos los del CRM | completos |

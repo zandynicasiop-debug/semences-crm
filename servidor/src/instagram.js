@@ -14,6 +14,7 @@ import { cifrar, descifrar } from './cifrado.js';
 import { ambitoDe, puedeEscribir, dentroDelAmbito, PAISES, CASAS } from './permisos.js';
 import { destinosDe } from './cuentas.js';
 import { encolar } from './cola.js';
+import { registrarAviso } from './campana.js';
 import * as db from './db.js';
 
 export const VENTANA_RESPUESTA_MS = 24 * 3600 * 1000;
@@ -130,14 +131,14 @@ export async function recibirWebhook(contexto, cuerpo) {
                     if (usuario) await pool.query('UPDATE instagram_conversaciones SET usuario = ? WHERE cuenta_id = ? AND igsid = ?', [usuario, cuentaId, igsid]);
                 } catch (e) { /* sin permiso para el perfil: se queda con el id */ }
             }
-            if (!eco && !(antes && antes.sin_leer > 0) && avisos.pushActivo) await avisarAdministracion(contexto, cuenta, m.text);
+            if (!eco && !(antes && antes.sin_leer > 0)) await avisarAdministracion(contexto, cuenta, m.text);
         }
     }
     return guardados;
 }
 
 // Push a administrativos y Master del país y casa de la cuenta (una vez por conversación sin leer)
-async function avisarAdministracion({ pool, config }, cuenta, texto) {
+async function avisarAdministracion({ pool, config, avisos }, cuenta, texto) {
     const [personas] = await pool.query(`SELECT * FROM usuarios WHERE estado = 'aprobado' OR email IN (?)`, [config.google.admins.length ? config.google.admins : ['']]);
     const destino = personas.filter(p => {
         const a = ambitoDe(p, config);
@@ -145,6 +146,8 @@ async function avisarAdministracion({ pool, config }, cuenta, texto) {
     });
     if (!destino.length) return;
     const { huellas } = await destinosDe(pool, destino.map(p => p.id));
+    await registrarAviso(pool, destino.map(p => p.id), 'instagram', `Instagram · ${cuenta.nombre || cuenta.ig_id}: ${texto.slice(0, 300)}`);
+    if (!avisos.pushActivo) return;
     await encolar(pool, 'push', huellas, `📸 Instagram · ${cuenta.nombre || cuenta.ig_id}\nNuevo mensaje: ${texto.slice(0, 200)}`);
 }
 

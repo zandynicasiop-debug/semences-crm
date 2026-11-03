@@ -9,8 +9,10 @@ import mysql from 'mysql2/promise';
 import { ESQUEMA_INSTAGRAM } from './instagram.js';
 import { ESQUEMA_REPORTES } from './reportes.js';
 import { ESQUEMA_EVENTOS } from './eventos.js';
+import { ESQUEMA_CAMPANA } from './campana.js';
+import { ESQUEMA_METAS } from './metas.js';
 
-export const MODULOS_CRM = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'sitios', 'mensajes', 'tareas'];
+export const MODULOS_CRM = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'pedidos', 'sitios', 'mensajes', 'tareas', 'reuniones'];
 
 const ESQUEMA = [
     `CREATE TABLE IF NOT EXISTS usuarios (
@@ -126,7 +128,7 @@ export async function conectar(configMysql) {
     // La hora de la base en UTC en cada conexión: en un hosting compartido el servidor puede estar en
     // otra zona, y CURRENT_TIMESTAMP tiene que cuadrar con UTC_TIMESTAMP() (sesiones, cola de avisos)
     pool.pool.on('connection', (conexion) => conexion.query("SET time_zone = '+00:00'"));
-    const sentencias = [...ESQUEMA, ...ESQUEMA_INSTAGRAM, ...ESQUEMA_REPORTES, ...ESQUEMA_EVENTOS];
+    const sentencias = [...ESQUEMA, ...ESQUEMA_INSTAGRAM, ...ESQUEMA_REPORTES, ...ESQUEMA_EVENTOS, ...ESQUEMA_CAMPANA, ...ESQUEMA_METAS];
     for (const sql of sentencias) await pool.query(sql);
     await ponerAlDia(pool, sentencias);
     return pool;
@@ -256,8 +258,9 @@ export async function sincronizar(pool, { guardar = [], eliminar = [] }, usuario
             comprobarModulo(op.modulo);
             const anterior = op.registro && op.registro.id ? await leerRegistro(conexion, op.modulo, op.registro.id, true) : null;
             if (!permitido(op.modulo, op.registro || {}) || (anterior && !permitido(op.modulo, anterior))) throw rechazo();
-            // Cada registro guarda la cuenta verificada que lo subió, no lo que diga la app
-            const registro = { ...op.registro, cuenta: usuario.email };
+            // Cada registro guarda la cuenta verificada que lo subió, no lo que diga la app; y quién lo creó,
+            // que ya no cambia (las metas cuentan clientes, visitas y ensayos de quien los creó)
+            const registro = { ...op.registro, cuenta: usuario.email, creadoPor: anterior ? (anterior.creadoPor || anterior.cuenta || usuario.email) : usuario.email };
             await guardarRegistro(conexion, op.modulo, registro, usuario.id);
             guardados.push({ modulo: op.modulo, registro, anterior });
         }

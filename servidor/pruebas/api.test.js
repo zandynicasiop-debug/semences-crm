@@ -19,6 +19,7 @@ import { enZona } from '../src/fechas.js';
 import { actualizarEnvio } from '../src/envios.js';
 import { recordarReportes, semanas, diasDeSemana, revisarPendientes, resumenDelLunes } from '../src/reportes.js';
 import { crearIA } from '../src/ia.js';
+import { actualizarToken } from '../src/cuentas.js';
 
 const BASES = (process.env.PRUEBA_BASES || '127.0.0.1:33061,127.0.0.1:33062').split(',');
 
@@ -141,7 +142,7 @@ for (const base of BASES) {
                 try { pool = await conectar(config.mysql); break; } catch (e) { if (i > 60) throw e; await new Promise(r => setTimeout(r, 1000)); }
             }
             // Base limpia: se borran las tablas y conectar() las vuelve a crear
-            for (const tabla of ['eventos', 'reportes_revisiones', 'reportes_resumenes', 'reportes_avisos_equipo', 'reportes_semanales', 'reportes_recordatorios', 'instagram_mensajes', 'instagram_conversaciones', 'instagram_cuentas', 'sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'directos', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
+            for (const tabla of ['eventos', 'avisos_persona', 'metas', 'reportes_revisiones', 'reportes_resumenes', 'reportes_avisos_equipo', 'reportes_semanales', 'reportes_recordatorios', 'instagram_mensajes', 'instagram_conversaciones', 'instagram_cuentas', 'sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'directos', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
             await pool.end();
             pool = await conectar(config.mysql);
 
@@ -264,7 +265,7 @@ for (const base of BASES) {
             assert.equal(r.json.datos.clientes[0].nombre, 'Finca Ñame');
             assert.equal(r.json.datos.clientes[0].cuenta, 'ana@semillasdata.com');
             assert.equal(r.json.datos.clientes[0].semillas, 25);
-            assert.deepEqual(Object.keys(r.json.datos).sort(), ['agronomia', 'clientes', 'envios', 'germinador', 'mensajes', 'rendimiento', 'sitios', 'tareas', 'visitas']);
+            assert.deepEqual(Object.keys(r.json.datos).sort(), ['agronomia', 'clientes', 'envios', 'germinador', 'mensajes', 'pedidos', 'rendimiento', 'reuniones', 'sitios', 'tareas', 'visitas']);
 
             const otra = await accion(sesiones.jefa, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: { id: 'c1', nombre: 'Finca Ñame (editada)' } }], eliminar: [{ modulo: 'tareas', id: 't1' }] });
             assert.equal(otra.json.datos.clientes.length, 1);
@@ -346,7 +347,7 @@ for (const base of BASES) {
             assert.equal(r.json.enlace, 'https://docs.google.com/spreadsheets/d/hoja-1/edit');
             const { pestanas, hojaId } = google.llamadas.at(-1).datos;
             assert.equal(hojaId, '');
-            assert.deepEqual(pestanas.map(p => p.nombre), ['Clientes', 'Visitas', 'Procesos agronómicos', 'Rendimiento', 'Germinador', 'Envíos', 'Tareas']);
+            assert.deepEqual(pestanas.map(p => p.nombre), ['Clientes', 'Visitas', 'Procesos agronómicos', 'Rendimiento', 'Germinador', 'Envíos', 'Pedidos', 'Tareas', 'Reuniones']);
             const [cabecera, ...filas] = pestanas[0].filas;
             assert.deepEqual(cabecera.slice(0, 3), ['Nombre', 'Correo', 'Teléfono']);
             assert.ok(cabecera.includes('nuevoCampo') && cabecera.includes('Registró') && !cabecera.includes('_pendiente') && !cabecera.includes('clienteId'));
@@ -671,7 +672,7 @@ for (const base of BASES) {
             assert.match(aviso.texto, /Acceso aprobado/);
             const yo = (await llamar('/api/yo', { metodo: 'GET', sesion: sesiones.luis })).json.usuario;
             assert.deepEqual([yo.estado, yo.cargo, yo.paises, yo.casas], ['aprobado', 'vendedor', ['RD'], ['Gautier Semences']]);
-            assert.deepEqual(yo.modulos, ['clientes', 'visitas', 'tareas', 'mensajes', 'sitios']);
+            assert.deepEqual(yo.modulos, ['clientes', 'visitas', 'pedidos', 'tareas', 'mensajes', 'sitios', 'reuniones']);
         });
 
         test('ámbito: cada quien ve y escribe solo su país, su casa comercial y los módulos de su cargo', async () => {
@@ -688,7 +689,7 @@ for (const base of BASES) {
 
             // Luis: vendedor, RD + Gautier
             const luis = (await accion(sesiones.luis, { accion: 'sincronizar' })).json.datos;
-            assert.deepEqual(Object.keys(luis).sort(), ['clientes', 'envios', 'mensajes', 'sitios', 'tareas', 'visitas']);
+            assert.deepEqual(Object.keys(luis).sort(), ['clientes', 'envios', 'mensajes', 'pedidos', 'reuniones', 'sitios', 'tareas', 'visitas']);
             assert.deepEqual(luis.clientes.map(c => c.id), ['rd-g']);
             assert.equal(luis.tareas.length, 1); // Las tareas son de todo el equipo
             // No puede crear fuera de su ámbito, ni en módulos que no son suyos, ni pisar ni borrar lo ajeno
@@ -828,7 +829,7 @@ for (const base of BASES) {
 
             // El plantulador: germinador, tareas y chat; de los clientes, solo el nombre
             const yo = (await llamar('/api/yo', { metodo: 'GET', sesion: plantu })).json.usuario;
-            assert.deepEqual(yo.modulos, ['germinador', 'tareas', 'mensajes', 'sitios']);
+            assert.deepEqual(yo.modulos, ['germinador', 'tareas', 'mensajes', 'sitios', 'reuniones']);
             const lote = { id: 'lote-1', lote: 'L-031', clienteId: 'rd-g', cliente: 'Finca RD Gautier', variedad: 'Tomate Hexagon', estado: 'En cámara', pais: 'RD', casa: 'Gautier Semences', germinacion: 92, temperatura: 26.5, humedad: 88 };
             const r1 = await accion(plantu, { accion: 'sincronizar', guardar: [{ modulo: 'germinador', registro: lote }] });
             assert.equal(r1.estado, 200);
@@ -1118,6 +1119,96 @@ for (const base of BASES) {
             assert.equal(final.intentos, 3);
             claude.fallo = null;
             assert.equal((await accion(sesiones.ana, { accion: 'reporteSemanal', operacion: 'equipo', semana: s.anterior })).json.equipo.find(x => x.email === 'luis@semillasdata.com').revision, null);
+        });
+
+        test('equipo: mensajes 1 a 1, campana, agenda, reuniones con acta, pedidos y metas con su avance', async () => {
+            const hoy = semanas(config).hoy;
+            const mes = hoy.slice(0, 7);
+
+            // Mensajes 1 a 1: conversación con historial; al abrirla, lo suyo queda leído
+            await accion(sesiones.ana, { accion: 'directo', para: 'luis@semillasdata.com', texto: 'Hola Luis, ¿cómo va Constanza?' });
+            await accion(sesiones.luis, { accion: 'directo', para: 'ana@semillasdata.com', texto: 'Bien, mañana paso' });
+            let convs = (await accion(sesiones.ana, { accion: 'conversaciones' })).json.conversaciones;
+            let conLuis = convs.find(c => c.email === 'luis@semillasdata.com');
+            assert.equal(conLuis.ultimo.texto, 'Bien, mañana paso');
+            assert.equal(conLuis.ultimo.mio, false);
+            assert.ok(conLuis.sinLeer >= 1);
+            const hilo = (await accion(sesiones.ana, { accion: 'conversacion', con: 'luis@semillasdata.com' })).json;
+            assert.deepEqual(hilo.mensajes.slice(-2).map(m => [m.mio, m.texto]), [[true, 'Hola Luis, ¿cómo va Constanza?'], [false, 'Bien, mañana paso']]);
+            conLuis = (await accion(sesiones.ana, { accion: 'conversaciones' })).json.conversaciones.find(c => c.email === 'luis@semillasdata.com');
+            assert.equal(conLuis.sinLeer, 0);
+            assert.equal((await accion(sesiones.ana, { accion: 'conversacion', con: 'nadie@x.com' })).estado, 404);
+
+            // Campana: el mensaje quedó como aviso de Luis; contador en la presencia; marcar como leído
+            let campana = (await accion(sesiones.luis, { accion: 'avisos' })).json;
+            assert.ok(campana.avisos.some(x => x.tipo === 'mensaje' && /Hola Luis/.test(x.texto)));
+            assert.ok((await accion(sesiones.luis, { accion: 'presencia' })).json.avisosSinLeer > 0);
+            campana = (await accion(sesiones.luis, { accion: 'avisos', operacion: 'leer' })).json;
+            assert.equal(campana.sinLeer, 0);
+
+            // Agenda: eventos del Google Calendar de la persona; intervalos de más de 62 días no
+            const desde = new Date(Date.now() - 86400000).toISOString(), hasta = new Date(Date.now() + 14 * 86400000).toISOString();
+            const agenda = (await accion(sesiones.jefa, { accion: 'agenda', desde, hasta })).json;
+            assert.deepEqual([agenda.conectado, agenda.eventos[0].titulo], [true, 'Comité de la mañana']);
+            assert.equal((await accion(sesiones.jefa, { accion: 'agenda', desde, hasta: new Date(Date.now() + 90 * 86400000).toISOString() })).estado, 400);
+
+            // Reunión: evento con Meet e invitación; al participante le llega el aviso
+            const inicio = new Date(Date.now() + 2 * 86400000);
+            const creada = (await accion(sesiones.ana, { accion: 'reunion', operacion: 'crear', titulo: 'Plan de siembra de diciembre', inicio: inicio.toISOString(), participantes: ['luis@semillasdata.com', 'ana@semillasdata.com'] })).json;
+            assert.equal(creada.ok, true);
+            const evento = google.llamadas.filter(l => l.tipo === 'evento').at(-1);
+            assert.deepEqual([evento.conMeet, evento.evento.attendees.map(a => a.email)], [true, ['luis@semillasdata.com']]); // Quien organiza no se invita a sí misma
+            assert.equal(creada.reunion.meet, 'https://meet.google.com/abc-defg-hij');
+            assert.ok((await accion(sesiones.luis, { accion: 'avisos' })).json.avisos.some(x => x.tipo === 'reunion' && /Plan de siembra/.test(x.texto)));
+            assert.ok((await accion(sesiones.luis, { accion: 'sincronizar' })).json.datos.reuniones.some(r => r.id === creada.reunion.id));
+            assert.equal((await accion(sesiones.ana, { accion: 'reunion', operacion: 'crear', titulo: 'Sin gente', inicio: inicio.toISOString(), participantes: [] })).estado, 400);
+
+            // Acta: los acuerdos con responsable pasan a Tareas; corregirla no duplica tareas; quien no participa no la escribe
+            const acta = (datos) => accion(sesiones.luis, { accion: 'reunion', operacion: 'acta', id: creada.reunion.id, ...datos });
+            const acuerdos = [
+                { texto: 'Enviar precio de Hexagon', responsable: 'luis@semillasdata.com', vence: '2026-12-01' },
+                { texto: 'Preparar bandejas de tomate', responsable: 'ana@semillasdata.com' },
+                { texto: 'Revisar el clima' }
+            ];
+            const r1 = (await acta({ temas: 'Siembra de diciembre y precios', acuerdos })).json;
+            assert.deepEqual(r1.reunion.acuerdos.map(a => [a.responsableNombre, Boolean(a.tareaId)]), [['Luis', true], ['Ana', true], ['', false]]);
+            await acta({ temas: 'Siembra de diciembre y precios (corregido)', acuerdos });
+            const tareas = (await accion(sesiones.ana, { accion: 'sincronizar' })).json.datos.tareas.filter(t => t.reunionId === creada.reunion.id);
+            assert.deepEqual(tareas.map(t => [t.titulo, t.para, t.vence]).sort(), [['Enviar precio de Hexagon', 'Luis', '2026-12-01'], ['Preparar bandejas de tomate', 'Ana', '']]);
+            assert.ok((await accion(sesiones.ana, { accion: 'avisos' })).json.avisos.some(x => x.tipo === 'tarea' && /Preparar bandejas/.test(x.texto)));
+            assert.equal((await accion(sesiones.tec, { accion: 'reunion', operacion: 'acta', id: creada.reunion.id, temas: 'x' })).estado, 403);
+
+            // Pedidos (con país y casa) y autoría fija: quien lo crea queda aunque otro lo edite
+            const pedido = { id: 'pe-1', clienteId: 'rd-g', cliente: 'Finca RD Gautier', pais: 'RD', casa: 'Gautier Semences', fecha: hoy, variedad: 'Tomate Hexagon', semillasMiles: 30, estado: 'Confirmado' };
+            assert.equal((await accion(sesiones.luis, { accion: 'sincronizar', guardar: [
+                { modulo: 'pedidos', registro: pedido },
+                { modulo: 'pedidos', registro: { ...pedido, id: 'pe-2', semillasMiles: 50, estado: 'Cotizado' } },
+                { modulo: 'visitas', registro: { id: 'vi-meta', clienteId: 'rd-g', cliente: 'Finca RD Gautier', pais: 'RD', casa: 'Gautier Semences', fecha: hoy } }
+            ] })).estado, 200);
+            assert.equal((await accion(sesiones.luis, { accion: 'sincronizar', guardar: [{ modulo: 'pedidos', registro: { ...pedido, id: 'pe-ve', pais: 'VE' } }] })).estado, 403);
+            await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'pedidos', registro: { ...pedido, notas: 'Revisado' } }] });
+            const [[fila]] = await pool.query("SELECT datos FROM registros WHERE modulo = 'pedidos' AND id = 'pe-1'");
+            assert.deepEqual([JSON.parse(fila.datos).creadoPor, JSON.parse(fila.datos).cuenta], ['luis@semillasdata.com', 'ana@semillasdata.com']);
+
+            // Metas: administración las fija a su equipo (no a sí misma); el vendedor solo ve las suyas, con su avance
+            const meta = (sesion, datos) => accion(sesion, { accion: 'metas', operacion: 'guardar', mes, ...datos });
+            assert.equal((await meta(sesiones.ana, { email: 'luis@semillasdata.com', indicador: 'ventas', objetivo: 100 })).estado, 200);
+            assert.equal((await meta(sesiones.ana, { email: 'luis@semillasdata.com', indicador: 'visitas', objetivo: 4 })).estado, 200);
+            assert.equal((await meta(sesiones.ana, { email: 'ana@semillasdata.com', indicador: 'ventas', objetivo: 10 })).estado, 403);
+            assert.equal((await meta(sesiones.luis, { email: 'luis@semillasdata.com', indicador: 'ventas', objetivo: 10 })).estado, 403);
+            assert.equal((await meta(sesiones.ana, { email: 'luis@semillasdata.com', indicador: 'actividades', objetivo: 150 })).estado, 400);
+            const deLuis = (await accion(sesiones.luis, { accion: 'metas', mes })).json;
+            assert.deepEqual(deLuis.personas.map(p => p.email), ['luis@semillasdata.com']);
+            const ventas = deLuis.personas[0].metas.find(m => m.indicador === 'ventas');
+            assert.deepEqual([ventas.objetivo, ventas.avance, ventas.porcentaje], [100, 30, 30]); // El cotizado no cuenta
+            assert.ok(deLuis.personas[0].metas.find(m => m.indicador === 'visitas').avance >= 1);
+            assert.ok((await accion(sesiones.luis, { accion: 'avisos' })).json.avisos.some(x => x.tipo === 'meta'));
+            const equipo = (await accion(sesiones.ana, { accion: 'metas', mes })).json;
+            assert.ok(equipo.personas.some(p => p.email === 'luis@semillasdata.com' && p.puedoFijar));
+            assert.ok(equipo.personas.some(p => p.yo && !p.puedoFijar));
+            // El Google simulado "renovó" el token de Ana al crear la reunión: se deja como estaba para las pruebas siguientes
+            const [[ana]] = await pool.query("SELECT * FROM usuarios WHERE email = 'ana@semillasdata.com'");
+            await actualizarToken(pool, config, ana, 'refresco-ana');
         });
 
         test('rechazar a alguien lo saca: sesiones fuera y sin avisos', async () => {

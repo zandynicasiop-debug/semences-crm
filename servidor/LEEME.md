@@ -235,6 +235,19 @@ Lo que no aplica a la persona llega como "Sin pendientes".
 
 Es privado: se arma con el mismo filtro de cargo, país y casa comercial que la app, y le llega solo a esa persona por WhatsApp y push (si no tiene ninguno, por correo a sí misma desde su Gmail). Si no hay nada que contar, no se envía. Sale una vez al día por persona aunque haya varios procesos del servidor. Si a las 7:00 el servidor estaba dormido (Passenger), sale en cuanto despierta, hasta las 12:00; el Cron de cPanel que llama a `/api/salud` cada 5 minutos lo mantiene despierto. Cada quien puede dejar de recibirlo en menú › **Cuenta**.
 
+## Barra de accesos: agenda, mensajes, avisos, reuniones y metas
+
+En la cabecera (y en el móvil, en la barra inferior con "Más"):
+
+- **Agenda:** la semana de lunes a domingo con lo de la app (seguimientos y próximas reuniones con clientes, reuniones del equipo, mis tareas con fecha, llegadas de envíos, trasplantes del germinador) y los eventos de Google Calendar de la persona. Desde ahí se programa una reunión.
+- **Mensajes:** el chat del equipo y conversaciones 1 a 1 con cada persona (con "leído"). Llegan también por push y WhatsApp si están activos.
+- **Avisos (campana):** todo lo que le llega a esa persona (mensajes, clientes asignados, tareas, reuniones, germinación baja, envíos, Instagram, reportes y metas). Se guarda aunque no haya push ni WhatsApp; cada aviso lleva a su sitio.
+- **Reuniones** (módulo `reuniones`, visible para todo el equipo): evento en el Calendar de quien organiza, con Meet e invitación a los participantes. El **acta** (temas y acuerdos) la escribe quien organiza, un participante o un Master; cada acuerdo con responsable pasa a ser una tarea suya y se le avisa. Si se corrige el acta, se actualiza la misma tarea.
+- **Metas** del mes por persona: las fijan los Master (a cualquiera) y los administrativos (a quien comparte país y casa, no a sí mismos). El avance sale de los datos:
+  - **Ventas:** miles de semillas de los **pedidos** (módulo nuevo `pedidos`) Confirmados o Entregados, del vendedor asignado al cliente o, si no tiene, de quien registró el pedido.
+  - **Clientes nuevos**, **visitas** y **ensayos de validación por variedad** (cliente + lote + variedad) del mes.
+  - **Actividades cumplidas:** % de actividades completadas en sus reportes semanales del mes.
+
 ## Equipo y acceso
 
 - Pueden entrar todas las cuentas de `DOMINIO`, los correos de `ADMINS` y los de la tabla `equipo`.
@@ -251,4 +264,4 @@ Es privado: se arma con el mismo filtro de cargo, país y casa comercial que la 
 | `POST /api/auth/canjear` | `{ codigo, verificador }` → `{ sesion, usuario }` |
 | `GET /api/yo` · `POST /api/salir` | La persona de la sesión · cerrar sesión |
 | `GET` · `POST /api/instagram/webhook` | Verificación de Meta (`hub.verify_token`) · mensajes directos de Instagram (firmados con `META_APP_SECRET`) |
-| `POST /api/accion` | `{ accion, … }`: `sincronizar`, `crm`, `sheets`, `chat`, `avisar`, `calendar` (con `invitados`, `conMeet`, `whatsapp`), `disponibilidad`, `meet`, `correo` (con `whatsapp`), `reporte`, `exportar`, `push`, `telefono`, `equipo`, `sala`, `accesos`, `presencia`, `directo`, `bandeja`, `pasarCliente`, `resumen`, `rastrear`, `instagram`, `documentos`, `subirDocumento`, `respaldar`, `sincronizarAgenda`, `reporteSemanal`. Sin aprobar solo se admiten `sala`, `telefono` y `push` |
+| `POST /api/accion` | `{ accion, … }`: `sincronizar`, `crm`, `sheets`, `chat`, `avisar`, `calendar` (con `invitados`, `conMeet`, `whatsapp`), `disponibilidad`, `meet`, `correo` (con `whatsapp`), `reporte`, `exportar`, `push`, `telefono`, `equipo`, `sala`, `accesos`, `presencia`, `directo`, `bandeja`, `pasarCliente`, `resumen`, `rastrear`, `instagram`, `documentos`, `subirDocumento`, `respaldar`, `sincronizarAgenda`, `reporteSemanal`, `conversaciones`, `conversacion`, `avisos`, `agenda`, `reunion`, `metas`. Sin aprobar solo se admiten `sala`, `telefono` y `push` |

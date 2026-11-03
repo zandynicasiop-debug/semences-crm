@@ -16,17 +16,19 @@ export const CASAS = ['Gautier Semences', 'Hexagon Seeds', 'Genome Seeds', 'Fit�
 export const CARGOS = ['vendedor', 'tecnico', 'plantulador', 'administrativo', 'master'];
 
 // Módulos con país y casa comercial (los demás son de todo el equipo: tareas, chat, fichas del mapa)
-export const MODULOS_CON_AMBITO = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios'];
+export const MODULOS_CON_AMBITO = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'pedidos'];
 
-const COMUNES = ['tareas', 'mensajes', 'sitios'];
+// Reuniones del equipo: las ve y completa (acta) todo el equipo, como las tareas
+const COMUNES = ['tareas', 'mensajes', 'sitios', 'reuniones'];
 export const MODULOS_POR_CARGO = {
-    vendedor: ['clientes', 'visitas', ...COMUNES],
+    // Pedidos: los registra el vendedor (y administración); de ahí salen las ventas de las metas
+    vendedor: ['clientes', 'visitas', 'pedidos', ...COMUNES],
     tecnico: ['agronomia', 'rendimiento', 'visitas', 'germinador', ...COMUNES],
     // Plantulador: el germinador (lotes en cámara y bandejas) de sus países y casas
     plantulador: ['germinador', ...COMUNES],
     // Envíos (guías de DHL y FedEx): solo administración los registra
-    administrativo: ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', ...COMUNES],
-    master: ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', ...COMUNES]
+    administrativo: ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'pedidos', ...COMUNES],
+    master: ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'pedidos', ...COMUNES]
 };
 
 // Módulos que un cargo puede ver pero no escribir: el vendedor y el plantulador siguen los envíos

@@ -692,10 +692,12 @@ describe('germinador: % de germinación y alerta de germinación baja', () => {
         }
     });
 
-    test('sin push ni WhatsApp configurados no consulta nada', async () => {
+    test('sin push ni WhatsApp configurados no se envía nada, pero el aviso queda en la campana', async () => {
         const c = { ...contexto(), avisos: { pushActivo: false, whatsappActivo: false } };
         assert.equal(await avisarGerminacionBaja(c, [{ modulo: 'germinador', registro: lote, anterior: null }]), 0);
-        assert.equal(c.pool.consultas.length, 0);
+        const sqls = c.pool.consultas.map(q => String(q.sql || q[0] || q));
+        assert.ok(sqls.some(q => /INSERT INTO avisos_persona/.test(q)), JSON.stringify(sqls));
+        assert.ok(!sqls.some(q => /cola_avisos/.test(q)));
     });
 });
 

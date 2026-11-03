@@ -150,8 +150,8 @@ class CanalEquipo {
     }
 
     alternarPanel(abrir = this.panel.hidden) {
-        // Un panel lateral a la vez: si las tareas están abiertas, se cierran
-        if (abrir && window.tareas && !window.tareas.panel.hidden) window.tareas.panel.hidden = true;
+        // Un panel lateral a la vez (accesos.js cierra los demás)
+        if (abrir && window.cerrarPanelesLaterales) window.cerrarPanelesLaterales(this.panel);
         this.panel.hidden = !abrir;
         this.botonChat.setAttribute('aria-expanded', String(abrir));
         if (abrir) {

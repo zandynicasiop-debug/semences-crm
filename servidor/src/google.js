@@ -127,17 +127,21 @@ export function crearGoogle(config) {
         },
 
         // Eventos del calendario de la persona entre inicio y fin (para el resumen de la mañana)
-        async eventos(tokenRefresco, alRenovar, inicio, fin) {
+        // Eventos del calendario principal entre inicio y fin (máximo: hasta 20 para el resumen, más para la agenda)
+        async eventos(tokenRefresco, alRenovar, inicio, fin, maximo = 20) {
             const servicio = calendar({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });
             const r = await servicio.events.list({
                 calendarId: 'primary', timeMin: inicio.toISOString(), timeMax: fin.toISOString(),
-                singleEvents: true, orderBy: 'startTime', maxResults: 20
+                singleEvents: true, orderBy: 'startTime', maxResults: maximo
             });
             return (r.data.items || []).filter(e => e.status !== 'cancelled').map(e => ({
+                id: e.id || '',
                 inicio: (e.start && (e.start.dateTime || e.start.date)) || '',
+                fin: (e.end && (e.end.dateTime || e.end.date)) || '',
                 todoElDia: Boolean(e.start && e.start.date && !e.start.dateTime),
                 titulo: e.summary || '(sin título)',
-                meet: e.hangoutLink || ''
+                meet: e.hangoutLink || '',
+                enlace: e.htmlLink || ''
             }));
         },
 

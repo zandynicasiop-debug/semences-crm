@@ -30,6 +30,8 @@ const MARCAS = ['Gautier Semences', 'Hexagon Seeds', 'Genome Seeds', 'Fitó', 'V
 // Embudo comercial de los clientes (las mismas que servidor/src/flujos.js › ETAPAS_CLIENTE)
 const ETAPAS_CLIENTE = ['Prospecto', 'Contactado', 'Reunión', 'Propuesta', 'Cliente', 'Perdido'];
 const ESTADOS_ENVIO = ['Registrado', 'En tránsito', 'Retenido en aduana', 'En reparto', 'Entregado', 'Incidencia'];
+// Pedidos: Confirmado y Entregado cuentan como venta en las metas; Cotizado y Cancelado, no
+const ESTADOS_PEDIDO = ['Cotizado', 'Confirmado', 'Entregado', 'Cancelado'];
 const TRANSPORTISTAS = ['DHL', 'FedEx', 'Otro'];
 // Página pública de rastreo de cada transportista
 function enlaceRastreo(r) {
@@ -227,6 +229,33 @@ const MODULOS_CRM = {
             { titulo: 'Registró', valor: r => r.responsable }
         ]
     },
+    pedidos: {
+        pestana: 'Pedidos',
+        titulo: 'Pedidos de semilla',
+        subtitulo: 'Lo que compra cada cliente: variedad, miles de semillas y estado. Los confirmados y entregados cuentan como venta en las metas del vendedor del cliente.',
+        nuevo: 'Registrar pedido',
+        vacio: 'Todavía no hay pedidos. Registra el primero desde aquí o desde el expediente del cliente.',
+        campos: [
+            { id: 'clienteId', etiqueta: 'Cliente', tipo: 'cliente', requerido: true },
+            ...CAMPOS_AMBITO,
+            { id: 'fecha', etiqueta: 'Fecha', tipo: 'date', requerido: true, hoy: true },
+            { id: 'variedad', etiqueta: 'Variedad', tipo: 'text', requerido: true, lista: 'lista-variedades', falta: 'Escribe la variedad.' },
+            { id: 'semillasMiles', etiqueta: 'Semillas (miles)', tipo: 'number', requerido: true, min: 0, paso: 'any' },
+            { id: 'precioMil', etiqueta: 'Precio por mil semillas (US$)', tipo: 'number', min: 0, paso: 'any' },
+            { id: 'estado', etiqueta: 'Estado', tipo: 'select', opciones: ESTADOS_PEDIDO, requerido: true },
+            { id: 'notas', etiqueta: 'Notas', tipo: 'textarea' }
+        ],
+        columnas: [
+            { titulo: 'Fecha', valor: r => formatearFecha(r.fecha), orden: r => r.fecha },
+            { titulo: 'Cliente', valor: r => nombreCliente(r), expediente: true, sinCliente: true },
+            { titulo: 'Variedad', valor: r => r.variedad },
+            { titulo: 'Semillas (miles)', valor: r => numero(r.semillasMiles), dato: true },
+            { titulo: 'Estado', valor: r => r.estado, etiqueta: true },
+            { titulo: 'Total (US$)', valor: r => (Number(r.precioMil) && Number(r.semillasMiles)) ? numero(Math.round(Number(r.precioMil) * Number(r.semillasMiles) * 100) / 100) : '', dato: true },
+            ...COLUMNAS_AMBITO,
+            { titulo: 'Registró', valor: r => r.responsable }
+        ]
+    },
     germinador: {
         pestana: 'Germinador',
         titulo: 'Germinador: lotes de plantulación',
@@ -266,7 +295,7 @@ const MODULOS_CRM = {
 };
 
 // Módulos cuyos registros pertenecen a un cliente
-const MODULOS_DEL_CLIENTE = ['agronomia', 'visitas', 'rendimiento', 'germinador', 'envios'];
+const MODULOS_DEL_CLIENTE = ['agronomia', 'visitas', 'rendimiento', 'germinador', 'envios', 'pedidos'];
 // Módulos que el cargo solo puede ver (sin crear, cambiar ni eliminar)
 const soloLectura = (modulo) => { const a = ambitoCRM(); return Boolean(a && !a.modulos.includes(modulo) && (a.lectura || []).includes(modulo)); };
 

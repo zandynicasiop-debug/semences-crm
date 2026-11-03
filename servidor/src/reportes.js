@@ -20,6 +20,7 @@ import crypto from 'node:crypto';
 import { ambitoDe } from './permisos.js';
 import { destinosDe } from './cuentas.js';
 import { encolar } from './cola.js';
+import { registrarAviso } from './campana.js';
 import { enZona, inicioDelDia, sumarDias } from './fechas.js';
 import * as db from './db.js';
 
@@ -160,11 +161,12 @@ const iaActiva = (contexto) => Boolean(contexto.ia && contexto.ia.activo);
 
 // Push a quien revisa los reportes de esta persona (Master y administrativos de su país y casa)
 async function avisarRevisores({ pool, config, avisos }, persona, texto) {
-    if (!avisos.pushActivo) return 0;
     const [personas] = await pool.query(`SELECT * FROM usuarios WHERE id <> ? AND (estado = 'aprobado' OR email IN (?))`,
         [persona.id, config.google.admins.length ? config.google.admins : ['']]);
     const revisan = personas.filter(p => veReporteDe(ambitoDe(p, config), persona, config));
     if (!revisan.length) return 0;
+    await registrarAviso(pool, revisan.map(p => p.id), 'reporte', texto.replace(/^📋\s*/, '').replace('\n', ': '));
+    if (!avisos.pushActivo) return 0;
     const { huellas } = await destinosDe(pool, revisan.map(p => p.id));
     return encolar(pool, 'push', huellas, texto);
 }
@@ -389,8 +391,10 @@ export async function resumenDelLunes(contexto, ahora = new Date()) {
     if (!equipo.some(p => p.reporte)) return false;
     const resumen = await resumirEquipo(contexto, semana, equipo);
     const [r] = await pool.query('INSERT IGNORE INTO reportes_avisos_equipo (semana) VALUES (?)', [semana]);
-    if (!r.affectedRows || !avisos.pushActivo || !config.google.admins.length) return true;
+    if (!r.affectedRows || !config.google.admins.length) return true;
     const [masters] = await pool.query('SELECT id FROM usuarios WHERE email IN (?)', [config.google.admins]);
+    await registrarAviso(pool, masters.map(m => m.id), 'reporte', `Resumen del equipo de la semana ${Number(semana.slice(6))}: ${String(resumen.resumen).slice(0, 300)}`);
+    if (!avisos.pushActivo) return true;
     const { huellas } = await destinosDe(pool, masters.map(m => m.id));
     await encolar(pool, 'push', huellas, `📋 Semana ${Number(semana.slice(6))} del equipo · ${equipo.filter(p => p.reporte).length} de ${equipo.length} reportes\n${String(resumen.resumen).slice(0, 300)}`);
     return true;
@@ -411,6 +415,7 @@ export async function recordarReportes({ pool, config, avisos }, ahora = new Dat
         if (!r.affectedRows) continue; // Ya se le recordó esta semana
         const { huellas, telefonos } = await destinosDe(pool, [p.id]);
         const texto = `📋 Hola, ${(p.nombre || '').split(' ')[0] || 'equipo'}: entrega hoy tu reporte semanal (menú › Reporte semanal). Desde el lunes la app lo pide antes de seguir.`;
+        await registrarAviso(pool, [p.id], 'reporte', 'Entrega hoy tu reporte semanal: desde el lunes la app lo pide antes de seguir.');
         if (avisos.pushActivo) n += await encolar(pool, 'push', huellas, texto);
         if (avisos.whatsappActivo) n += await encolar(pool, 'whatsapp', telefonos, texto);
     }

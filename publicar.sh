@@ -12,7 +12,7 @@ URL="${URL%/}"
 rm -rf publicar
 mkdir -p publicar
 cp index.html style.css manifest.webmanifest sw.js \
-   googleSync.js app.js datos.js usuario.js mapa.js cotizador.js crm.js equipo.js tareas.js tablero.js bandejaInstagram.js panel.js reporte.js pwa.js ventana.js tema.js publicar/
+   googleSync.js app.js datos.js usuario.js mapa.js cotizador.js crm.js equipo.js tareas.js tablero.js bandejaInstagram.js panel.js reporte.js accesos.js agenda.js reunionesMetas.js pwa.js ventana.js tema.js publicar/
 cp -R iconos marcas publicar/
 
 # Para hosting con Apache o LiteSpeed (cPanel, p. ej. FastComet): siempre https (sin él no se instala

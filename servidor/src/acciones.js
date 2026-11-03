@@ -7,7 +7,7 @@
  */
 import * as db from './db.js';
 import { telefonosDelEquipo, guardarTelefono, esAdmin, publico,
-    guardarSuscripcion, borrarSuscripcion, suscripcionesDelEquipo, tieneSuscripcion, destinosDe } from './cuentas.js';
+    guardarSuscripcion, borrarSuscripcion, suscripcionesDelEquipo, tieneSuscripcion, destinosDe, tokenDe } from './cuentas.js';
 import { ambitoDe, puedeEscribir, puedeLeer, dentroDelAmbito, filtrarDatos, asignacionValida, PAISES, CASAS, CARGOS, NOMBRE_PAIS } from './permisos.js';
 import { construirCorreo, destinatarios } from './correo.js';
 import { pestanasDe } from './exportar.js';
@@ -21,6 +21,9 @@ import { sincronizarAgenda, respaldar, documentoValido, avisarPorCorreo, enSegun
 import { avisarEnvio, actualizarEnvio } from './envios.js';
 import { accionInstagram } from './instagram.js';
 import { accionReporte } from './reportes.js';
+import { registrarAviso, accionAvisos, avisosSinLeer } from './campana.js';
+import { accionReunion } from './reuniones.js';
+import { accionMetas } from './metas.js';
 
 export { errorApp, conGoogle }; // (en llamadasGoogle.js; se reexportan aquí como antes)
 
@@ -61,6 +64,8 @@ async function enviarDirecto({ pool, usuario, avisos }, destino, tipo, texto, en
     const { huellas, telefonos } = await destinosDe(pool, [destino.id]);
     const iconos = { mensaje: '💬', reunion: '📹', cliente: '🤝', tarea: '📋' };
     const aviso = `${iconos[tipo] || '💬'} ${usuario.nombre || usuario.email}\n${texto}${enlace ? `\n${enlace}` : ''}`;
+    // En la campana, un mensaje lleva a la conversación con quien lo envía
+    await registrarAviso(pool, [destino.id], tipo, `${usuario.nombre || usuario.email}: ${texto}`, tipo === 'mensaje' && !enlace ? `conversacion:${usuario.email}` : enlace);
     if (avisos.pushActivo) await encolar(pool, 'push', huellas, aviso);
     if (avisos.whatsappActivo) await encolar(pool, 'whatsapp', telefonos, aviso);
 }
@@ -88,7 +93,7 @@ export async function avisarGerminacionBaja(contexto, guardados) {
     const bajos = guardados.filter(({ modulo, registro, anterior }) => modulo === 'germinador' && LOTE_ACTIVO(registro)
         && germinacionDe(registro) < umbral && !(germinacionDe(anterior) < umbral));
     const conCorreo = Boolean(config.workspace && config.workspace.correosAvisos && config.workspace.cuentaSistema);
-    if (!bajos.length || !(avisos.pushActivo || avisos.whatsappActivo || conCorreo)) return 0;
+    if (!bajos.length) return 0; // La campana registra el aviso aunque no haya push, WhatsApp ni correo
     const [personas] = await pool.query(`SELECT * FROM usuarios WHERE id <> ? AND (estado = 'aprobado' OR email IN (?))`,
         [usuario.id, config.google.admins.length ? config.google.admins : ['']]);
     let enviados = 0;
@@ -101,6 +106,7 @@ export async function avisarGerminacionBaja(contexto, guardados) {
         const camara = [registro.temperatura !== undefined && registro.temperatura !== '' && `${registro.temperatura} °C`, registro.humedad !== undefined && registro.humedad !== '' && `${registro.humedad} % HR`].filter(Boolean).join(' / ');
         const texto = `🚨 Germinación baja · Lote ${registro.lote || registro.id}\n${germinacionDe(registro)} % (por debajo del ${umbral} %) · ${registro.variedad || 'sin variedad'}${registro.cliente ? ` · ${registro.cliente}` : ''}${camara ? ` · cámara ${camara}` : ''} — registró ${usuario.nombre || usuario.email}`;
         const { huellas, telefonos } = await destinosDe(pool, destino.map(p => p.id));
+        await registrarAviso(pool, destino.map(p => p.id), 'germinador', texto.replace(/^🚨\s*/, '').replace('\n', ': '));
         if (avisos.pushActivo) enviados += await encolar(pool, 'push', huellas, texto);
         if (avisos.whatsappActivo) enviados += await encolar(pool, 'whatsapp', telefonos, texto);
         if (conCorreo) {
@@ -319,6 +325,21 @@ export const ACCIONES = {
         throw errorApp('Operación desconocida (alta, baja o consultar)');
     },
 
+    // Reuniones del equipo con Meet y su acta (reuniones.js)
+    async reunion(datos, contexto) {
+        return accionReunion(datos, contexto, { errorApp, enviarDirecto, personaDelEquipo, horaLocal });
+    },
+
+    // Metas mensuales por persona y su avance (metas.js)
+    async metas(datos, contexto) {
+        return accionMetas(datos, contexto, { errorApp });
+    },
+
+    // Avisos de la persona (campana): listar y marcar como leídos
+    async avisos(datos, contexto) {
+        return accionAvisos(datos, contexto);
+    },
+
     // Reporte semanal de actividades (reportes.js)
     async reporteSemanal(datos, contexto) {
         return accionReporte(datos, contexto, { errorApp });
@@ -441,6 +462,7 @@ export const ACCIONES = {
         return {
             ok: true,
             sinLeer: Number(sinLeer.n),
+            avisosSinLeer: await avisosSinLeer(pool, usuario.id), // Contador de la campana
             equipo: filas.map(f => {
                 const ambito = ambitoDe(f, config);
                 const conectado = f.segundos !== null && f.segundos < 150;
@@ -462,6 +484,52 @@ export const ACCIONES = {
         const enlace = /^https:\/\/meet\.google\.com\//.test(String(datos.enlace || '')) ? String(datos.enlace).slice(0, 500) : '';
         await enviarDirecto(contexto, destino, tipo, texto, enlace);
         return { ok: true };
+    },
+
+    // Conversaciones 1 a 1: con quién hablo, su último mensaje y cuántos me faltan por leer
+    async conversaciones(datos, { pool, usuario }) {
+        const [filas] = await pool.query(
+            `SELECT u.id, u.email, u.nombre, u.foto, MAX(d.id) ultimo, SUM(d.para_id = ? AND d.leido = 0) sin_leer
+             FROM directos d JOIN usuarios u ON u.id = IF(d.de_id = ?, d.para_id, d.de_id)
+             WHERE (d.de_id = ? OR d.para_id = ?) AND u.estado = 'aprobado'
+             GROUP BY u.id, u.email, u.nombre, u.foto ORDER BY ultimo DESC LIMIT 60`,
+            [usuario.id, usuario.id, usuario.id, usuario.id]);
+        const ultimos = filas.length ? (await pool.query('SELECT id, de_id, texto, tipo, creado FROM directos WHERE id IN (?)', [filas.map(f => f.ultimo)]))[0] : [];
+        const porId = new Map(ultimos.map(u => [u.id, u]));
+        return {
+            ok: true,
+            conversaciones: filas.map(f => {
+                const u = porId.get(f.ultimo) || {};
+                return { email: f.email, nombre: f.nombre || f.email, foto: f.foto || '', sinLeer: Number(f.sin_leer || 0), ultimo: { texto: u.texto || '', tipo: u.tipo || 'mensaje', mio: u.de_id === usuario.id, creado: u.creado } };
+            })
+        };
+    },
+
+    // Una conversación 1 a 1 ({ con: correo }): los 100 últimos mensajes de los dos; los suyos quedan leídos
+    async conversacion(datos, contexto) {
+        const { pool, usuario } = contexto;
+        const otra = await personaDelEquipo(contexto, datos.con);
+        const [filas] = await pool.query(
+            `SELECT id, de_id, tipo, texto, enlace, leido, creado FROM directos
+             WHERE (de_id = ? AND para_id = ?) OR (de_id = ? AND para_id = ?) ORDER BY id DESC LIMIT 100`,
+            [usuario.id, otra.id, otra.id, usuario.id]);
+        await pool.query('UPDATE directos SET leido = 1 WHERE de_id = ? AND para_id = ? AND leido = 0', [otra.id, usuario.id]);
+        return {
+            ok: true,
+            con: { email: otra.email, nombre: otra.nombre || otra.email, foto: otra.foto || '' },
+            mensajes: filas.reverse().map(f => ({ id: f.id, mio: f.de_id === usuario.id, tipo: f.tipo, texto: f.texto, enlace: f.enlace, leido: Boolean(f.leido), creado: f.creado }))
+        };
+    },
+
+    // Eventos del Google Calendar de la persona para la agenda ({ desde, hasta }, hasta 62 días). Sin la
+    // cuenta de Google conectada no es un error: la agenda muestra lo de la app y lo dice
+    async agenda(datos, contexto) {
+        const desde = fecha(datos.desde, 'desde');
+        const hasta = fecha(datos.hasta, 'hasta');
+        if (hasta <= desde || hasta - desde > 62 * 86400000) throw errorApp('Intervalo de fechas no válido');
+        if (!tokenDe(contexto.usuario, contexto.config)) return { ok: true, conectado: false, eventos: [] };
+        const eventos = await conGoogle(contexto, (token, alRenovar) => contexto.google.eventos(token, alRenovar, desde, hasta, 250));
+        return { ok: true, conectado: true, eventos };
     },
 
     // Mis mensajes directos (los 50 últimos); quedan como leídos
