@@ -12,6 +12,7 @@ import { iniciarResumenes } from './src/resumen.js';
 import { iniciarWorkspace } from './src/workspace.js';
 import { crearTransportistas, iniciarRastreo } from './src/envios.js';
 import { crearInstagram } from './src/instagram.js';
+import { iniciarRecordatorios } from './src/reportes.js';
 
 try { process.loadEnvFile(new URL('./.env', import.meta.url)); } catch (e) { /* Sin .env: se usan las variables del panel */ }
 
@@ -33,4 +34,5 @@ iniciarCola(pool, avisos); // Envía los avisos pendientes (WhatsApp y push) cad
 iniciarResumenes({ pool, config, google, avisos }); // "Borja": el resumen de la mañana de cada persona
 iniciarWorkspace({ pool, config, google, avisos }); // Respaldo diario en Drive y agenda del CRM en Google Calendar
 iniciarRastreo({ pool, config, avisos, transportistas }); // Guías de DHL y FedEx (si están sus claves)
+iniciarRecordatorios({ pool, config, avisos }); // Viernes: recordatorio del reporte semanal a quien no lo entregó
 app.listen(config.puerto, () => console.log(`Backend de Semences escuchando en el puerto ${config.puerto}`));

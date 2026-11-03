@@ -21,6 +21,7 @@ import { estadoCola } from './cola.js';
 import { ambitoDe } from './permisos.js';
 import { cabecerasSeguras, limiteGeneral, limiteEntrada as limiteDeEntrada, limiteAcciones, validarEntrada } from './seguridad.js';
 import { firmaValida, recibirWebhook } from './instagram.js';
+import { semanaBloqueada, SIN_REPORTE } from './reportes.js';
 
 // El "state" de OAuth va firmado: así nadie puede inventar una vuelta de Google
 function firmarEstado(config, valor) {
@@ -231,6 +232,11 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
                 throw errorApp(req.ambito.estado === 'rechazado'
                     ? 'Tu solicitud de acceso fue rechazada. Habla con un administrador.'
                     : 'Estás en la sala de espera: un Master tiene que aprobar tu acceso.', 403, req.ambito.estado === 'rechazado' ? 'rechazado' : 'espera');
+            }
+            // Desde el lunes, sin el reporte de la semana pasada solo se puede entregar (y poco más)
+            if (!SIN_REPORTE.includes(datos.accion)) {
+                const semana = await semanaBloqueada(pool, config, req.usuario);
+                if (semana) throw errorApp(`Entrega tu reporte semanal (semana ${semana.slice(6)}) para seguir usando la app`, 423, 'reporte');
             }
             res.json(await accion(datos, { pool, config, google, avisos, transportistas, instagram, usuario: req.usuario, ambito: req.ambito }));
         } catch (error) {

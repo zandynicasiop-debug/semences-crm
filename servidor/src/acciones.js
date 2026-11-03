@@ -17,6 +17,7 @@ import { encolar, estadoCola } from './cola.js';
 import { sincronizarAgenda, respaldar, documentoValido, avisarPorCorreo, enSegundoPlano } from './workspace.js';
 import { avisarEnvio, actualizarEnvio } from './envios.js';
 import { accionInstagram } from './instagram.js';
+import { accionReporte } from './reportes.js';
 
 export { errorApp, conGoogle }; // (en llamadasGoogle.js; se reexportan aquí como antes)
 
@@ -308,6 +309,11 @@ export const ACCIONES = {
         }
         if (datos.operacion === 'consultar') return { ok: true, activo: await tieneSuscripcion(pool, usuario.id, endpoint) };
         throw errorApp('Operación desconocida (alta, baja o consultar)');
+    },
+
+    // Reporte semanal de actividades (reportes.js)
+    async reporteSemanal(datos, contexto) {
+        return accionReporte(datos, contexto, { errorApp });
     },
 
     // Bandeja de Instagram de administración (instagram.js)

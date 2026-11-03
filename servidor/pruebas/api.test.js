@@ -15,6 +15,7 @@ import { enviarResumenes } from '../src/resumen.js';
 import { esperarSegundoPlano } from '../src/workspace.js';
 import { enZona } from '../src/fechas.js';
 import { actualizarEnvio } from '../src/envios.js';
+import { recordarReportes, semanas, diasDeSemana } from '../src/reportes.js';
 
 const BASES = (process.env.PRUEBA_BASES || '127.0.0.1:33061,127.0.0.1:33062').split(',');
 
@@ -133,7 +134,7 @@ for (const base of BASES) {
                 try { pool = await conectar(config.mysql); break; } catch (e) { if (i > 60) throw e; await new Promise(r => setTimeout(r, 1000)); }
             }
             // Base limpia: se borran las tablas y conectar() las vuelve a crear
-            for (const tabla of ['instagram_mensajes', 'instagram_conversaciones', 'instagram_cuentas', 'sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'directos', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
+            for (const tabla of ['reportes_semanales', 'reportes_recordatorios', 'instagram_mensajes', 'instagram_conversaciones', 'instagram_cuentas', 'sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'directos', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
             await pool.end();
             pool = await conectar(config.mysql);
 
@@ -963,6 +964,81 @@ for (const base of BASES) {
             await webhook(mensaje('m2', '¿Y el pimiento?'));
             const vuelta = (await accion(sesiones.ana, { accion: 'instagram', operacion: 'conversaciones' })).json.conversaciones;
             assert.deepEqual(vuelta.map(x => [x.estado, x.sin_leer]), [['abierta', 1]]);
+        });
+
+        test('reporte semanal: desde el lunes bloquea a quien no lo entregó; al entregarlo se desbloquea', async () => {
+            const s = semanas(config);
+            // Las tareas de Luis (asignadas a él, con otra forma de escribir su nombre) y una de Ana
+            await accion(sesiones.ana, { accion: 'sincronizar', guardar: [
+                { modulo: 'tareas', registro: { id: 't-luis-1', titulo: 'Visitar Finca López', para: 'luis', creadaPor: 'Ana', hecha: '' } },
+                { modulo: 'tareas', registro: { id: 't-luis-2', titulo: 'Cotizar tomate Hexagon', para: 'Luís', creadaPor: 'Ana', hecha: '' } },
+                { modulo: 'tareas', registro: { id: 't-ana', titulo: 'Cierre de mes', para: 'Ana', creadaPor: 'Ana', hecha: '' } }
+            ] });
+
+            // Recién aprobado (después del viernes pasado): todavía no se le pide el de la semana pasada
+            let estado = (await accion(sesiones.luis, { accion: 'reporteSemanal' })).json;
+            assert.deepEqual([estado.obligado, estado.bloqueado, estado.semana], [true, false, s.actual]);
+            const ids = estado.actividades.map(a => a.id);
+            assert.ok(ids.includes('t-luis-1') && ids.includes('t-luis-2') && !ids.includes('t-ana'), JSON.stringify(ids));
+            // Los Master no lo entregan
+            assert.equal((await accion(sesiones.jefa, { accion: 'reporteSemanal' })).json.obligado, false);
+
+            // Aprobado hace un mes y sin el reporte de la semana pasada: bloqueado, salvo el propio reporte y poco más
+            await pool.query("UPDATE usuarios SET aprobado_en = UTC_TIMESTAMP() - INTERVAL 30 DAY WHERE email = 'luis@semillasdata.com'");
+            const bloqueado = await accion(sesiones.luis, { accion: 'sincronizar' });
+            assert.deepEqual([bloqueado.estado, bloqueado.json.codigo], [423, 'reporte']);
+            assert.equal((await accion(sesiones.luis, { accion: 'presencia' })).estado, 200);
+            assert.equal((await accion(sesiones.jefa, { accion: 'sincronizar' })).estado, 200);
+            estado = (await accion(sesiones.luis, { accion: 'reporteSemanal' })).json;
+            assert.deepEqual([estado.bloqueado, estado.semana], [true, s.anterior]);
+
+            // Cada actividad necesita estado y comentario; no se tocan tareas ajenas ni semanas viejas
+            const entregar = (extra) => accion(sesiones.luis, { accion: 'reporteSemanal', operacion: 'entregar', semana: s.anterior, resumen: 'Semana de visitas en Constanza', ...extra });
+            assert.equal((await entregar({ actividades: [] })).estado, 400);
+            assert.match((await entregar({ actividades: [{ id: 't-luis-1', estado: 'Completada', comentario: 'ok' }] })).json.error, /comentario/);
+            assert.match((await entregar({ actividades: [{ id: 't-luis-1', estado: 'Hecha', comentario: 'Visitada el martes' }] })).json.error, /estado/);
+            assert.equal((await entregar({ actividades: [{ id: 't-ana', estado: 'Completada', comentario: 'Hecho por mí' }] })).estado, 403);
+            assert.equal((await accion(sesiones.luis, { accion: 'reporteSemanal', operacion: 'entregar', semana: '2026-W01', actividades: [{ id: 't-luis-1', estado: 'Completada', comentario: 'Visitada el martes' }] })).estado, 400);
+            const hecho = await entregar({ actividades: [
+                { id: 't-luis-1', estado: 'Completada', comentario: 'Visitada el martes, quiere 25 mil semillas' },
+                { id: 't-luis-2', estado: 'Retrasada', comentario: 'Falta el precio de Hexagon' },
+                { titulo: 'Demostración en Jarabacoa', estado: 'En progreso', comentario: 'Parcela preparada, falta sembrar' }
+            ] });
+            assert.equal(hecho.estado, 200);
+            assert.equal((await accion(sesiones.luis, { accion: 'sincronizar' })).estado, 200); // Desbloqueado al momento
+
+            // Lo completado cierra la tarea; lo retrasado y lo nuevo siguen pendientes y vuelven a salir
+            const tareas = (await accion(sesiones.luis, { accion: 'sincronizar' })).json.datos.tareas;
+            const t1 = tareas.find(t => t.id === 't-luis-1');
+            const t2 = tareas.find(t => t.id === 't-luis-2');
+            const nueva = tareas.find(t => t.titulo === 'Demostración en Jarabacoa');
+            assert.ok(t1.hecha && t1.hechaPor === 'Luis');
+            assert.deepEqual([t2.hecha, t2.estadoSemanal, t2.comentarioSemanal], ['', 'Retrasada', 'Falta el precio de Hexagon']);
+            assert.deepEqual([nueva.para, nueva.hecha, nueva.estadoSemanal], ['Luis', '', 'En progreso']);
+            estado = (await accion(sesiones.luis, { accion: 'reporteSemanal' })).json;
+            assert.equal(estado.semana, s.actual);
+            assert.deepEqual(estado.actividades.filter(a => ['t-luis-2', nueva.id].includes(a.id)).map(a => a.estado).sort(), ['En progreso', 'Retrasada']);
+
+            // Administración lo ve (Ana comparte país y casa); un vendedor no ve reportes ajenos
+            const equipo = (await accion(sesiones.ana, { accion: 'reporteSemanal', operacion: 'equipo', semana: s.anterior })).json;
+            const deLuis = equipo.equipo.find(p => p.email === 'luis@semillasdata.com');
+            assert.equal(deLuis.reporte.resumen, 'Semana de visitas en Constanza');
+            assert.deepEqual(deLuis.reporte.actividades.map(a => a.estado), ['Completada', 'Retrasada', 'En progreso']);
+            assert.ok(!equipo.equipo.some(p => p.email === 'jefa@gmail.com')); // Los Master no reportan
+            assert.equal((await accion(sesiones.luis, { accion: 'reporteSemanal', operacion: 'equipo' })).estado, 403);
+
+            // Viernes a las 16:00 (o después): recordatorio una sola vez a quien no entregó el de esta semana
+            await pool.query('DELETE FROM cola_avisos');
+            const viernes = new Date(`${diasDeSemana(s.actual).lunes}T00:00:00Z`);
+            viernes.setUTCDate(viernes.getUTCDate() + 4);
+            viernes.setUTCHours(21); // 17:00 en Santo Domingo
+            assert.ok(await recordarReportes({ pool, config, avisos }, viernes) > 0);
+            const [wa] = await pool.query("SELECT destino, texto FROM cola_avisos WHERE canal = 'whatsapp'");
+            assert.ok(wa.some(w => w.destino === '18295550202' && /reporte semanal/.test(w.texto)));
+            assert.equal(await recordarReportes({ pool, config, avisos }, viernes), 0);
+            viernes.setUTCHours(18); // 14:00: todavía no
+            await pool.query('DELETE FROM reportes_recordatorios');
+            assert.equal(await recordarReportes({ pool, config, avisos }, viernes), 0);
         });
 
         test('rechazar a alguien lo saca: sesiones fuera y sin avisos', async () => {

@@ -84,6 +84,9 @@ export function leerConfig(entorno = process.env) {
 
         // Resumen de la mañana ("Borja"): hora local a la que sale (0-23); "no" para no enviarlo
         resumenHora: horaResumen(entorno.RESUMEN_HORA),
+        // Reporte semanal obligatorio (bloquea desde el lunes a quien no lo entregó) y hora del recordatorio del viernes
+        reporteSemanal: !/^no$/i.test(String(entorno.REPORTE_SEMANAL || '').trim()),
+        reporteHora: Number.isFinite(Number(entorno.REPORTE_HORA)) && String(entorno.REPORTE_HORA ?? '').trim() !== '' ? Math.min(23, Math.max(0, Math.trunc(Number(entorno.REPORTE_HORA)))) : 16,
 
         chatWebhook: entorno.CHAT_WEBHOOK || '',
         // Avisos de Google Chat como tarjetas con botones (CHAT_TARJETAS=no para texto simple)
@@ -179,8 +182,9 @@ export function validarEntorno(e = {}) {
     entero('RESPALDO_HORA', 0, 23);
     entero('RESPALDO_CONSERVAR', 1, 3650);
     entero('RASTREO_MINUTOS', 15, 1440);
+    entero('REPORTE_HORA', 0, 23);
     if (valor('RESUMEN_HORA') && !/^no$/i.test(valor('RESUMEN_HORA'))) entero('RESUMEN_HORA', 0, 23);
-    for (const nombre of ['CUENTAS_PERSONALES', 'CHAT_TARJETAS', 'CORREOS_AVISOS', 'AGENDA_AUTOMATICA']) siNo(nombre);
+    for (const nombre of ['CUENTAS_PERSONALES', 'CHAT_TARJETAS', 'CORREOS_AVISOS', 'AGENDA_AUTOMATICA', 'REPORTE_SEMANAL']) siNo(nombre);
 
     if (valor('URL_APP') && !/^https:\/\/[^\s]+$/.test(valor('URL_APP'))) avisos.push('URL_APP debe empezar por https://');
     if (valor('CHAT_WEBHOOK') && !valor('CHAT_WEBHOOK').startsWith('https://chat.googleapis.com/')) avisos.push('CHAT_WEBHOOK no parece un webhook de Google Chat (https://chat.googleapis.com/…)');

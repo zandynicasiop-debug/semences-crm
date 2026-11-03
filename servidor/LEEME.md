@@ -166,6 +166,16 @@ No crea PDF, reuniones ni correos por su cuenta y no lee Gmail: eso lo decide el
 
 El servidor comprueba la firma `X-Hub-Signature-256` de cada aviso de Meta sobre el cuerpo original; sin firma válida no guarda nada.
 
+## Reporte semanal
+
+Cada persona aprobada (todos menos los Master) entrega cada semana su **reporte de actividades** (menú › **Reporte semanal**). Sus actividades son sus tareas del CRM (las asignadas a ella y las que creó sin asignar); a cada una le pone un estado — **En progreso, Retrasada, Completada o Terminada sin éxito** — y un comentario de cómo va. Puede añadir actividades nuevas (quedan como tareas suyas).
+
+- Lo **en progreso o retrasado** sigue como tarea pendiente y vuelve a salir la semana siguiente; **completada o terminada sin éxito** la cierra.
+- El **viernes a `REPORTE_HORA`** (16 por defecto) se recuerda por push y WhatsApp a quien no lo entregó.
+- **Desde el lunes**, quien no entregó el de la semana pasada (y ya estaba aprobado ese viernes) solo ve la pantalla del reporte: el servidor responde `423` con `codigo: "reporte"` a todo lo demás. Al entregarlo se desbloquea al momento y sube lo que tenía pendiente.
+- Menú › **Reportes del equipo** (Master y administrativos que comparten país y casa con esa persona): quién lo entregó y quién no, con cada reporte. Al entregarse les llega un push.
+- No genera PDF, ni reuniones, ni correos. `REPORTE_SEMANAL=no` lo apaga.
+
 ## Panel de indicadores
 
 Menú › **Panel de indicadores**, para todos: los números de cada persona, **solo para mirar** (no envía nada a nadie). Sale de los datos reales del CRM, que el servidor ya filtra por cargo, país y casa; un **vendedor** ve solo sus clientes asignados, sus seguimientos y los envíos de esos clientes. Cada sección aparece solo si el cargo ve ese módulo.
@@ -232,4 +242,4 @@ Es privado: se arma con el mismo filtro de cargo, país y casa comercial que la 
 | `POST /api/auth/canjear` | `{ codigo, verificador }` → `{ sesion, usuario }` |
 | `GET /api/yo` · `POST /api/salir` | La persona de la sesión · cerrar sesión |
 | `GET` · `POST /api/instagram/webhook` | Verificación de Meta (`hub.verify_token`) · mensajes directos de Instagram (firmados con `META_APP_SECRET`) |
-| `POST /api/accion` | `{ accion, … }`: `sincronizar`, `crm`, `sheets`, `chat`, `avisar`, `calendar` (con `invitados`, `conMeet`, `whatsapp`), `disponibilidad`, `meet`, `correo` (con `whatsapp`), `reporte`, `exportar`, `push`, `telefono`, `equipo`, `sala`, `accesos`, `presencia`, `directo`, `bandeja`, `pasarCliente`, `resumen`, `rastrear`, `instagram`, `documentos`, `subirDocumento`, `respaldar`, `sincronizarAgenda`. Sin aprobar solo se admiten `sala`, `telefono` y `push` |
+| `POST /api/accion` | `{ accion, … }`: `sincronizar`, `crm`, `sheets`, `chat`, `avisar`, `calendar` (con `invitados`, `conMeet`, `whatsapp`), `disponibilidad`, `meet`, `correo` (con `whatsapp`), `reporte`, `exportar`, `push`, `telefono`, `equipo`, `sala`, `accesos`, `presencia`, `directo`, `bandeja`, `pasarCliente`, `resumen`, `rastrear`, `instagram`, `documentos`, `subirDocumento`, `respaldar`, `sincronizarAgenda`, `reporteSemanal`. Sin aprobar solo se admiten `sala`, `telefono` y `push` |

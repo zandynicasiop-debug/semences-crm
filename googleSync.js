@@ -70,6 +70,8 @@ class GoogleWorkspaceConnector {
                 body: metodo === 'GET' ? undefined : JSON.stringify(cuerpo || {})
             });
             const datos = await respuesta.json();
+            // Sin el reporte semanal de la semana pasada: reporte.js abre la pantalla para entregarlo
+            if (datos && datos.codigo === 'reporte') window.dispatchEvent(new CustomEvent('sdc-reporte'));
             if (datos && datos.codigo && ['sesion', 'acceso', 'google', 'espera', 'rechazado'].includes(datos.codigo) && window.responsable) {
                 window.responsable.rechazado(datos.codigo, datos.error);
             }

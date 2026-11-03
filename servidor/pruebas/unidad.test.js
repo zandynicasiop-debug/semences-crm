@@ -6,6 +6,7 @@ import { cifrar, descifrar } from '../src/cifrado.js';
 import { construirCorreo } from '../src/correo.js';
 import { normalizarTelefono, tarjetaChat } from '../src/avisos.js';
 import { esPasajero, conReintentos, conVariacion } from '../src/reintentos.js';
+import { semanaDe, diasDeSemana, semanas, semanaValida } from '../src/reportes.js';
 
 const CLAVE = crypto.randomBytes(32).toString('hex');
 
@@ -202,4 +203,22 @@ test('envíos: DHL y FedEx oficiales se traducen a los estados de la app (y el t
     const sinClaves = crearTransportistas({ envios: { dhlClave: '', fedexId: '', fedexSecreto: '', fedexUrl: 'https://apis.fedex.com' } }, fetchFalso);
     assert.equal(sinClaves.activo('DHL'), false);
     assert.equal(await sinClaves.consultar('DHL', 'JD0144'), null);
+});
+
+test('reporte semanal: semanas ISO (de lunes a domingo) en la zona del equipo', () => {
+    assert.equal(semanaDe('2026-11-02'), '2026-W45'); // lunes
+    assert.equal(semanaDe('2026-11-08'), '2026-W45'); // domingo: la misma semana
+    assert.equal(semanaDe('2026-01-01'), '2026-W01'); // jueves 1 de enero
+    assert.equal(semanaDe('2027-01-01'), '2026-W53'); // viernes 1 de enero: todavía la última de 2026
+    assert.equal(semanaDe('2025-12-29'), '2026-W01'); // lunes de diciembre que ya es la semana 1
+    assert.deepEqual(diasDeSemana('2026-W45'), { lunes: '2026-11-02', domingo: '2026-11-08' });
+    assert.deepEqual(diasDeSemana('2026-W01'), { lunes: '2025-12-29', domingo: '2026-01-04' });
+    assert.equal(semanaValida('2026-W45'), true);
+    assert.equal(semanaValida('2026-W54'), false);
+    assert.equal(semanaValida("2026-W45' OR 1"), false);
+    // Domingo 8 a las 23:30 en Santo Domingo ya es lunes 9 en UTC: sigue contando la semana 45
+    const s = semanas({ zonaHoraria: 'America/Santo_Domingo' }, new Date('2026-11-09T03:30:00Z'));
+    assert.deepEqual([s.actual, s.anterior], ['2026-W45', '2026-W44']);
+    // El viernes de la semana pasada (30 de octubre) a las 00:00 locales
+    assert.equal(s.viernesAnterior.toISOString(), '2026-10-30T04:00:00.000Z');
 });
