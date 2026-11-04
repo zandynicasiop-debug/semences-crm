@@ -319,6 +319,10 @@ window.TEXTOS_EN = {
     'Sin indicar': 'Not specified',
     'Cómo llegó': 'How they found us',
     'Etapa': 'Stage',
+    'Etapa guardada': 'Stage saved',
+    'Sin conexión: se enviará sola al volver la señal': 'Offline: it will be sent automatically when the signal returns',
+    'Se preparan la carpeta, el expediente y tu primer hueco libre': 'Preparing the folder, the client file and your first free slot',
+    'Un cambio de etapa hecho sin conexión no se guardó': 'A stage change made offline was not saved',
     'Prospecto': 'Prospect',
     'Contactado': 'Contacted',
     'Propuesta': 'Proposal',
@@ -999,6 +1003,9 @@ window.EJEMPLOS_EN = {
 window.PATRONES_EN = (() => {
     const unir = (...partes) => partes.filter(Boolean).join(' · ');
     return [
+        // Cola sin conexión de las etapas (colaEtapas.js)
+        [String.raw`(\d+) cambios de etapa hechos sin conexión no se guardaron`, '{1} stage changes made offline were not saved'],
+        [String.raw`\(ahora: (.+)\)`, '(now: {1})'],
         // Campana, mensajes y contadores
         [String.raw`(.+) \((\d+) sin leer\)`, '{1} ({2} unread)'],
         [String.raw`Tienes (\d+) avisos? nuevos? \(campana\)\.`, (n) => `You have ${n} new notification${n === '1' ? '' : 's'} (bell).`],

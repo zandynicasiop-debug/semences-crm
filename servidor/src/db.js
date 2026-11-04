@@ -111,6 +111,17 @@ const ESQUEMA = [
         creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         INDEX (estado, proximo)
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+    // Operaciones del lote sin conexión ya recibidas (lotes.js): cada operacionId se aplica una sola vez
+    `CREATE TABLE IF NOT EXISTS operaciones_lote (
+        operacion_id VARCHAR(64) PRIMARY KEY,
+        usuario_id INT UNSIGNED NOT NULL,
+        cliente_id VARCHAR(100) NOT NULL,
+        estado ENUM('aplicado', 'rechazado') NOT NULL,
+        codigo VARCHAR(20) NOT NULL DEFAULT '',
+        motivo VARCHAR(200) NOT NULL DEFAULT '',
+        creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX (creado)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS metricas (
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         fecha DATETIME NOT NULL,
@@ -261,8 +272,14 @@ export async function leerRegistro(conexion, modulo, id, bloquear = false) {
  * transacción.
  * ajustar(modulo, registro, anterior): lo que el servidor corrige antes de guardar (p. ej. el total y la
  * aprobación de las cotizaciones).
+ * @param {any} pool
+ * @param {{ guardar?: { modulo: string, registro: Record<string, any> }[], eliminar?: { modulo: string, id: string }[] }} cambios
+ * @param {Record<string, any>} usuario
+ * @param {(modulo: string, registro: Record<string, any>, operacion?: string) => boolean} [permitido]
+ * @param {{ alConfirmar?: ((conexion: any, guardados: any[]) => Promise<void>) | null, auditoria?: any,
+ *   ajustar?: ((modulo: string, registro: any, anterior: any) => any) | null, devolverDatos?: boolean }} [opciones]
  */
-export async function sincronizar(pool, { guardar = [], eliminar = [] }, usuario, permitido = () => true, { alConfirmar = null, auditoria = null, ajustar = null } = {}) {
+export async function sincronizar(pool, { guardar = [], eliminar = [] }, usuario, permitido = () => true, { alConfirmar = null, auditoria = null, ajustar = null, devolverDatos = true } = {}) {
     // Cada cambio tiene que ser un objeto: un null o un texto en la lista es un 400, no un fallo interno
     const malformado = [...guardar, ...eliminar].some(op => !op || typeof op !== 'object' || Array.isArray(op));
     if (malformado) throw Object.assign(new Error('Cada cambio tiene que ser un objeto { modulo, registro } o { modulo, id }'), { estado: 400 });
@@ -289,7 +306,8 @@ export async function sincronizar(pool, { guardar = [], eliminar = [] }, usuario
             await eliminarRegistro(conexion, op.modulo, op.id, auditoria && { ...auditoria, usuario, anterior });
         }
         if (alConfirmar) await alConfirmar(conexion, guardados);
-        const datos = await listarTodo(conexion);
+        // Sin devolverDatos (lote de operaciones sueltas, lotes.js) no hace falta leer toda la base en cada una
+        const datos = devolverDatos ? await listarTodo(conexion) : null;
         await conexion.commit();
         return { datos, guardados };
     } catch (error) {

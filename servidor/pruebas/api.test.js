@@ -57,6 +57,15 @@ function googleFalso() {
             g.llamadas.push({ tipo: 'exportar', datos });
             return { id: datos.hojaId || 'hoja-1', enlace: `https://docs.google.com/spreadsheets/d/${datos.hojaId || 'hoja-1'}/edit` };
         },
+        // Plantillas del expediente por casa comercial (flujos.js › asegurarPlantillaCasaComercial)
+        plantillas: {},
+        plantillaDeCasa: async (token, alRenovar, datos) => {
+            g.llamadas.push({ tipo: 'plantilla', token, datos });
+            if (g.plantillas[datos.casa]) return { ...g.plantillas[datos.casa], creada: false };
+            const id = `plantilla-casa-${Object.keys(g.plantillas).length + 1}`;
+            g.plantillas[datos.casa] = { id, enlace: `https://docs.google.com/document/d/${id}/edit`, copiarDe: datos.copiarDe, carpetaId: datos.carpetaId };
+            return { ...g.plantillas[datos.casa], creada: true };
+        },
         crearReporte: async (token, alRenovar, datos) => {
             g.llamadas.push({ tipo: 'reporte', token, datos });
             return { id: 'pdf-1', enlace: 'https://drive.google.com/file/d/pdf-1/view' };
@@ -142,7 +151,7 @@ for (const base of BASES) {
                 try { pool = await conectar(config.mysql); break; } catch (e) { if (i > 60) throw e; await new Promise(r => setTimeout(r, 1000)); }
             }
             // Base limpia: se borran las tablas y conectar() las vuelve a crear
-            for (const tabla of ['auditoria', 'auditoria_ancla', 'eventos', 'avisos_persona', 'metas', 'reportes_revisiones', 'reportes_resumenes', 'reportes_avisos_equipo', 'reportes_semanales', 'reportes_recordatorios', 'instagram_mensajes', 'instagram_conversaciones', 'instagram_cuentas', 'sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'directos', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
+            for (const tabla of ['operaciones_lote', 'auditoria', 'auditoria_ancla', 'eventos', 'avisos_persona', 'metas', 'reportes_revisiones', 'reportes_resumenes', 'reportes_avisos_equipo', 'reportes_semanales', 'reportes_recordatorios', 'instagram_mensajes', 'instagram_conversaciones', 'instagram_cuentas', 'sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'directos', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
             await pool.end();
             pool = await conectar(config.mysql);
 
@@ -1480,9 +1489,18 @@ for (const base of BASES) {
                 const [[pendiente]] = await pool.query("SELECT estado, intentos, pasos, error FROM eventos WHERE clave LIKE 'reunion:cli-reu:%'");
                 assert.equal(pendiente.estado, 'pendiente');
                 assert.match(pendiente.error, /Backend Error/);
-                assert.deepEqual(Object.keys(JSON.parse(pendiente.pasos)).sort(), ['carpeta', 'expediente'], 'lo hecho queda guardado');
+                assert.deepEqual(Object.keys(JSON.parse(pendiente.pasos)).sort(), ['carpeta', 'expediente', 'plantilla'], 'lo hecho queda guardado');
                 assert.equal(llamadas('carpeta'), 1);
                 assert.equal(llamadas('reporte'), 1);
+                // Su casa (Fitó) no tenía plantilla: se creó en la carpeta de documentos, como copia de la general,
+                // y el expediente salió de ella
+                const plantillas = google.llamadas.filter(l => l.tipo === 'plantilla');
+                assert.equal(plantillas.length, 1);
+                assert.deepEqual([plantillas[0].datos.casa, plantillas[0].datos.carpetaId, plantillas[0].datos.copiarDe], ['Fitó', 'carpetaDocumentos1', 'plantilla-expediente-123456']);
+                assert.match(plantillas[0].datos.texto, /\{\{procesos\}\}/);
+                const reporte = google.llamadas.find(l => l.tipo === 'reporte' && JSON.stringify(l.datos).includes('cli-reu'));
+                assert.equal(reporte.datos.plantillaId, google.plantillas['Fitó'].id);
+                assert.deepEqual([reporte.datos.campos.casa, reporte.datos.campos.pais], ['Fitó', 'República Dominicana']);
 
                 caido = false;
                 await pool.query("UPDATE eventos SET proximo = UTC_TIMESTAMP() - INTERVAL 1 SECOND WHERE clave LIKE 'reunion:cli-reu:%'");
@@ -1490,6 +1508,7 @@ for (const base of BASES) {
                 assert.deepEqual(segundo, { hechos: 1, reintentar: 0, fallidos: 0 });
                 assert.equal(llamadas('carpeta'), 1, 'la carpeta no se repite');
                 assert.equal(llamadas('reporte'), 1, 'el PDF no se repite');
+                assert.equal(google.llamadas.filter(l => l.tipo === 'plantilla').length, 1, 'la plantilla no se vuelve a buscar');
                 const [[hecho]] = await pool.query("SELECT estado, intentos, pasos FROM eventos WHERE clave LIKE 'reunion:cli-reu:%'");
                 assert.equal(hecho.estado, 'hecho');
                 assert.equal(hecho.intentos, 2);
@@ -1534,6 +1553,80 @@ for (const base of BASES) {
             const salud = (await llamar('/api/salud', { metodo: 'GET' })).json.eventos;
             assert.equal(salud.CLIENTE_EN_REUNION.hecho, 2);
             assert.equal(salud.CLIENTE_EN_REUNION.fallido, 1);
+        });
+
+        test('lote sin conexión (/api/sincronizar-lote): solo la etapa, una vez, con permisos, conflictos y el bloqueo 423', async () => {
+            const lote = (sesion, operaciones) => llamar('/api/sincronizar-lote', { sesion, cuerpo: { operaciones } });
+            const etapaDe = async (id) => JSON.parse((await pool.query("SELECT datos FROM registros WHERE modulo = 'clientes' AND id = ?", [id]))[0][0].datos);
+            // Clientes de partida (los crea la Master): uno de RD · Gautier (el ámbito de Luis) y uno de VE · Fitó
+            assert.equal((await accion(sesiones.jefa, { accion: 'sincronizar', guardar: [
+                { modulo: 'clientes', registro: { id: 'lote-rd', nombre: 'Finca El Lote', pais: 'RD', casa: 'Gautier Semences', etapa: 'Prospecto', telefono: '8095550000' } },
+                { modulo: 'clientes', registro: { id: 'lote-ve', nombre: 'Hacienda Lara', pais: 'VE', casa: 'Fitó', etapa: 'Contactado' } }
+            ] })).estado, 200);
+
+            // Mientras Luis estaba sin señal, en la oficina le cambiaron el teléfono: su etapa no lo pisa
+            await accion(sesiones.jefa, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: { ...(await etapaDe('lote-rd')), telefono: '8095551234' } }] });
+            const op1 = { operacionId: crypto.randomUUID(), clienteId: 'lote-rd', cambios: { etapa: 'Contactado' }, anterior: { etapa: 'Prospecto' } };
+            let r = await lote(sesiones.luis, [op1]);
+            assert.equal(r.estado, 200, JSON.stringify(r.json));
+            assert.deepEqual(r.json.resultados, [{ operacionId: op1.operacionId, estado: 'aplicado' }]);
+            let cliente = await etapaDe('lote-rd');
+            assert.deepEqual([cliente.etapa, cliente.telefono, cliente.nombre, cliente.cuenta], ['Contactado', '8095551234', 'Finca El Lote', 'luis@semillasdata.com']);
+
+            // El teléfono no recibió la respuesta y reenvía: "duplicado", sin volver a escribir
+            const [[antes]] = await pool.query("SELECT actualizado FROM registros WHERE modulo = 'clientes' AND id = 'lote-rd'");
+            r = await lote(sesiones.luis, [op1]);
+            assert.deepEqual(r.json.resultados, [{ operacionId: op1.operacionId, estado: 'duplicado' }]);
+            const [[despues]] = await pool.query("SELECT actualizado FROM registros WHERE modulo = 'clientes' AND id = 'lote-rd'");
+            assert.equal(despues.actualizado.getTime(), antes.actualizado.getTime(), 'el reenvío no toca el registro');
+            // El mismo operacionId desde otra cuenta no se acepta
+            assert.equal((await lote(sesiones.ana, [op1])).json.resultados[0].codigo, 'ajena');
+
+            // Varias seguidas, en orden (Contactado → Reunión → Propuesta), y una mala no tumba a las demás.
+            // Pasar a Reunión dispara el flujo de flujos.js en la misma transacción, como con la sincronización
+            const reunion = { operacionId: crypto.randomUUID(), clienteId: 'lote-rd', cambios: { etapa: 'Reunión' }, anterior: { etapa: 'Contactado' } };
+            const mala = { operacionId: crypto.randomUUID(), clienteId: 'lote-rd', cambios: { etapa: 'Ganado' } };
+            const extra = { operacionId: crypto.randomUUID(), clienteId: 'lote-rd', cambios: { etapa: 'Propuesta', telefono: '000' } };
+            const ajeno = { operacionId: crypto.randomUUID(), clienteId: 'lote-ve', cambios: { etapa: 'Reunión' } };
+            const borrado = { operacionId: crypto.randomUUID(), clienteId: 'no-existe', cambios: { etapa: 'Reunión' } };
+            r = await lote(sesiones.luis, [reunion, mala, extra, ajeno, borrado, 'texto', { operacionId: 'x', clienteId: 'lote-rd', cambios: { etapa: 'Cliente' } }]);
+            assert.equal(r.estado, 200);
+            assert.deepEqual(r.json.resultados.map(x => [x.estado, x.codigo || '']), [
+                ['aplicado', ''], ['rechazado', 'datos'], ['rechazado', 'datos'], ['rechazado', 'permiso'], ['rechazado', 'no-existe'], ['rechazado', 'datos'], ['rechazado', 'datos']
+            ]);
+            assert.match(r.json.resultados[1].motivo, /Etapa desconocida/);
+            assert.match(r.json.resultados[2].motivo, /Solo se puede cambiar la etapa/);
+            assert.equal((await etapaDe('lote-rd')).etapa, 'Reunión');
+            assert.equal((await etapaDe('lote-ve')).etapa, 'Contactado', 'fuera de su país y casa no se toca');
+            const [[evento]] = await pool.query("SELECT tipo, usuario_id FROM eventos WHERE clave LIKE 'reunion:lote-rd:%'");
+            assert.equal(evento.tipo, 'CLIENTE_EN_REUNION');
+            const [denegado] = await pool.query("SELECT resumen FROM auditoria WHERE accion = 'denegado' AND objeto = 'lote-ve'");
+            assert.equal(denegado.length, 1, 'el intento sin permiso queda en la auditoría');
+            // Lo rechazado también se recuerda: reenviarlo da la misma respuesta sin volver a intentarlo
+            assert.equal((await lote(sesiones.luis, [ajeno])).json.resultados[0].codigo, 'permiso');
+
+            // Conflicto: en la oficina ya lo pasaron a "Cliente"; la operación vieja del teléfono (que lo veía en
+            // Reunión) no lo devuelve a Propuesta. Se rechaza y se dice qué etapa tiene ahora
+            await accion(sesiones.jefa, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: { ...(await etapaDe('lote-rd')), etapa: 'Cliente' } }] });
+            const vieja = { operacionId: crypto.randomUUID(), clienteId: 'lote-rd', cambios: { etapa: 'Propuesta' }, anterior: { etapa: 'Reunión' } };
+            r = await lote(sesiones.luis, [vieja]);
+            assert.deepEqual([r.json.resultados[0].estado, r.json.resultados[0].codigo, r.json.resultados[0].actual], ['rechazado', 'conflicto', { etapa: 'Cliente' }]);
+            assert.equal((await etapaDe('lote-rd')).etapa, 'Cliente');
+
+            // Lo que no es un lote: 400 para todo; más de 100 operaciones: 400
+            assert.equal((await llamar('/api/sincronizar-lote', { sesion: sesiones.luis, cuerpo: { operaciones: 'x' } })).estado, 400);
+            assert.equal((await lote(sesiones.luis, Array.from({ length: 101 }, () => reunion))).estado, 400);
+            assert.equal((await llamar('/api/sincronizar-lote', { cuerpo: { operaciones: [] } })).estado, 401, 'sin sesión');
+
+            // Reporte semanal sin entregar: 423 para todo el lote y no se aplica nada (la web guarda la cola)
+            const s = semanas(config);
+            const [[luis]] = await pool.query("SELECT id FROM usuarios WHERE email = 'luis@semillasdata.com'");
+            await pool.query('DELETE FROM reportes_semanales WHERE usuario_id = ? AND semana = ?', [luis.id, s.anterior]);
+            const bloqueada = { operacionId: crypto.randomUUID(), clienteId: 'lote-rd', cambios: { etapa: 'Perdido' } };
+            r = await lote(sesiones.luis, [bloqueada]);
+            assert.deepEqual([r.estado, r.json.codigo], [423, 'reporte']);
+            assert.equal((await etapaDe('lote-rd')).etapa, 'Cliente');
+            assert.equal((await pool.query('SELECT 1 FROM operaciones_lote WHERE operacion_id = ?', [bloqueada.operacionId]))[0].length, 0, 'ni se apunta: se reenviará');
         });
 
         test('salir cierra la sesión', async () => {

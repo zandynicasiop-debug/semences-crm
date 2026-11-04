@@ -5,10 +5,12 @@
  * Disparador: un cliente pasa a la etapa "Reunión" (embudo comercial: Prospecto → Contactado → Reunión →
  * Propuesta → Cliente / Perdido). Acción, en segundo plano y con un punto de control por paso:
  *   1. carpeta     su carpeta en Drive (dentro de DOCUMENTOS_CARPETA_ID), creada la primera vez
- *   2. expediente  PDF desde la plantilla de Docs (REPORTE_PLANTILLA_ID) con sus datos, procesos y visitas
- *   3. hueco       el primer hueco libre del responsable (Calendar FreeBusy: solo ocupado/libre) en 5 días
+ *   2. plantilla   la plantilla de Docs de su casa comercial (asegurarPlantillaCasaComercial): si aún no existe
+ *                  en DOCUMENTOS_CARPETA_ID, se crea sola, como copia de REPORTE_PLANTILLA_ID o con los marcadores
+ *   3. expediente  PDF desde esa plantilla (o desde REPORTE_PLANTILLA_ID) con sus datos, procesos y visitas
+ *   4. hueco       el primer hueco libre del responsable (Calendar FreeBusy: solo ocupado/libre) en 5 días
  *                  laborables, de 9:00 a 17:00 en la zona del equipo
- *   4. aviso       solo al responsable (unicast): bandeja del tablero, push y WhatsApp, con los enlaces y el hueco
+ *   5. aviso       solo al responsable (unicast): bandeja del tablero, push y WhatsApp, con los enlaces y el hueco
  *
  * Decisiones:
  * - Al cliente NO se le invita solo: el responsable confirma la hora y envía la invitación con Meet desde
@@ -21,7 +23,7 @@
  *   "omitido" con su motivo y el aviso sale igual. Lo pasajero (429, 5xx, red) sí reintenta el evento.
  */
 import * as db from './db.js';
-import { ambitoDe, puedeLeer, dentroDelAmbito } from './permisos.js';
+import { ambitoDe, puedeLeer, dentroDelAmbito, CASAS, NOMBRE_PAIS } from './permisos.js';
 import { destinosDe } from './cuentas.js';
 import { encolar } from './cola.js';
 import { registrarAviso } from './campana.js';
@@ -75,7 +77,12 @@ export function primerHuecoLibre({ ocupado, ahora, zona, dias = 5, horaInicio = 
     return null;
 }
 
-// Google opcional: lo definitivo (sin cuenta, sin permiso, sin plantilla) se omite; lo pasajero reintenta el evento
+/**
+ * Google opcional: lo definitivo (sin cuenta, sin permiso, sin plantilla) se omite; lo pasajero reintenta el evento.
+ * @template T
+ * @param {() => Promise<T>} tarea
+ * @returns {Promise<T | { omitido: string }>}
+ */
 async function opcional(tarea) {
     try {
         return await tarea();
@@ -86,9 +93,16 @@ async function opcional(tarea) {
     }
 }
 
-// La persona que se ocupa: la asignada (si es del equipo aprobado y ve al cliente) o quien lo movió
+/**
+ * La persona que se ocupa: la asignada (si es del equipo aprobado y ve al cliente) o quien lo movió.
+ * @param {any} pool
+ * @param {any} config
+ * @param {Record<string, any>} cliente
+ * @param {number | null} actorId
+ * @returns {Promise<Record<string, any> | null>}
+ */
 async function responsableDe(pool, config, cliente, actorId) {
-    const puedeVer = (p) => {
+    const puedeVer = (/** @type {Record<string, any>} */ p) => {
         const ambito = ambitoDe(p, config);
         return ambito.estado === 'aprobado' && puedeLeer(ambito, 'clientes') && dentroDelAmbito(ambito, 'clientes', cliente);
     };
@@ -103,12 +117,25 @@ async function responsableDe(pool, config, cliente, actorId) {
     return null;
 }
 
-// Campos de la plantilla del expediente (los mismos {{campos}} que el reporte del expediente en la app)
+/** @typedef {Record<string, any>} Registro */
+
+/**
+ * Campos de la plantilla del expediente (los mismos {{campos}} que el reporte del expediente en la app, más el
+ * país y la casa comercial). Lo que falta queda vacío: no se inventa nada.
+ * @param {Registro} cliente
+ * @param {Record<string, Registro[]>} datos
+ * @param {Record<string, any>} persona   quien prepara el expediente ({ nombre, email })
+ * @param {string} fechaTexto
+ * @returns {Record<string, string>}
+ */
 export function camposExpediente(cliente, datos, persona, fechaTexto) {
-    const delCliente = (modulo) => (datos[modulo] || []).filter(r => r.clienteId === cliente.id);
+    const delCliente = (/** @type {string} */ modulo) => (datos[modulo] || []).filter(r => r.clienteId === cliente.id);
+    /** @type {(lista: Registro[], texto: (r: Registro) => string) => string} */
     const lineas = (lista, texto) => (lista.length ? lista.map(texto).join('\n') : 'Sin registros');
     return {
         cliente: cliente.nombre || '',
+        pais: /** @type {Record<string, string>} */ (NOMBRE_PAIS)[cliente.pais] || cliente.pais || '',
+        casa: cliente.casa || '',
         ubicacion: cliente.ubicacion || '',
         telefono: cliente.telefono || '',
         whatsapp: cliente.whatsapp || '',
@@ -122,6 +149,60 @@ export function camposExpediente(cliente, datos, persona, fechaTexto) {
     };
 }
 
+/**
+ * Texto de la plantilla nueva de una casa comercial: los marcadores son exactamente los campos de
+ * camposExpediente (una prueba lo comprueba), así que el PDF nunca sale con un {{marcador}} sin rellenar.
+ * @param {string} casa
+ */
+export function textoPlantilla(casa) {
+    return [
+        `Semences del Caribe · ${casa}`,
+        'Expediente del cliente',
+        '',
+        'Cliente: {{cliente}}',
+        'País: {{pais}} · Casa comercial: {{casa}}',
+        'Ubicación: {{ubicacion}}',
+        'Teléfono: {{telefono}} · WhatsApp: {{whatsapp}}',
+        'Marca que compra: {{marca}}',
+        'Próximo seguimiento: {{seguimiento}}',
+        '',
+        'Procesos agronómicos',
+        '{{procesos}}',
+        '',
+        'Visitas',
+        '{{visitas}}',
+        '',
+        'Rendimientos',
+        '{{rendimientos}}',
+        '',
+        'Preparado por {{responsable}} el {{fecha}}.',
+        ''
+    ].join('\n');
+}
+
+/**
+ * Plantilla de Google Docs del expediente para la casa comercial del cliente (Gautier Semences, Hexagon Seeds,
+ * Genome Seeds o Fitó). La busca en la carpeta de documentos (DOCUMENTOS_CARPETA_ID, o REPORTE_CARPETA_ID) y, si
+ * no existe, la crea: como copia de la plantilla general (REPORTE_PLANTILLA_ID, con el diseño de la empresa) o,
+ * sin ella, con los marcadores reales del expediente (textoPlantilla). Cada casa puede luego darle su formato
+ * en Docs: mientras conserve los {{marcadores}}, el PDF sale con sus datos.
+ * Sin carpeta configurada no se crea nada (no se reparten plantillas por el Drive personal de cada vendedor).
+ * @param {{ google: any, config: any }} contexto
+ * @param {<T>(tarea: (token: string, alRenovar: (token: string) => Promise<void>) => Promise<T>) => Promise<T>} conGoogleDe
+ *   las llamadas a Google con la cuenta del responsable (y su cuota)
+ * @param {string} casa
+ * @returns {Promise<{ id: string, enlace: string, creada: boolean } | { omitido: string }>}
+ */
+export async function asegurarPlantillaCasaComercial({ google, config }, conGoogleDe, casa) {
+    if (!CASAS.includes(casa)) return { omitido: casa ? `Casa comercial desconocida: ${String(casa).slice(0, 60)}` : 'El cliente no tiene casa comercial' };
+    const carpetaId = (config.workspace && config.workspace.documentosCarpetaId) || (config.reportes && config.reportes.carpetaId) || '';
+    if (!carpetaId) return { omitido: 'Sin carpeta de documentos para las plantillas (DOCUMENTOS_CARPETA_ID)' };
+    return conGoogleDe((token, alRenovar) => google.plantillaDeCasa(token, alRenovar, {
+        carpetaId, casa, titulo: `Plantilla del expediente · ${casa}`, texto: textoPlantilla(casa),
+        copiarDe: (config.reportes && config.reportes.plantillaId) || ''
+    }));
+}
+
 /** @type {import('./eventos.js').Manejador} */
 export async function alPasarAReunion(evento, { paso, contexto }) {
     const { pool, config, google, avisos } = contexto;
@@ -130,7 +211,8 @@ export async function alPasarAReunion(evento, { paso, contexto }) {
     if (cliente.etapa !== 'Reunión') return; // Cambió de etapa antes de procesarse: ya no toca nada
     const persona = await responsableDe(pool, config, cliente, evento.usuarioId);
     if (!persona) throw errorDefinitivo('Nadie del equipo aprobado puede ver ese cliente');
-    const conGoogleDe = (tarea) => conGoogle({ pool, config, usuario: persona }, async (token, alRenovar) => {
+    /** @type {<T>(tarea: (token: string, alRenovar: (token: string) => Promise<void>) => Promise<T>) => Promise<T>} */
+    const conGoogleDe = (tarea) => conGoogle({ pool, config, usuario: persona }, async (/** @type {string} */ token, /** @type {(token: string) => Promise<void>} */ alRenovar) => {
         await cuotaGoogle.esperar(persona.id);
         return tarea(token, alRenovar);
     });
@@ -144,12 +226,16 @@ export async function alPasarAReunion(evento, { paso, contexto }) {
         return conGoogleDe((token, alRenovar) => google.carpetaCliente(token, alRenovar, { carpetaId: raiz, carpetaCliente }));
     }));
 
+    // La plantilla de su casa comercial (se crea la primera vez): con su punto de control, no se busca dos veces
+    const plantilla = await paso('plantilla', () => opcional(() => asegurarPlantillaCasaComercial({ google, config }, conGoogleDe, String(cliente.casa || ''))));
+    const plantillaId = (plantilla && 'id' in plantilla && plantilla.id) || config.reportes.plantillaId;
+
     const expediente = await paso('expediente', () => opcional(async () => {
-        if (!config.reportes.plantillaId) return { omitido: 'Sin plantilla de reporte (REPORTE_PLANTILLA_ID)' };
+        if (!plantillaId) return { omitido: 'Sin plantilla de reporte (REPORTE_PLANTILLA_ID ni de su casa comercial)' };
         const datos = await db.listarTodo(pool);
         const fechaTexto = ahora.toLocaleDateString('es-DO', { timeZone: config.zonaHoraria, day: 'numeric', month: 'long', year: 'numeric' });
         return conGoogleDe((token, alRenovar) => google.crearReporte(token, alRenovar, {
-            plantillaId: config.reportes.plantillaId, carpetaId: config.reportes.carpetaId,
+            plantillaId, carpetaId: config.reportes.carpetaId,
             titulo: `Expediente ${carpetaCliente.nombre} ${local.fecha}`, campos: camposExpediente(cliente, datos, persona, fechaTexto), carpetaCliente
         }));
     }));
@@ -162,8 +248,8 @@ export async function alPasarAReunion(evento, { paso, contexto }) {
     }));
 
     await paso('aviso', async () => {
-        const enlace = (r) => (r && !r.omitido && r.enlace) || '';
-        const cuando = hueco && hueco.inicio
+        const enlace = (/** @type {any} */ r) => (r && !r.omitido && r.enlace) || '';
+        const cuando = hueco && 'inicio' in hueco
             ? new Date(hueco.inicio).toLocaleString(persona.idioma === 'en' ? 'en-US' : 'es-DO', { timeZone: config.zonaHoraria, weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' })
             : '';
         const texto = [

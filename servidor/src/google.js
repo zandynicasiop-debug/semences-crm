@@ -59,6 +59,51 @@ export async function carpetaDelCliente(unidad, raizId, { id, nombre }, crear = 
     return creada.data.id;
 }
 
+/**
+ * Plantilla de Docs del expediente de una casa comercial, en carpetaId (o en Mi unidad, sin carpeta).
+ * Se reconoce por appProperties semencesPlantilla = casa, así que renombrarla o moverla dentro de la
+ * carpeta no la duplica. Si no existe se crea: copia de copiarDe (la plantilla general, con el diseño de
+ * la empresa) o, sin ella, un documento nuevo con texto (los {{marcadores}} del expediente).
+ * El documento nuevo solo se marca como plantilla cuando ya tiene el texto: si algo falla a medias, no queda
+ * una plantilla vacía que se usaría para siempre (se borra y el reintento la crea entera).
+ * Devuelve { id, enlace, creada }.
+ */
+export async function plantillaDeCasaEn(unidad, documentos, { carpetaId, casa, titulo, texto, copiarDe }) {
+    // casa ya viene validada (una de CASAS): se quitan comillas y barras por si acaso
+    const valor = String(casa).replace(/['\\]/g, '');
+    const filtro = [
+        "mimeType = 'application/vnd.google-apps.document'", 'trashed = false',
+        `appProperties has { key = 'semencesPlantilla' and value = '${valor}' }`,
+        carpetaId ? `'${carpetaId}' in parents` : ''
+    ].filter(Boolean).join(' and ');
+    const encontradas = await unidad.files.list({ q: filtro, fields: 'files(id, webViewLink)', pageSize: 1, supportsAllDrives: true, includeItemsFromAllDrives: true });
+    const existente = encontradas.data.files && encontradas.data.files[0];
+    if (existente) return { id: existente.id, enlace: existente.webViewLink || '', creada: false };
+    const marca = { semencesPlantilla: valor };
+    const padres = carpetaId ? [carpetaId] : undefined;
+    if (copiarDe) {
+        const copia = await unidad.files.copy({
+            fileId: copiarDe, supportsAllDrives: true, fields: 'id, webViewLink',
+            requestBody: { name: titulo, parents: padres, appProperties: marca }
+        });
+        return { id: copia.data.id, enlace: copia.data.webViewLink || '', creada: true };
+    }
+    const nuevo = await unidad.files.create({
+        supportsAllDrives: true, fields: 'id, webViewLink',
+        requestBody: { name: titulo, mimeType: 'application/vnd.google-apps.document', parents: padres }
+    });
+    try {
+        await documentos.documents.batchUpdate({
+            documentId: nuevo.data.id, requestBody: { requests: [{ insertText: { location: { index: 1 }, text: texto } }] }
+        });
+        await unidad.files.update({ fileId: nuevo.data.id, supportsAllDrives: true, requestBody: { appProperties: marca } });
+    } catch (error) {
+        await unidad.files.delete({ fileId: nuevo.data.id, supportsAllDrives: true }).catch(() => {});
+        throw error;
+    }
+    return { id: nuevo.data.id, enlace: nuevo.data.webViewLink || '', creada: true };
+}
+
 // Evento de día completo del CRM en Google Calendar: se reconoce por sus propiedades privadas (semencesOrigen y
 // semencesClave), así que sincronizar dos veces no lo duplica
 const eventoCrm = (e) => ({
@@ -272,6 +317,12 @@ export function crearGoogle(config) {
          * que se crea la primera vez. La carpeta se reconoce por el id del cliente guardado en sus
          * propiedades (no por el nombre): renombrarla o renombrar al cliente no crea otra.
          */
+        // Plantilla de Docs del expediente de una casa comercial (plantillaDeCasaEn): la busca o la crea
+        async plantillaDeCasa(tokenRefresco, alRenovar, opciones) {
+            const auth = autenticado(tokenRefresco, alRenovar);
+            return plantillaDeCasaEn(drive({ version: 'v3', auth }), docs({ version: 'v1', auth }), opciones);
+        },
+
         async crearReporte(tokenRefresco, alRenovar, { plantillaId, carpetaId, titulo, campos, carpetaCliente }) {
             const auth = autenticado(tokenRefresco, alRenovar);
             const unidad = drive({ version: 'v3', auth });

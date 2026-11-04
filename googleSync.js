@@ -71,6 +71,7 @@ class GoogleWorkspaceConnector {
                 headers: cabeceras,
                 body: metodo === 'GET' ? undefined : JSON.stringify(cuerpo || {})
             });
+            this.falloDeRed = false;
             const datos = await respuesta.json();
             // Sin el reporte semanal de la semana pasada: reporte.js abre la pantalla para entregarlo
             if (datos && datos.codigo === 'reporte') window.dispatchEvent(new CustomEvent('sdc-reporte'));
@@ -79,6 +80,9 @@ class GoogleWorkspaceConnector {
             }
             return datos;
         } catch (error) {
+            // fetch lanza TypeError cuando la red falla (sin señal, DNS, conexión cortada): datos.js lo distingue
+            // de un fallo del servidor para pasar los cambios de etapa a la cola sin conexión (colaEtapas.js)
+            this.falloDeRed = error instanceof TypeError;
             console.error(`Backend (${ruta}):`, error);
             return null;
         }

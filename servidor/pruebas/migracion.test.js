@@ -16,7 +16,7 @@ import { ambitoDe } from '../src/permisos.js';
 import { emitirEvento, ESQUEMA_EVENTOS } from '../src/eventos.js';
 
 const BASES = (process.env.PRUEBA_BASES || '127.0.0.1:33061,127.0.0.1:33062').split(',');
-const TABLAS = ['eventos', 'reportes_revisiones', 'reportes_resumenes', 'reportes_avisos_equipo', 'reportes_semanales', 'reportes_recordatorios', 'instagram_mensajes', 'instagram_conversaciones', 'instagram_cuentas', 'sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'directos', 'usuarios'];
+const TABLAS = ['operaciones_lote', 'eventos', 'reportes_revisiones', 'reportes_resumenes', 'reportes_avisos_equipo', 'reportes_semanales', 'reportes_recordatorios', 'instagram_mensajes', 'instagram_conversaciones', 'instagram_cuentas', 'sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'directos', 'usuarios'];
 
 // Las tablas tal como las creaban las primeras versiones del backend (784d851 y la cola de 79cf2e0)
 const ESQUEMA_ANTIGUO = [

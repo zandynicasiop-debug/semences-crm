@@ -1231,6 +1231,22 @@ class CRM {
         else lista.appendChild(opcion);
     }
 
+    // Cambio de etapa desde la ficha: se guarda como cualquier cambio (datos.js) y, sin conexión, también en la cola.
+    // El resultado se cuenta en estado (dentro de la ficha) o, sin él, con un aviso flotante
+    cambiarEtapa(clienteId, etapa, estado = null) {
+        const cliente = this.cliente(clienteId);
+        if (!cliente || (cliente.etapa || '') === etapa) return;
+        this.db.guardar('clientes', { ...cliente, etapa });
+        this.renderTodo();
+        const cola = this.db.colaEtapas;
+        const partes = ['Etapa guardada', etapa || 'Sin indicar'];
+        if (cola && cola.activa && cola.sinConexion()) partes.push('Sin conexión: se enviará sola al volver la señal');
+        else if (etapa === 'Reunión' && this.google && this.google.conBackend) partes.push('Se preparan la carpeta, el expediente y tu primer hueco libre');
+        const texto = partes.join(' · ');
+        if (estado) estado.textContent = texto;
+        else if (window.equipo) window.equipo.mostrarAviso(texto, 'ok');
+    }
+
     abrirExpediente(clienteId, { enfocar = true } = {}) {
         const cliente = this.cliente(clienteId);
         if (!cliente) return;
@@ -1271,6 +1287,31 @@ class CRM {
         const textos = document.createElement('div');
         textos.append(titulo, datos);
         if (proxima) textos.appendChild(proxima);
+        // Etapa del embudo, cambiable aquí (si la persona puede editar clientes). Sin conexión se guarda en la cola
+        // (colaEtapas.js) y sale sola al volver la señal; pasar a "Reunión" hace que el servidor prepare la reunión
+        const ambitoEtapa = ambitoCRM();
+        if (!ambitoEtapa || ambitoEtapa.modulos.includes('clientes')) {
+            const fila = document.createElement('label');
+            fila.className = 'expediente-etapa';
+            const nombre = document.createElement('span');
+            nombre.textContent = 'Etapa';
+            const selector = document.createElement('select');
+            selector.name = 'etapa-cliente';
+            [['', 'Sin indicar'], ...ETAPAS_CLIENTE.map(e => [e, e])].forEach(([valor, texto]) => {
+                const opcion = document.createElement('option');
+                opcion.value = valor;
+                opcion.textContent = texto;
+                selector.appendChild(opcion);
+            });
+            selector.value = cliente.etapa || '';
+            // El aviso va aquí, dentro de la ficha: un aviso flotante quedaría detrás de la ventana abierta
+            const estado = document.createElement('span');
+            estado.className = 'expediente-etapa-estado';
+            estado.setAttribute('role', 'status');
+            selector.addEventListener('change', () => this.cambiarEtapa(clienteId, selector.value, estado));
+            fila.append(nombre, selector, estado);
+            textos.appendChild(fila);
+        }
         cab.append(textos, cerrar);
         caja.appendChild(cab);
 
