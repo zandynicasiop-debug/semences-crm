@@ -34,6 +34,10 @@ class BaseDatos {
         this.borrados = this.leerLocal('sdc_borrados', []); // [{ modulo, id }] por borrar en la hoja
         this.migrarFichasMapa();
         this.oyentes = [];
+        // Cola sin conexión de los cambios de etapa (colaEtapas.js; la conecta el final de este archivo) y los
+        // cambios de etapa hechos con conexión que aún no han llegado: si la subida falla por la red, pasan a la cola
+        this.colaEtapas = null;
+        this.etapasEnCamino = new Map();
         this.sincronizando = false;
         this.ultimaSincronizacion = null;
         this.error = null;
@@ -62,6 +66,8 @@ class BaseDatos {
     olvidarTodo() {
         MODULOS_DATOS.forEach(m => { this.datos[m] = []; });
         this.borrados = [];
+        this.etapasEnCamino.clear();
+        if (this.colaEtapas) this.colaEtapas.olvidarTodo();
         this.guardarLocal();
         this.avisar('sincronizado'); // Las pantallas se repintan vacías
     }
@@ -85,6 +91,7 @@ class BaseDatos {
 
     // Crea o actualiza un registro (por id) y programa su subida a la hoja
     guardar(modulo, registro) {
+        const previo = modulo === 'clientes' ? this.obtener(modulo, registro.id) : null;
         const marcado = { ...registro, _pendiente: true };
         const i = this.datos[modulo].findIndex(r => r.id === registro.id);
         if (i >= 0) {
@@ -96,8 +103,43 @@ class BaseDatos {
         // Si se había borrado y vuelve a guardarse, ya no hay que borrarlo
         this.borrados = this.borrados.filter(b => !(b.modulo === modulo && b.id === registro.id));
         const ok = this.guardarLocal();
+        if (previo) this.vigilarEtapa({ ...previo }, registro);
         this.programar();
         return ok;
+    }
+
+    /**
+     * Cambio de etapa de un cliente que ya está en el servidor: sin conexión, viaja también como operación
+     * propia en la cola (colaEtapas.js), que el servidor aplica solo sobre la etapa. Con conexión sigue el camino
+     * normal; si esa subida falla por la red (TypeError), pasa a la cola (sincronizar › etapasALaCola).
+     */
+    vigilarEtapa(previo, registro) {
+        const cola = this.colaEtapas;
+        if (!cola || !cola.activa || !previo._remoto || (previo.etapa || '') === (registro.etapa || '')) return;
+        const cambio = { clienteId: registro.id, etapa: registro.etapa || '', anterior: previo.etapa || '' };
+        if (cola.sinConexion()) this.pasarACola(cambio, previo);
+        else this.etapasEnCamino.set(registro.id, { cambio, previo });
+    }
+
+    async pasarACola(cambio, previo) {
+        const op = await this.colaEtapas.encolar(cambio);
+        if (!op) return; // Sin IndexedDB: el registro sube entero, como siempre
+        // Si solo cambió la etapa (y lo demás ya estaba subido), el registro no hace falta subirlo: así no pisa lo
+        // que otra persona cambie entretanto en ese cliente. Con otros cambios, sube entero como siempre
+        const actual = this.obtener('clientes', cambio.clienteId);
+        if (actual && actual._pendiente && actual._remoto && !previo._pendiente &&
+            (actual.etapa || '') === cambio.etapa && igualSalvoEtapa(this.limpio(actual), this.limpio(previo))) {
+            actual._pendiente = false;
+            this.guardarLocal();
+            this.avisar('local');
+        }
+    }
+
+    // La subida normal falló por la red: los cambios de etapa que iban en camino pasan a la cola
+    etapasALaCola() {
+        if (!this.colaEtapas) return;
+        for (const { cambio, previo } of this.etapasEnCamino.values()) this.pasarACola(cambio, previo);
+        this.etapasEnCamino.clear();
     }
 
     eliminar(modulo, id) {
@@ -197,6 +239,7 @@ class BaseDatos {
             return;
         }
         if (!respuesta || !respuesta.ok || !respuesta.datos) {
+            if (!respuesta && this.conector.falloDeRed) this.etapasALaCola();
             this.error = (respuesta && respuesta.error) || 'Sin conexión con la hoja';
             // Sesión de Google caducada o cuenta sin permiso: el responsable (usuario.js) pide entrar de nuevo
             if (respuesta && respuesta.codigo && window.responsable) window.responsable.rechazado(respuesta.codigo, respuesta.error);
@@ -206,8 +249,9 @@ class BaseDatos {
         this.error = null;
         this.ultimaSincronizacion = new Date();
 
-        // Los borrados enviados ya están hechos
+        // Los borrados enviados ya están hechos; los cambios de etapa que viajaban, también
         this.borrados = this.borrados.filter(b => !eliminar.some(e => e.modulo === b.modulo && e.id === b.id));
+        for (const id of [...this.etapasEnCamino.keys()]) if (enviados.has(`clientes|${id}`)) this.etapasEnCamino.delete(id);
 
         // La hoja manda; encima se conservan los cambios hechos aquí mientras viajaba la petición
         MODULOS_DATOS.forEach(m => {
@@ -225,6 +269,8 @@ class BaseDatos {
             const enServidor = new Set(remotos.map(r => r.id));
             this.datos[m] = [...fusion, ...localesNuevos.map(l => (enServidor.has(l.id) && !l._remoto ? { ...l, _remoto: true } : l))];
         });
+        // Mientras la cola sin conexión no sale, el servidor aún tiene la etapa vieja: se ve la de la cola
+        if (this.colaEtapas) this.colaEtapas.aplicarEncima(this.datos.clientes);
         this.guardarLocal();
         this.avisar('sincronizado');
 
@@ -233,4 +279,32 @@ class BaseDatos {
     }
 }
 
+// Iguales salvo la etapa (los campos en cualquier orden)
+function igualSalvoEtapa(a, b) {
+    const campos = new Set([...Object.keys(a), ...Object.keys(b)]);
+    campos.delete('etapa');
+    return [...campos].every(c => JSON.stringify(a[c]) === JSON.stringify(b[c]));
+}
+
 window.baseDatos = new BaseDatos(new GoogleWorkspaceConnector(CONFIG_GOOGLE));
+
+// Cola sin conexión de los cambios de etapa de los clientes (colaEtapas.js, IndexedDB): sale sola a
+// POST /api/sincronizar-lote al volver la red, al abrir la app y tras cada sincronización buena
+if (typeof ColaEtapas === 'function') {
+    const cola = new ColaEtapas({
+        almacen: almacenIndexedDB(),
+        api: () => CONFIG_GOOGLE.api || '',
+        sesion: () => (window.responsable ? window.responsable.sesionBackend() : ''),
+        cuenta: () => { const s = window.responsable && window.responsable.sesion; return (s && s.email) || ''; },
+        nombreCliente: (id) => { const c = window.baseDatos.obtener('clientes', id); return (c && c.nombre) || id; },
+        avisar: (texto, tipo) => { if (window.equipo) window.equipo.mostrarAviso(texto, tipo); },
+        alReporte: () => window.dispatchEvent(new CustomEvent('sdc-reporte')),
+        alSesion: (codigo, error) => { if (window.responsable) window.responsable.rechazado(codigo, error); },
+        alAplicar: () => window.baseDatos.programar(300)
+    });
+    window.baseDatos.colaEtapas = cola;
+    window.colaEtapas = cola;
+    cola.cargar().then(() => cola.enviar());
+    window.addEventListener('online', () => cola.enviar());
+    window.baseDatos.alCambiar(motivo => { if (motivo === 'sincronizado') cola.enviar(); });
+}

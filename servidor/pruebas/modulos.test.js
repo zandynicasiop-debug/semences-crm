@@ -905,7 +905,9 @@ describe('Google Workspace: agenda, documentos y avisos (workspace.js)', async (
 // ---------------------------------------------------------------------------------------------------
 describe('ARM: motor de eventos, flujos, cuotas y rotación de la clave', async () => {
     const { eventosDeCambios, emitirEvento } = await import('../src/eventos.js');
-    const { REGLAS, primerHuecoLibre, camposExpediente } = await import('../src/flujos.js');
+    const { REGLAS, primerHuecoLibre, camposExpediente, textoPlantilla, asegurarPlantillaCasaComercial } = await import('../src/flujos.js');
+    const { plantillaDeCasaEn } = await import('../src/google.js');
+    const { motivoInvalido, comprobarLote } = await import('../src/lotes.js');
     const { CuboDeFichas } = await import('../src/cuotas.js');
     const { descifrarToken } = await import('../src/cuentas.js');
     const usuario = { id: 7 };
@@ -954,6 +956,91 @@ describe('ARM: motor de eventos, flujos, cuotas y rotación de la clave', async 
         assert.equal(campos.visitas, 'Sin registros');
         assert.equal(campos.telefono, '', 'lo que falta queda vacío');
         assert.equal(campos.responsable, 'Ana');
+    });
+
+    test('plantilla por casa: sus marcadores son justo los campos del expediente (el PDF nunca sale con {{huecos}})', () => {
+        const marcadores = [...textoPlantilla('Fitó').matchAll(/\{\{(\w+)\}\}/g)].map(m => m[1]);
+        const campos = Object.keys(camposExpediente({ id: 'c1', nombre: 'Finca A', pais: 'VE', casa: 'Fitó' }, {}, { email: 'a@x.com' }, 'hoy'));
+        assert.deepEqual([...new Set(marcadores)].sort(), campos.sort());
+        assert.match(textoPlantilla('Genome Seeds'), /^Semences del Caribe · Genome Seeds/);
+        const c = camposExpediente({ id: 'c1', nombre: 'Finca A', pais: 'VE', casa: 'Fitó' }, {}, { email: 'a@x.com' }, 'hoy');
+        assert.deepEqual([c.pais, c.casa], ['Venezuela', 'Fitó']);
+        assert.equal(camposExpediente({ id: 'c2' }, {}, { email: 'a@x.com' }, 'hoy').casa, '', 'sin casa queda vacío, no se inventa');
+    });
+
+    test('asegurarPlantillaCasaComercial: solo casas reales, solo con carpeta, y copia de la plantilla general si la hay', async () => {
+        const pedidas = [];
+        const google = { plantillaDeCasa: async (token, alRenovar, datos) => { pedidas.push({ token, datos }); return { id: 'p1', enlace: 'e', creada: true }; } };
+        const conGoogleDe = (tarea) => tarea('token-ana', async () => {});
+        const config = { workspace: { documentosCarpetaId: 'docs1' }, reportes: { plantillaId: 'general1', carpetaId: 'rep1' } };
+        assert.match((await asegurarPlantillaCasaComercial({ google, config }, conGoogleDe, 'Genome')).omitido, /desconocida/, 'el nombre real es Genome Seeds');
+        assert.match((await asegurarPlantillaCasaComercial({ google, config }, conGoogleDe, '')).omitido, /no tiene casa/);
+        assert.match((await asegurarPlantillaCasaComercial({ google, config: { workspace: {}, reportes: {} } }, conGoogleDe, 'Fitó')).omitido, /Sin carpeta/);
+        assert.equal(pedidas.length, 0, 'sin casa real o sin carpeta no se llama a Google');
+        assert.deepEqual(await asegurarPlantillaCasaComercial({ google, config }, conGoogleDe, 'Hexagon Seeds'), { id: 'p1', enlace: 'e', creada: true });
+        assert.deepEqual([pedidas[0].token, pedidas[0].datos.carpetaId, pedidas[0].datos.casa, pedidas[0].datos.copiarDe, pedidas[0].datos.titulo],
+            ['token-ana', 'docs1', 'Hexagon Seeds', 'general1', 'Plantilla del expediente · Hexagon Seeds']);
+        // Sin DOCUMENTOS_CARPETA_ID vale la carpeta de reportes; sin plantilla general, se crea con los marcadores
+        await asegurarPlantillaCasaComercial({ google, config: { workspace: {}, reportes: { carpetaId: 'rep1' } } }, conGoogleDe, 'Fitó');
+        assert.deepEqual([pedidas[1].datos.carpetaId, pedidas[1].datos.copiarDe], ['rep1', '']);
+        assert.match(pedidas[1].datos.texto, /\{\{cliente\}\}[\s\S]*\{\{rendimientos\}\}/);
+    });
+
+    test('plantilla en Drive: la encuentra por su marca; la nueva solo se marca con el texto puesto (si falla, se borra)', async () => {
+        const hechas = [];
+        const drive = (existentes = [], { fallaTexto = false } = {}) => ({
+            unidad: { files: {
+                list: async (p) => { hechas.push(['list', p.q]); return { data: { files: existentes } }; },
+                copy: async (p) => { hechas.push(['copy', p.fileId, p.requestBody.appProperties]); return { data: { id: 'copia1', webViewLink: 'l-copia' } }; },
+                create: async (p) => { hechas.push(['create', p.requestBody.appProperties || null]); return { data: { id: 'doc1', webViewLink: 'l-doc' } }; },
+                update: async (p) => { hechas.push(['update', p.requestBody.appProperties]); return { data: {} }; },
+                delete: async (p) => { hechas.push(['delete', p.fileId]); return { data: {} }; }
+            } },
+            documentos: { documents: { batchUpdate: async (p) => {
+                hechas.push(['texto', p.requestBody.requests[0].insertText.text.slice(0, 12)]);
+                if (fallaTexto) throw Object.assign(new Error('Backend Error'), { status: 503 });
+            } } }
+        });
+        const opciones = { carpetaId: 'docs1', casa: "Fitó", titulo: 'Plantilla · Fitó', texto: 'Cliente: {{cliente}}', copiarDe: '' };
+
+        let d = drive([{ id: 'ya', webViewLink: 'l-ya' }]);
+        assert.deepEqual(await plantillaDeCasaEn(d.unidad, d.documentos, opciones), { id: 'ya', enlace: 'l-ya', creada: false });
+        assert.match(hechas[0][1], /appProperties has \{ key = 'semencesPlantilla' and value = 'Fitó' \}/);
+        assert.match(hechas[0][1], /'docs1' in parents/);
+        assert.equal(hechas.length, 1, 'si existe, no crea nada');
+
+        hechas.length = 0;
+        d = drive();
+        assert.deepEqual(await plantillaDeCasaEn(d.unidad, d.documentos, opciones), { id: 'doc1', enlace: 'l-doc', creada: true });
+        assert.deepEqual(hechas.map(h => h[0]), ['list', 'create', 'texto', 'update'], 'primero el texto, después la marca');
+        assert.equal(hechas[1][1], null, 'se crea sin marca');
+        assert.deepEqual(hechas[3][1], { semencesPlantilla: 'Fitó' });
+
+        hechas.length = 0;
+        d = drive([], { fallaTexto: true });
+        await assert.rejects(plantillaDeCasaEn(d.unidad, d.documentos, opciones), /Backend Error/);
+        assert.deepEqual(hechas.map(h => h[0]), ['list', 'create', 'texto', 'delete'], 'sin texto no queda una plantilla vacía');
+
+        hechas.length = 0;
+        d = drive();
+        assert.deepEqual(await plantillaDeCasaEn(d.unidad, d.documentos, { ...opciones, copiarDe: 'general1' }), { id: 'copia1', enlace: 'l-copia', creada: true });
+        assert.deepEqual(hechas[1], ['copy', 'general1', { semencesPlantilla: 'Fitó' }], 'la copia de la general ya trae su contenido');
+    });
+
+    test('lote sin conexión: cada operación se revisa por separado y solo admite la etapa', () => {
+        const buena = { operacionId: '0b6f4c6e-1d8e-4f43-9a6c-2b1e5f7c9d10', clienteId: 'cli-1', cambios: { etapa: 'Reunión' }, anterior: { etapa: 'Contactado' } };
+        assert.equal(motivoInvalido(buena), null);
+        assert.equal(motivoInvalido({ ...buena, cambios: { etapa: '' } }), null, '"Sin indicar" también vale');
+        assert.equal(motivoInvalido({ ...buena, anterior: undefined }), null, 'anterior es opcional');
+        assert.match(motivoInvalido({ ...buena, operacionId: 'corto' }), /operacionId/);
+        assert.match(motivoInvalido({ ...buena, clienteId: '../x' }), /clienteId/);
+        assert.match(motivoInvalido({ ...buena, cambios: { etapa: 'Reunión', notas: 'x' } }), /Solo se puede cambiar la etapa/);
+        assert.match(motivoInvalido({ ...buena, cambios: { etapa: 'reunion' } }), /Etapa desconocida/);
+        assert.match(motivoInvalido({ ...buena, anterior: { etapa: 'X' } }), /anterior/);
+        assert.match(motivoInvalido(null), /no es un objeto/);
+        assert.throws(() => comprobarLote({}), /Falta la lista/);
+        assert.throws(() => comprobarLote({ operaciones: new Array(101).fill(buena) }), /máximo 100/);
+        assert.equal(comprobarLote({ operaciones: [] }).length, 0);
     });
 
     test('cubo de fichas: ráfaga hasta la capacidad, luego al ritmo; en fila, sin gastar dos veces la misma ficha', async () => {

@@ -26,6 +26,7 @@ import { recibirWhatsapp } from './bienvenida.js';
 import { semanaBloqueada, SIN_REPORTE } from './reportes.js';
 import { IDIOMAS } from './idioma.js';
 import { auditar, redDe, AUDITAR_ACCION } from './auditoria.js';
+import { comprobarLote, aplicarLote } from './lotes.js';
 
 // El "state" de OAuth va firmado: así nadie puede inventar una vuelta de Google
 function firmarEstado(config, valor) {
@@ -254,6 +255,36 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
         }
     });
 
+    /**
+     * Lo que se exige antes de hacer algo (en /api/accion y en /api/sincronizar-lote):
+     * - aprobado: en la sala de espera (o rechazado) solo se puede dejar el teléfono y activar avisos (403)
+     * - reporte: desde el lunes, sin el reporte de la semana pasada solo se puede entregar, y poco más (423)
+     */
+    const exigirAcceso = async (req, { aprobado = true, reporte = true } = {}) => {
+        if (aprobado && req.ambito.estado !== 'aprobado') {
+            throw errorApp(req.ambito.estado === 'rechazado'
+                ? 'Tu solicitud de acceso fue rechazada. Habla con un administrador.'
+                : 'Estás en la sala de espera: un Master tiene que aprobar tu acceso.', 403, req.ambito.estado === 'rechazado' ? 'rechazado' : 'espera');
+        }
+        if (reporte) {
+            const semana = await semanaBloqueada(pool, config, req.usuario);
+            if (semana) throw errorApp(`Entrega tu reporte semanal (semana ${semana.slice(6)}) para seguir usando la app`, 423, 'reporte');
+        }
+    };
+
+    // Cambios hechos sin conexión, como operaciones sueltas: hoy, la etapa de los clientes (lotes.js, colaEtapas.js).
+    // Con el reporte semanal sin entregar responde 423 y no aplica nada: la web guarda la cola y reintenta
+    api.post('/sincronizar-lote', limiteAcciones(config), conSesion, async (req, res, next) => {
+        try {
+            await exigirAcceso(req);
+            const operaciones = comprobarLote(req.body);
+            const resultados = await aplicarLote({ pool, config, usuario: req.usuario, ambito: req.ambito, red: redDe(req), registrar }, operaciones);
+            res.json({ ok: true, resultados });
+        } catch (error) {
+            next(error);
+        }
+    });
+
     api.post('/accion', limiteAcciones(config), conSesion, async (req, res, next) => {
         try {
             const datos = req.body && typeof req.body === 'object' ? req.body : {};
@@ -265,17 +296,7 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
                 req.usuario.idioma = datos.idioma;
             }
             delete datos.idioma;
-            // En la sala de espera (o rechazado) solo se puede dejar el teléfono y activar avisos
-            if (req.ambito.estado !== 'aprobado' && !SIN_APROBAR.includes(datos.accion)) {
-                throw errorApp(req.ambito.estado === 'rechazado'
-                    ? 'Tu solicitud de acceso fue rechazada. Habla con un administrador.'
-                    : 'Estás en la sala de espera: un Master tiene que aprobar tu acceso.', 403, req.ambito.estado === 'rechazado' ? 'rechazado' : 'espera');
-            }
-            // Desde el lunes, sin el reporte de la semana pasada solo se puede entregar (y poco más)
-            if (!SIN_REPORTE.includes(datos.accion)) {
-                const semana = await semanaBloqueada(pool, config, req.usuario);
-                if (semana) throw errorApp(`Entrega tu reporte semanal (semana ${semana.slice(6)}) para seguir usando la app`, 423, 'reporte');
-            }
+            await exigirAcceso(req, { aprobado: !SIN_APROBAR.includes(datos.accion), reporte: !SIN_REPORTE.includes(datos.accion) });
             const red = redDe(req);
             const respuesta = await accion(datos, { pool, config, google, avisos, transportistas, instagram, ia, registrar, usuario: req.usuario, ambito: req.ambito, red });
             // Auditoría de lo que cambia algo fuera del CRM (los registros y los accesos se apuntan dentro)

@@ -1165,6 +1165,32 @@ summary {
     color: var(--ui-texto-suave);
 }
 
+/* Etapa del embudo en la ficha del cliente (crm.js › abrirExpediente) */
+.expediente-etapa {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sdc-espacio-2);
+    margin-top: var(--sdc-espacio-2);
+    font-size: var(--sdc-texto-sm);
+    font-weight: var(--sdc-peso-medio);
+    color: var(--ui-texto-suave);
+}
+
+.expediente-etapa select {
+    min-width: 12rem;
+    max-width: 100%;
+}
+
+.expediente-etapa-estado {
+    flex-basis: 100%;
+    font-weight: 400; /* Texto normal: el nombre "Etapa" va en negrita media, el aviso no */
+}
+
+.expediente-etapa-estado:empty {
+    display: none;
+}
+
 .expediente-atajos {
     display: flex;
     flex-wrap: wrap;
@@ -1465,6 +1491,7 @@ summary {
 .form-group select,
 .form-group textarea,
 .meta-form :is(input, select),
+.expediente-etapa select,
 .agenda-barra input,
 .cotizacion-filas input {
     min-height: var(--sdc-objetivo-tactil);

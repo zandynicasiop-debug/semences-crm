@@ -1,0 +1,19 @@
+{
+    // Comprobación de tipos, sin compilar nada: npx tsc --noEmit (desde la raíz del repositorio).
+    // Se comprueban, en modo estricto, los archivos que empiezan por // @ts-check (los del motor de eventos del
+    // servidor y la cola sin conexión de la web). El resto de .js se lee para conocer sus tipos, pero no se
+    // comprueba (checkJs: false): el proyecto sigue siendo JavaScript, sin paso de compilación en FastComet.
+    "compilerOptions": {
+        "target": "ES2023",
+        "lib": ["ES2023", "DOM", "DOM.Iterable"],
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "allowJs": true,
+        "checkJs": false,
+        "strict": true,
+        "noEmit": true,
+        "skipLibCheck": true,
+        "types": ["node"]
+    },
+    "include": ["servidor/app.js", "servidor/src/**/*.js", "servidor/herramientas/**/*.js", "colaEtapas.js"]
+}

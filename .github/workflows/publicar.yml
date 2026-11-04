@@ -58,8 +58,27 @@ jobs:
       - name: Pruebas de la app web
         run: node --test ../pruebas-web/*.test.js
 
+  # Tipos (npx tsc --noEmit, tsconfig.json): los archivos con // @ts-check, en modo estricto (motor de eventos,
+  # flujos, lote sin conexión del servidor y la cola sin conexión de la web). Si fallan, no se publica nada
+  comprobar-tipos:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            servidor/package-lock.json
+      # TypeScript y los tipos de Node están en la raíz; los del servidor (mysql2, Google…), en servidor/
+      - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts
+        working-directory: servidor
+      - run: npx tsc --noEmit
+
   compilar:
-    needs: probar-servidor
+    needs: [probar-servidor, comprobar-tipos]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7

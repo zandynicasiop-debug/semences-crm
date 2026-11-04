@@ -508,6 +508,50 @@ de antes y `CLAVE_CIFRADO` = la nueva → reiniciar (cada token se vuelve a cifr
 
 ---
 
+
+### Plantilla del expediente por casa comercial
+
+Al pasar un cliente a "Reunión", el paso `plantilla` (`flujos.js › asegurarPlantillaCasaComercial`) busca en la
+carpeta de documentos (`DOCUMENTOS_CARPETA_ID`, o `REPORTE_CARPETA_ID`) la plantilla de Docs de **su** casa comercial
+(Gautier Semences, Hexagon Seeds, Genome Seeds o Fitó), reconocida por su marca en Drive (`appProperties
+semencesPlantilla`), no por el nombre. Si no existe, la crea:
+
+- con `REPORTE_PLANTILLA_ID`: como copia de esa plantilla general (el diseño de la empresa);
+- sin ella: un documento nuevo con los marcadores reales del expediente: `{{cliente}}`, `{{pais}}`, `{{casa}}`,
+  `{{ubicacion}}`, `{{telefono}}`, `{{whatsapp}}`, `{{marca}}`, `{{seguimiento}}`, `{{procesos}}`, `{{visitas}}`,
+  `{{rendimientos}}`, `{{responsable}}` y `{{fecha}}`. Una prueba comprueba que son exactamente los campos que
+  rellena el expediente, así que el PDF nunca sale con un marcador vacío ni con datos inventados.
+
+El documento nuevo solo se marca como plantilla cuando ya tiene el texto (si algo falla a medias se borra y se
+reintenta), y el paso tiene su punto de control: no se busca ni se crea dos veces. Cada casa puede después darle
+su formato en Docs; mientras conserve los `{{marcadores}}`, el expediente sale con sus datos. Sin carpeta
+configurada no se crea nada (no se reparten plantillas por el Drive personal de cada vendedor) y se usa
+`REPORTE_PLANTILLA_ID` como antes.
+
+### Cambios de etapa sin conexión (cola en IndexedDB)
+
+La etapa se cambia en la ficha del cliente (selector "Etapa"). La app ya guardaba todo sin conexión (`datos.js`),
+pero subía el registro entero: la copia vieja de un teléfono sin señal podía pisar lo que otra persona cambió en la
+oficina. Ahora, para los cambios de etapa:
+
+| Paso | Qué pasa |
+|---|---|
+| Sin conexión (`navigator.onLine === false`) o la subida falla por la red (`TypeError` de fetch) | El cambio se guarda en IndexedDB (`colaEtapas.js`) como `{ operacionId, clienteId, cambios: { etapa }, anterior: { etapa } }`. Si solo cambió la etapa, el registro entero ya no se sube |
+| Vuelve la red (evento `online`), se abre la app o termina una sincronización | La cola sale sola a `POST /api/sincronizar-lote` en tandas de 100 |
+| El servidor (`lotes.js`) | Aplica cada `operacionId` una sola vez (tabla `operaciones_lote`), cambia **solo la etapa** sobre el cliente tal como está en la base, con los mismos permisos, auditoría y disparadores (pasar a "Reunión" prepara la reunión) |
+| Alguien ya movió ese cliente a otra etapa | Conflicto: no se pisa; la app avisa ("ahora: Cliente") y trae lo del servidor |
+| Reporte semanal sin entregar (423) | No se aplica ni se pierde nada; se abre el reporte y la cola sale al entregarlo |
+| Red caída, 5xx, 429 | Se queda en la cola y se reintenta |
+
+Sin IndexedDB (algunos modos privados) no se intercepta nada y el cambio sigue el camino normal. Al cerrar sesión
+la cola se vacía, como el resto de la copia local.
+
+### Tipos (TypeScript, sin compilar)
+
+`npx tsc --noEmit` (desde la raíz; o `npm run tipos`) comprueba en modo estricto los archivos con `// @ts-check`:
+`eventos.js`, `flujos.js`, `cuotas.js` y `lotes.js` del servidor y `colaEtapas.js` de la web. El proyecto sigue
+siendo JavaScript, sin paso de compilación en FastComet. GitHub Actions lo ejecuta en cada subida a `main` y, si
+falla, no publica.
 ## 16. Subir a semillasdata.com (FastComet): el día del despliegue
 
 Dos piezas en la misma cuenta de FastComet: el **backend** en `https://api.semillasdata.com` (app Node) y la **web**

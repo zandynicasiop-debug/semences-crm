@@ -136,11 +136,15 @@ export async function emitirEventosDeCambios(conexion, reglas, guardados, contex
     return n;
 }
 
-/** Error que no tiene sentido reintentar (el evento queda 'fallido' al momento). */
+/**
+ * Error que no tiene sentido reintentar (el evento queda 'fallido' al momento).
+ * @param {string} mensaje
+ */
 export function errorDefinitivo(mensaje) {
     return Object.assign(new Error(mensaje), { definitivo: true });
 }
 
+/** @type {<T>(texto: string | null | undefined, defecto: T) => T} */
 const leerJson = (texto, defecto) => { try { return texto ? JSON.parse(texto) : defecto; } catch (e) { return defecto; } };
 
 /**
@@ -165,8 +169,9 @@ export async function procesarEventos(contexto, manejadores, { lote = 5, registr
 
     for (const fila of filas) {
         // Todas las escrituras van con la marca: si otro proceso lo reclamó (se pasó el tiempo), esta ya no cuenta
+        /** @type {(sql: string, valores: unknown[]) => Promise<any>} */
         const actualizar = (sql, valores) => pool.query(`${sql} WHERE id = ? AND marca = ?`, [...valores, fila.id, marca]);
-        const pasos = leerJson(fila.pasos, {});
+        const pasos = leerJson(fila.pasos, /** @type {Record<string, any>} */ ({}));
         /** @type {Paso} */
         const paso = async (nombre, tarea) => {
             if (Object.hasOwn(pasos, nombre)) return pasos[nombre];
