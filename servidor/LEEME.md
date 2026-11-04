@@ -43,7 +43,10 @@ Prueban el backend completo contra MySQL 8.4 y MariaDB 10.11, con Google, Meta y
 
 1. https://console.cloud.google.com con una cuenta de administrador del Workspace: crea un proyecto "Semences CRM".
 2. **APIs y servicios › Biblioteca**: activa **Gmail API**, **Google Calendar API**, **Google Drive API**, **Google Docs API** y **Google Sheets API**.
-3. **Pantalla de consentimiento de OAuth**: tipo de usuario **Interno**. Así solo entran cuentas de la empresa y Google no exige verificar la app, aunque pida permisos de Gmail y Drive.
+3. **Pantalla de consentimiento de OAuth** (Google Auth Platform › Audience), según quién entra:
+   - Empresa **y** cuentas personales de Google (`CUENTAS_PERSONALES=si`, lo que viene por defecto): **Externo**, en estado **En producción**. Con Interno, una cuenta personal recibe de Google "Error 403: org_internal". Las personales solo piden su identidad (`openid`, `email`, `profile`), que no necesita verificación.
+   - Solo cuentas de la empresa: **Interno** y `CUENTAS_PERSONALES=no`. Así Google no exige verificar la app, aunque pida permisos de Gmail y Drive.
+   - Detalle completo (dominios autorizados, permisos): `DOCUMENTACION_SISTEMA_COMPLETO.md`, sección 7.
 4. **Credenciales › Crear credenciales › ID de cliente de OAuth › Aplicación web**:
    - URI de redireccionamiento autorizado: `https://api.semillasdata.com/api/auth/google/vuelta`
    - Copia el **ID de cliente** y el **secreto** (van en `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET`).
