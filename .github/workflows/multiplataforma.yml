@@ -208,8 +208,15 @@ jobs:
             escritorio/dist/*.dmg
             escritorio/dist/*.zip
 
+  # Publica en Releases lo que haya compilado. A veces GitHub no tiene equipos Mac libres ("capacity constraints":
+  # iOS y Mac se quedan esperando y se cancelan): Android y Windows salen igual y la nota dice qué falta. Al volver a
+  # ejecutar solo lo fallido (Re-run failed jobs), lo que faltaba se añade a la misma versión.
+  # No corre si se cancela la ejecución a mano ni si no compiló nada
   version:
     needs: [android, ios, windows, mac]
+    if: >-
+      !cancelled() && (needs.android.result == 'success' || needs.windows.result == 'success' ||
+      needs.mac.result == 'success' || needs.ios.result == 'success')
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -222,22 +229,54 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ETIQUETA: v${{ env.VERSION_APP }}-beta.${{ github.run_number }}
+          ANDROID: ${{ needs.android.result }}
+          WINDOWS: ${{ needs.windows.result }}
+          MAC: ${{ needs.mac.result }}
+          IOS: ${{ needs.ios.result }}
         run: |
           ls -la archivos
-          cat > notas.md <<EOF
-          Versión de prueba de las apps de Semences del Caribe (${GITHUB_REF_NAME}, ${GITHUB_SHA::7}).
-
-          | Plataforma | Archivo | Cómo instalar |
-          |---|---|---|
-          | Android | \`Semences-${VERSION_APP}-Android.apk\` | Abrir el archivo en el teléfono y permitir "instalar apps desconocidas". Firmada con la misma clave que la app anterior: se instala encima, como actualización |
-          | Windows | \`Semences-${VERSION_APP}-Windows-x64.exe\` | Ejecutar el instalador. Sin certificado de firma de código, Windows SmartScreen avisa: "Más información" › "Ejecutar de todas formas" |
-          | Mac (Apple Silicon) | \`Semences-${VERSION_APP}-Mac-arm64.dmg\` | Arrastrar a Aplicaciones. La primera vez: clic derecho › Abrir (firma ad-hoc, sin certificado de Apple) |
-          | Mac (Intel) | \`Semences-${VERSION_APP}-Mac-x64.dmg\` | Igual que la de Apple Silicon |
-          | iPhone / iPad | \`Semences-${VERSION_APP}-iOS-Simulador.zip\` | Solo para el Simulador de Xcode. Para instalar en un iPhone o publicar en la App Store hace falta una cuenta de Apple Developer (ver DOCUMENTACION_SISTEMA_COMPLETO.md) |
-
-          Antes de actualizar la app Android, ábrela con conexión y espera a que diga "sincronizado": la app nueva
-          guarda sus datos en otro sitio y hay que volver a entrar con Google.
-          EOF
-          gh release create "$ETIQUETA" archivos/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --prerelease --title "Apps ${VERSION_APP} (prueba ${{ github.run_number }})" --notes-file notas.md
+          # Una fila por plataforma que compiló; las demás, en la lista de lo que falta
+          faltan=""
+          {
+            echo "Versión de prueba de las apps de Semences del Caribe (${GITHUB_REF_NAME}, ${GITHUB_SHA::7})."
+            echo
+            echo "| Plataforma | Archivo | Cómo instalar |"
+            echo "|---|---|---|"
+            if [ "$ANDROID" = success ]; then
+              echo "| Android | \`Semences-${VERSION_APP}-Android.apk\` | Abrir el archivo en el teléfono y permitir \"instalar apps desconocidas\". Firmada con la misma clave que la app anterior: se instala encima, como actualización |"
+            fi
+            if [ "$WINDOWS" = success ]; then
+              echo "| Windows | \`Semences-${VERSION_APP}-Windows-x64.exe\` | Ejecutar el instalador. Sin certificado de firma de código, Windows SmartScreen avisa: \"Más información\" › \"Ejecutar de todas formas\" |"
+            fi
+            if [ "$MAC" = success ]; then
+              echo "| Mac (Apple Silicon) | \`Semences-${VERSION_APP}-Mac-arm64.dmg\` | Arrastrar a Aplicaciones. La primera vez: clic derecho › Abrir (firma ad-hoc, sin certificado de Apple) |"
+              echo "| Mac (Intel) | \`Semences-${VERSION_APP}-Mac-x64.dmg\` | Igual que la de Apple Silicon |"
+            fi
+            if [ "$IOS" = success ]; then
+              echo "| iPhone / iPad | \`Semences-${VERSION_APP}-iOS-Simulador.zip\` | Solo para el Simulador de Xcode. Para instalar en un iPhone o publicar en la App Store hace falta una cuenta de Apple Developer (ver DOCUMENTACION_SISTEMA_COMPLETO.md) |"
+            fi
+            echo
+            echo "Antes de actualizar la app Android, ábrela con conexión y espera a que diga \"sincronizado\": la app nueva"
+            echo "guarda sus datos en otro sitio y hay que volver a entrar con Google."
+          } > notas.md
+          if [ "$ANDROID" != success ]; then faltan="${faltan}Android, "; fi
+          if [ "$WINDOWS" != success ]; then faltan="${faltan}Windows, "; fi
+          if [ "$MAC" != success ]; then faltan="${faltan}Mac, "; fi
+          if [ "$IOS" != success ]; then faltan="${faltan}iPhone / iPad, "; fi
+          if [ -n "$faltan" ]; then
+            {
+              echo
+              echo "**Faltan en esta versión: ${faltan%, }.** No compilaron (a veces GitHub no tiene equipos Mac libres)."
+              echo "En Actions › esta ejecución › Re-run jobs › Re-run failed jobs se vuelven a compilar y se añaden aquí mismo."
+            } >> notas.md
+            echo "::warning::Versión publicada sin: ${faltan%, }"
+          fi
+          if gh release view "$ETIQUETA" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            # Segunda vuelta (Re-run failed jobs): lo que faltaba se añade a la misma versión
+            gh release upload "$ETIQUETA" archivos/* --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$ETIQUETA" --repo "$GITHUB_REPOSITORY" --notes-file notas.md
+          else
+            gh release create "$ETIQUETA" archivos/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --prerelease --title "Apps ${VERSION_APP} (prueba ${{ github.run_number }})" --notes-file notas.md
+          fi
           echo "Descargas: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${ETIQUETA}"
