@@ -25,6 +25,28 @@ const BASE_PASAJERA = [
     'ER_TOO_MANY_USER_CONNECTIONS', 'ER_SERVER_SHUTDOWN'
 ];
 
+/**
+ * Motivos que dan las API de Google en un error (gaxios): el cuerpo del error es un OBJETO, no un texto, con
+ * los motivos en errors[].reason (Drive, Gmail, Calendar: 'userRateLimitExceeded', 'insufficientPermissions'),
+ * en details[].reason ('ACCESS_TOKEN_SCOPE_INSUFFICIENT', 'RATE_LIMIT_EXCEEDED') y su estado ('PERMISSION_DENIED').
+ * @param {any} error
+ * @returns {string[]}
+ */
+export function motivosGoogle(error) {
+    const cuerpo = error && error.response && error.response.data && error.response.data.error;
+    if (!cuerpo || typeof cuerpo !== 'object') return [];
+    const lista = [...(Array.isArray(cuerpo.errors) ? cuerpo.errors : []), ...(Array.isArray(cuerpo.details) ? cuerpo.details : [])];
+    const motivos = lista.map(e => e && e.reason).filter(m => typeof m === 'string');
+    if (typeof cuerpo.status === 'string') motivos.push(cuerpo.status);
+    return motivos;
+}
+
+/**
+ * Cuota por minuto de Google: Drive, Gmail y Calendar la avisan con un 403 (no un 429) y piden reintentar con
+ * espera creciente. La cuota diaria ('dailyLimitExceeded', 'quotaExceeded') no se arregla en segundos: no se repite.
+ */
+const CUOTA_POR_MINUTO = ['rateLimitExceeded', 'userRateLimitExceeded', 'RATE_LIMIT_EXCEEDED'];
+
 export function esPasajero(error) {
     if (!error) return false;
     if (BASE_PASAJERA.includes(error.code)) return true;
@@ -34,6 +56,7 @@ export function esPasajero(error) {
     const http = /^\d{3}$/.test(String(error.code)) ? Number(error.code) : NaN;
     const codigo = Number(error.status || error.statusCode || (error.response && error.response.status) || http);
     if (codigo === 429 || (codigo >= 500 && codigo < 600)) return true;
+    if (codigo === 403 && motivosGoogle(error).some(m => CUOTA_POR_MINUTO.includes(m))) return true;
     // fetch de Node lanza "TypeError: fetch failed" con el motivo real en error.cause
     return [error.code, error.cause && error.cause.code].some(c => RED_PASAJERA.includes(c));
 }

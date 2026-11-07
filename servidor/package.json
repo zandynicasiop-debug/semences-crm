@@ -14,7 +14,8 @@
     "equipo": "node herramientas/equipo.js",
     "clave": "node herramientas/clave.js",
     "rotar-clave": "node herramientas/rotar-clave.js",
-    "vapid": "node herramientas/vapid.js"
+    "vapid": "node herramientas/vapid.js",
+    "verificar": "node herramientas/verificar.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",

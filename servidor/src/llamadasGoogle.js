@@ -3,7 +3,7 @@
  * Lo usan las acciones (acciones.js) y las tareas automáticas de Google Workspace (workspace.js).
  */
 import { descifrarToken, actualizarToken, olvidarToken } from './cuentas.js';
-import { conReintentos } from './reintentos.js';
+import { conReintentos, motivosGoogle } from './reintentos.js';
 import { cuotaGoogle } from './cuotas.js';
 
 export function errorApp(mensaje, estado = 400, codigo = 'datos') {
@@ -34,12 +34,17 @@ export async function conGoogle({ pool, config, usuario }, tarea) {
             return tarea(token, alRenovar);
         });
     } catch (error) {
-        const motivo = String((error.response && error.response.data && error.response.data.error) || error.message || '');
+        // El servidor de tokens de Google responde con un texto ('invalid_grant'); las API, con un objeto (su
+        // mensaje y sus motivos). Leerlo como texto daba '[object Object]' y el aviso de permisos nunca salía.
+        const cuerpo = error.response && error.response.data && error.response.data.error;
+        const motivo = [typeof cuerpo === 'string' ? cuerpo : '', error.message || '', ...motivosGoogle(error)].join(' ');
         if (/invalid_grant/.test(motivo)) {
             await olvidarToken(pool, usuario.id);
             throw errorApp('Google ya no acepta el permiso de tu cuenta. Vuelve a conectarla.', 403, 'google');
         }
-        if (Number(error.code || error.status) === 403 && /insufficient|scope|permission/i.test(motivo)) {
+        // Solo falta de permisos de la cuenta (scopes). Un archivo de Drive sin acceso ('insufficientFilePermissions',
+        // "does not have sufficient permissions for file") no se arregla volviendo a conectar: sigue su curso.
+        if (Number(error.code || error.status) === 403 && /scope|insufficient ?permissions?\b/i.test(motivo)) {
             throw errorApp('Falta un permiso de Google para esto. Vuelve a conectar tu cuenta y acepta todos los permisos.', 403, 'google');
         }
         throw error;

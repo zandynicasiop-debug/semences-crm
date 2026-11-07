@@ -501,6 +501,10 @@ y el evento con su clave) y su manejador en `MANEJADORES`, escrito con `paso()`.
 **Cuotas:** `CuboDeFichas` (10 llamadas seguidas, luego 5 por segundo y persona) delante de **toda** llamada a Google:
 lo pone `conGoogle` (`llamadasGoogle.js`) en cada intento, también en los reintentos, así que acciones, flujos,
 agenda, respaldos y correos comparten la misma cuota; la agenda además espera turno en cada evento que crea o borra.
+Si aun así Google frena, su cuota por minuto llega como **403** `userRateLimitExceeded`/`rateLimitExceeded` (no 429)
+y se reintenta con espera (`motivosGoogle` en `reintentos.js` lee los motivos del cuerpo del error, que es un objeto);
+la cuota diaria (`dailyLimitExceeded`) no. Un 403 por falta de permisos de la cuenta da "Vuelve a conectar tu cuenta";
+un archivo de Drive sin acceso no (reconectar no lo arreglaría).
 WhatsApp: los límites de Meta (códigos `130429`, `131056`, `80007`, `4`, `613`, que llegan como HTTP 400) se tratan
 como pasajeros y la cola los reintenta con espera.
 
