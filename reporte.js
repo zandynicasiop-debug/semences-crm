@@ -187,6 +187,13 @@ class ReporteSemanal {
             const titulo = document.createElement('strong');
             titulo.textContent = a.titulo;
             cabecera.appendChild(titulo);
+            // Lo que salió solo del CRM (visitas, cotizaciones, pedidos confirmados): ya viene con estado y comentario
+            if (String(a.id || '').startsWith('auto:')) {
+                const origen = document.createElement('span');
+                origen.className = 'nota-suave';
+                origen.textContent = 'Del CRM';
+                cabecera.appendChild(origen);
+            }
             if (a.vence) {
                 const vence = document.createElement('span');
                 vence.className = 'nota-suave';

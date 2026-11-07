@@ -143,6 +143,47 @@ describe('pedidos (fase 2): confirmar exige semillas y precio en US$', () => {
     });
 });
 
+describe('Lote A: calculadora agronómica y plantulación en el pedido', () => {
+    const app = cargar(['crm.js']);
+    const calcular = app.global('calculoAgronomico');
+    const SUPERFICIE = app.global('SUPERFICIE');
+
+    test('superficie → semillas: tareas en RD (628,86 m²), hectáreas en VE; el % extra una vez; bandejas hacia arriba', () => {
+        // 10 tareas de tomate a 25.000 plantas/ha, bandeja de 128, 10 % extra y US$ 5 el millar
+        assert.deepEqual({ ...calcular({ superficie: 10, m2: SUPERFICIE.RD.m2, densidad: 25000, extraPct: 10, alveolos: 128, precioMil: 5 }) },
+            { superficie: 10, plantas: 15722, semillas: 17295, miles: 17.3, bandejas: 136, usd: 86.5 });
+        // 2 ha de pimiento en Venezuela, bandeja de 200
+        assert.deepEqual({ ...calcular({ superficie: 2, m2: SUPERFICIE.VE.m2, densidad: 30000, extraPct: 10, alveolos: 200, precioMil: '' }) },
+            { superficie: 2, plantas: 60000, semillas: 66000, miles: 66, bandejas: 330, usd: null });
+    });
+
+    test('semillas → superficie: con 22 mil semillas de tomate salen 20.000 plantas y 12,72 tareas', () => {
+        const r = calcular({ miles: 22, m2: SUPERFICIE.RD.m2, densidad: 25000, extraPct: 10, alveolos: 128, precioMil: 5 });
+        assert.deepEqual({ ...r }, { superficie: 12.72, plantas: 20000, semillas: 22000, miles: 22, bandejas: 172, usd: 110 });
+        assert.equal(calcular({ miles: 5, m2: 10000, densidad: '', extraPct: 10, alveolos: 128 }).superficie, null, 'sin densidad no hay superficie');
+    });
+
+    test('con plantulación el cultivo es obligatorio (de él salen los días de vivero); sin ella, no', () => {
+        const CRM = app.global('CRM');
+        const validar = (valores) => {
+            const errores = [];
+            const elementos = {};
+            for (const campo of app.global('MODULOS_CRM').pedidos.campos) elementos[campo.id] = { id: campo.id, value: '', checked: false, focus() {}, removeAttribute() {} };
+            Object.entries(valores).forEach(([k, v]) => { if (k === 'conPlantulacion') elementos[k].checked = v; else elementos[k].value = String(v); });
+            const yo = { datos: { clientes: [] }, limpiarError() {}, mostrarError: (control, mensaje) => errores.push([control.id, mensaje]) };
+            return { ok: CRM.prototype.validar.call(yo, 'pedidos', { elements: elementos }), errores };
+        };
+        const pedido = { clienteId: 'c1', fecha: '2026-11-07', variedad: 'Tomate', semillasMiles: 22, precioMil: 5, estado: 'Confirmado', alveolos: '128' };
+        assert.deepEqual(validar({ ...pedido, conPlantulacion: true }).errores, [['cultivo', 'Elige el cultivo: de él salen los días de vivero.']]);
+        assert.equal(validar({ ...pedido, conPlantulacion: true, cultivo: 'Tomate' }).ok, true);
+        assert.equal(validar({ ...pedido, conPlantulacion: false }).ok, true);
+        // Los valores por defecto acordados: bandeja de 128 y los días de vivero por cultivo
+        const agro = app.global('AGRONOMIA_POR_DEFECTO');
+        assert.deepEqual([agro.alveolosPorDefecto, agro.cultivos.Tomate.vivero, agro.cultivos.Pimiento.vivero, agro.cultivos.Pepino.vivero], [128, 28, 40, 18]);
+        assert.ok(app.global('ESTADOS_LOTE').includes('Programado'));
+    });
+});
+
 // ---------------------------------------------------------------------------------------------------
 describe('base de datos de la app: copia local y sincronización', () => {
     let app;

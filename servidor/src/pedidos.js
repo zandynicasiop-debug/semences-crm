@@ -46,10 +46,12 @@ export function ejecutorDe(registro, cliente = null) {
  * @returns {Record<string, any>}
  */
 export function conVendedor(ambito, usuario, registro, anterior) {
-    if (anterior) return { ...registro, vendedor: ejecutorDe(anterior) || correo(usuario.email) };
+    // Cuándo se creó (el reporte del viernes cuenta lo de la semana): el de antes, o el de ahora si no viene
+    const creado = (anterior && anterior.creado) || registro.creado || new Date().toISOString();
+    if (anterior) return { ...registro, creado, vendedor: ejecutorDe(anterior) || correo(usuario.email) };
     const aNombreDe = correo(registro.vendedor);
     const delegado = (ambito.master || ambito.cargo === 'administrativo') && correoValido(aNombreDe);
-    return { ...registro, vendedor: delegado ? aNombreDe : correo(usuario.email) };
+    return { ...registro, creado, vendedor: delegado ? aNombreDe : correo(usuario.email) };
 }
 
 /** @param {unknown} v */
@@ -69,6 +71,14 @@ export function ajustarPedido(ambito, usuario, registro, anterior) {
     if (temporada) r.temporada = temporada; else delete r.temporada;
     const dias = Math.trunc(cifra(r.recompraDias));
     if (dias >= 1 && dias <= MAX_DIAS_RECOMPRA) r.recompraDias = dias; else delete r.recompraDias;
+    // Plantulación (campo.js): casilla, bandeja, cultivo y fecha de entrega de las plántulas
+    r.conPlantulacion = [true, 'true', 'on', 'si', 'sí', 1, '1'].includes(r.conPlantulacion);
+    if (!r.conPlantulacion) delete r.conPlantulacion;
+    const alveolos = Math.trunc(cifra(r.alveolos));
+    if (r.conPlantulacion && alveolos >= 10 && alveolos <= 1000) r.alveolos = alveolos; else delete r.alveolos;
+    const cultivo = String(r.cultivo ?? '').replace(/[\r\n<>]+/g, ' ').trim().slice(0, 40);
+    if (r.conPlantulacion && cultivo) r.cultivo = cultivo; else delete r.cultivo;
+    if (!(r.conPlantulacion && /^\d{4}-\d{2}-\d{2}$/.test(String(r.entregaPlantulas || '')))) delete r.entregaPlantulas;
 
     if (ESTADOS_VENTA.includes(r.estado)) {
         const pasaAVenta = !anterior || !ESTADOS_VENTA.includes(anterior.estado);
@@ -81,6 +91,11 @@ export function ajustarPedido(ambito, usuario, registro, anterior) {
                 throw Object.assign(new Error(`Para dejar el pedido ${r.estado} escribe ${faltan.join(' y ')}, mayor que 0.`), { estado: 400, codigo: 'datos' });
             }
         }
+        // Cuándo se confirmó (el reporte semanal cuenta los confirmados de la semana): se pone al pasar a venta
+        if (pasaAVenta) r.confirmado = new Date().toISOString();
+        else if (anterior && anterior.confirmado) r.confirmado = anterior.confirmado;
+    } else {
+        delete r.confirmado;
     }
     return r;
 }
@@ -172,4 +187,76 @@ export async function asignarEjecutores(pool) {
         n++;
     }
     return n;
+}
+
+const formatoUsd = (/** @type {number} */ n) => `US$ ${Math.round(n).toLocaleString('es-DO')}`;
+
+/**
+ * #11 Prioridades en US$ de una persona para el resumen de las 7:00: sus cotizaciones abiertas en US$ (Pendientes o
+ * Aprobadas) y sus pedidos Cotizados, de mayor a menor importe; las recompras ya abiertas sin precio se estiman con el
+ * precio del pedido anterior (≈). Como mucho `max` líneas. datos: lo que la persona ve (ya filtrado).
+ * @param {{ pedidos?: any[], cotizaciones?: any[], clientes?: any[] }} datos
+ * @param {string} email
+ * @param {string} hoy
+ * @param {number} [max]
+ */
+export function prioridadesUsd(datos, email, hoy, max = 5) {
+    const yo = correo(email);
+    const pedidos = datos.pedidos || [];
+    const porId = new Map(pedidos.map(p => [String(p.id), p]));
+    const fichas = new Map((datos.clientes || []).map(c => [String(c.id), c]));
+    const nombre = (/** @type {any} */ r) => (fichas.get(String(r.clienteId)) || {}).nombre || r.cliente || 'cliente';
+    /** @type {{ usd: number, aprox: boolean, sinPrecio: boolean, texto: string }[]} */
+    const items = [];
+    for (const c of datos.cotizaciones || []) {
+        const estado = c.estado || 'Pendiente';
+        if (ejecutorDe(c) !== yo || !['Pendiente', 'Aprobada'].includes(estado) || (c.moneda || 'US$') !== 'US$' || !(cifra(c.total) > 0)) continue;
+        items.push({ usd: cifra(c.total), aprox: false, sinPrecio: false, texto: `Cotización ${c.numero || ''} · ${nombre(c)} (${estado === 'Aprobada' ? 'aprobada: ciérrala con el cliente' : 'por aprobar'})`.replace(/\s+/g, ' ') });
+    }
+    for (const p of pedidos) {
+        if (p.estado !== 'Cotizado' || ejecutorDe(p, fichas.get(String(p.clienteId)) || null) !== yo) continue;
+        const recompra = Boolean(p.recompraDe) && String(p.fecha || '') <= hoy;
+        let usd = totalUsd(p), aprox = false;
+        const origen = p.recompraDe ? porId.get(String(p.recompraDe)) : null;
+        if (!(usd > 0) && origen && cifra(origen.precioMil) > 0) { usd = Math.round(cifra(p.semillasMiles) * cifra(origen.precioMil) * 100) / 100; aprox = true; }
+        if (!(usd > 0) && !recompra) continue;
+        items.push({ usd, aprox, sinPrecio: !(usd > 0), texto: `${recompra ? 'Recompra vencida' : 'Pedido cotizado'} · ${nombre(p)} · ${p.casa || ''} · ${p.variedad || ''}${recompra && p.fecha ? ` (abierta el ${p.fecha})` : ''}` });
+    }
+    return items.sort((a, b) => b.usd - a.usd).slice(0, max)
+        .map(i => `${i.sinPrecio ? 'Sin precio' : `${i.aprox ? '≈ ' : ''}${formatoUsd(i.usd)}`} · ${i.texto}`);
+}
+
+/**
+ * #12 Lo que la persona hizo en el CRM esa semana, para el reporte del viernes (ya con estado y comentario):
+ * visitas que registró, cotizaciones que preparó y pedidos suyos confirmados. Ids `auto:…` (no son tareas).
+ * @param {{ visitas?: any[], cotizaciones?: any[], pedidos?: any[], clientes?: any[] }} datos  todo el CRM
+ * @param {string} email
+ * @param {{ lunes: string, domingo: string }} semana
+ * @param {(iso: string) => string} fechaLocal  instante ISO → AAAA-MM-DD en la zona del equipo
+ */
+export function actividadesDelCrm(datos, email, { lunes, domingo }, fechaLocal) {
+    const yo = correo(email);
+    const enSemana = (/** @type {unknown} */ f) => typeof f === 'string' && f >= lunes && f <= domingo;
+    const fichas = new Map((datos.clientes || []).map(c => [String(c.id), c]));
+    const nombre = (/** @type {any} */ r) => (fichas.get(String(r.clienteId)) || {}).nombre || r.cliente || 'cliente';
+    const dia = (/** @type {any} */ iso) => (iso && !Number.isNaN(Date.parse(iso)) ? fechaLocal(String(iso)) : '');
+    /** @type {{ id: string, titulo: string, estado: string, comentario: string, auto: true }[]} */
+    const lista = [];
+    for (const v of datos.visitas || []) {
+        if (correo(v.creadoPor || v.cuenta) !== yo || !enSemana(v.fecha)) continue;
+        lista.push({ id: `auto:visita:${v.id}`, titulo: `Visita a ${nombre(v)} (${v.fecha})`, estado: 'Completada', auto: true,
+            comentario: [v.estado && `Cultivo: ${v.estado}`, v.comentarios].filter(Boolean).join(' · ') || 'Visita registrada en el CRM.' });
+    }
+    for (const c of datos.cotizaciones || []) {
+        if (ejecutorDe(c) !== yo || !enSemana(c.fecha || dia(c.creado))) continue;
+        lista.push({ id: `auto:cotizacion:${c.id}`, titulo: `Cotización ${c.numero || ''} a ${nombre(c)}`.replace(/\s+/g, ' '), auto: true,
+            estado: c.estado === 'Rechazada' ? 'Terminada sin éxito' : 'En progreso',
+            comentario: `${c.moneda || 'US$'} ${cifra(c.total).toLocaleString('es-DO')} · ${c.estado || 'Pendiente'}${c.motivo ? ` (${c.motivo})` : ''}.` });
+    }
+    for (const p of datos.pedidos || []) {
+        if (!ESTADOS_VENTA.includes(p.estado) || ejecutorDe(p, fichas.get(String(p.clienteId)) || null) !== yo || !enSemana(dia(p.confirmado) || p.fecha)) continue;
+        lista.push({ id: `auto:pedido:${p.id}`, titulo: `Pedido confirmado: ${nombre(p)} · ${p.casa || ''} · ${p.variedad || ''}`, estado: 'Completada', auto: true,
+            comentario: `${cifra(p.semillasMiles).toLocaleString('es-DO')} mil semillas · ${formatoUsd(totalUsd(p))}${p.temporada ? ` · temporada ${p.temporada}` : ''}.` });
+    }
+    return lista;
 }

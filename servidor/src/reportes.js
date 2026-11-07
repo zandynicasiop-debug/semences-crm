@@ -24,6 +24,7 @@ import { registrarAviso } from './campana.js';
 import { enZona, inicioDelDia, sumarDias } from './fechas.js';
 import * as db from './db.js';
 import { quienDe } from './auditoria.js';
+import { actividadesDelCrm } from './pedidos.js';
 
 export const ESTADOS_ACTIVIDAD = ['En progreso', 'Retrasada', 'Completada', 'Terminada sin éxito'];
 const CIERRAN = ['Completada', 'Terminada sin éxito'];
@@ -137,15 +138,22 @@ function esMia(tarea, usuario) {
     return para ? yo.includes(para) : yo.includes(creo);
 }
 
-async function actividadesDe(pool, usuario, desde) {
-    const { tareas = [] } = await db.listarTodo(pool);
-    return tareas.filter(t => esMia(t, usuario) && (!t.hecha || String(t.hecha) >= desde))
+// Lote A #12: lo hecho en el CRM esa semana (visitas, cotizaciones y pedidos confirmados), ya rellenado
+function delCrm(datos, usuario, semana, config) {
+    return actividadesDelCrm(datos, usuario.email, diasDeSemana(semana), (iso) => enZona(new Date(iso), config.zonaHoraria).fecha);
+}
+
+async function actividadesDe(pool, usuario, desde, semana = null, config = null) {
+    const datos = await db.listarTodo(pool);
+    const { tareas = [] } = datos;
+    const automaticas = semana && config ? delCrm(datos, usuario, semana, config) : [];
+    return [...tareas.filter(t => esMia(t, usuario) && (!t.hecha || String(t.hecha) >= desde))
         .map(t => ({
             id: t.id, titulo: t.titulo, prioridad: t.prioridad || '', vence: t.vence || '',
             estado: t.estadoSemanal || (t.hecha ? 'Completada' : 'En progreso'), comentario: t.comentarioSemanal || '',
             cerrada: Boolean(t.hecha)
         }))
-        .sort((x, y) => Number(x.cerrada) - Number(y.cerrada) || (x.estado === 'Retrasada' ? -1 : 0) - (y.estado === 'Retrasada' ? -1 : 0));
+        .sort((x, y) => Number(x.cerrada) - Number(y.cerrada) || (x.estado === 'Retrasada' ? -1 : 0) - (y.estado === 'Retrasada' ? -1 : 0)), ...automaticas];
 }
 
 // ¿Esta persona de administración ve el reporte de aquella? Master: todos; administrativo: si comparten país y casa
@@ -236,7 +244,7 @@ export async function accionReporte(datos, contexto, { errorApp }) {
             entregado: leerReporte(fila) || null,
             estados: ESTADOS_ACTIVIDAD,
             ia: iaActiva(contexto), // Para avisar a la persona de que administración recibe un resumen hecho con IA
-            actividades: await actividadesDe(pool, usuario, inicioDelDia(diasDeSemana(semana).lunes, config.zonaHoraria).toISOString())
+            actividades: await actividadesDe(pool, usuario, inicioDelDia(diasDeSemana(semana).lunes, config.zonaHoraria).toISOString(), semana, config)
         };
     }
 
@@ -248,7 +256,9 @@ export async function accionReporte(datos, contexto, { errorApp }) {
         const resumen = String(datos.resumen || '').trim().replace(/\s+\n/g, '\n').slice(0, 2000);
         const lista = Array.isArray(datos.actividades) ? datos.actividades.slice(0, 100) : [];
         if (!lista.length) throw errorApp('Añade al menos una actividad de la semana, con su estado y un comentario');
-        const { tareas = [] } = await db.listarTodo(pool);
+        const todo = await db.listarTodo(pool);
+        const { tareas = [] } = todo;
+        const delCrmSemana = new Map(delCrm(todo, usuario, semana, config).map(a => [a.id, a]));
         const actividades = [];
         for (const a of lista) {
             const titulo = String(a.titulo || '').trim().replace(/\s+/g, ' ').slice(0, 200);
@@ -256,6 +266,13 @@ export async function accionReporte(datos, contexto, { errorApp }) {
             const comentario = String(a.comentario || '').trim().slice(0, 1000);
             if (!ESTADOS_ACTIVIDAD.includes(estado)) throw errorApp(`Elige el estado de «${titulo || 'la actividad'}»`);
             if (comentario.length < COMENTARIO_MINIMO) throw errorApp(`Escribe un comentario de cómo va «${titulo || 'la actividad'}»`);
+            // Lo que salió del CRM (visitas, cotizaciones, pedidos): se guarda en el reporte, sin crear tareas
+            if (String(a.id || '').startsWith('auto:')) {
+                const auto = delCrmSemana.get(String(a.id));
+                if (!auto) throw errorApp(`«${titulo || 'la actividad'}» no es tuya o no es de esa semana`, 403, 'permiso');
+                actividades.push({ existente: null, auto: true, id: auto.id, titulo: auto.titulo, estado, comentario });
+                continue;
+            }
             const existente = a.id ? tareas.find(t => t.id === String(a.id)) : null;
             if (a.id && (!existente || !esMia(existente, usuario))) throw errorApp(`«${titulo}» no es una de tus tareas`, 403, 'permiso');
             if (!existente && !titulo) throw errorApp('Escribe qué actividad es');
@@ -267,6 +284,7 @@ export async function accionReporte(datos, contexto, { errorApp }) {
         try {
             await conexion.beginTransaction();
             for (const a of actividades) {
+                if (a.auto) continue;
                 const cierra = CIERRAN.includes(a.estado);
                 const tarea = a.existente
                     ? { ...a.existente }

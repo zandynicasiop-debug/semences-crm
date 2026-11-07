@@ -19,6 +19,7 @@ import { enZona, inicioDelDia } from './fechas.js';
 import { construirCorreo } from './correo.js';
 import { germinacionDe } from './acciones.js';
 import { traducir } from './idioma.js';
+import { prioridadesUsd } from './pedidos.js';
 
 const MAX_LINEAS = 6;
 const VENTANA_HORAS = 5;
@@ -42,6 +43,12 @@ export function componerResumen({ persona, ambito, datos, eventos = [], sinLeer 
     const seccion = (clave, titulo, lineas) => secciones.push({ clave, titulo, lineas });
     const yo = [normal(persona.nombre), normal(persona.email)].filter(Boolean);
     const esMio = (texto) => yo.includes(normal(texto));
+
+    // Lote A #11: lo que más dinero mueve hoy (sus cotizaciones abiertas y pedidos por cerrar, en US$), lo primero
+    if (ambito.modulos.includes('pedidos') || ambito.modulos.includes('cotizaciones')) {
+        const prioridades = prioridadesUsd(datos, persona.email, hoy);
+        if (prioridades.length) seccion('prioridades', '💵 Prioridades en US$', prioridades);
+    }
 
     if (eventos.length) {
         seccion('agenda', '📅 Tu agenda de hoy',
@@ -148,7 +155,7 @@ export function textosResumen(secciones, persona, hoy, ambito) {
     const de = (...claves) => secciones.filter(s => claves.includes(s.clave)).flatMap(s => s.lineas).join('; ').slice(0, 900) || 'Sin pendientes';
     return {
         whatsapp: `${saludo}${alcance ? ` (${alcance})` : ''}: ${secciones.map(s => `${s.titulo}: ${s.lineas.join('; ')}`).join(' · ')}`.slice(0, 1000),
-        parametros: [nombre, alcance || '—', de('agenda'), de('seguimientos'), de('tareas'), de('procesos', 'germinador'), de('envios', 'equipo', 'mensajes')],
+        parametros: [nombre, alcance || '—', de('agenda'), de('prioridades', 'seguimientos'), de('tareas'), de('procesos', 'germinador'), de('envios', 'equipo', 'mensajes')],
         push: `${saludo}\n${secciones.map(s => `${s.titulo}: ${s.lineas.length} · ${s.lineas[0]}`).join('\n')}`,
         correo: {
             asunto: `☀️ Tu resumen de hoy (${fechaCorta(hoy)}) · Semences del Caribe`,

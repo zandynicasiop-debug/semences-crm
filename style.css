@@ -1504,7 +1504,10 @@ summary {
 .meta-form :is(input, select),
 .expediente-etapa select,
 .agenda-barra input,
-.cotizacion-filas input {
+.cotizacion-filas input,
+.calculadora-campos :is(input, select),
+.parametros-generales input,
+.tabla-parametros input {
     min-height: var(--sdc-objetivo-tactil);
     padding: var(--sdc-espacio-3) var(--sdc-espacio-4);
     background: var(--ui-fondo);
@@ -3983,6 +3986,105 @@ body.ventana-flotante {
 
 .meta-cumplida .meta-barra span {
     background: var(--sdc-primario);
+}
+
+/* Lote A: casilla en los formularios (p. ej. "Con plantulación"), con el texto a su derecha */
+.form-group.form-casilla {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: var(--sdc-espacio-2);
+}
+
+.form-group.form-casilla input[type="checkbox"] {
+    width: 1.25rem;
+    height: 1.25rem;
+    min-height: 0;
+    padding: 0;
+    margin: 0;
+    accent-color: var(--sdc-primario);
+}
+
+.form-group.form-casilla .form-error {
+    grid-column: 1 / -1;
+}
+
+/* Calculadora agronómica dentro del pedido */
+.calculadora {
+    border: 1px solid var(--ui-borde);
+    border-radius: var(--sdc-radio-sm);
+    padding: var(--sdc-espacio-2) var(--sdc-espacio-3);
+    background: var(--ui-apagado);
+}
+
+.calculadora summary {
+    cursor: pointer;
+    color: var(--ui-titulo);
+    font-weight: var(--sdc-peso-medio);
+}
+
+.calculadora-campos {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+    gap: var(--sdc-espacio-2);
+    margin: var(--sdc-espacio-3) 0 var(--sdc-espacio-2);
+}
+
+.calculadora-campos label {
+    display: grid;
+    gap: var(--sdc-espacio-1);
+    min-width: 0;
+    color: var(--ui-texto);
+    font-size: var(--sdc-texto-sm);
+}
+
+.calculadora-campos :is(input, select),
+.parametros-generales input {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+.calculadora-resultado {
+    color: var(--ui-titulo);
+    font-size: var(--sdc-texto-sm);
+    font-variant-numeric: tabular-nums;
+    margin-bottom: var(--sdc-espacio-2);
+}
+
+/* Parámetros agronómicos (Master y técnicos) */
+.parametros-generales {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: var(--sdc-espacio-2);
+}
+
+.parametros-generales label {
+    display: grid;
+    gap: var(--sdc-espacio-1);
+    font-size: var(--sdc-texto-sm);
+    color: var(--ui-texto);
+}
+
+.tabla-parametros {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--sdc-texto-sm);
+}
+
+.tabla-parametros th {
+    text-align: left;
+    color: var(--ui-titulo);
+    padding: var(--sdc-espacio-1);
+}
+
+.tabla-parametros td {
+    padding: var(--sdc-espacio-1);
+}
+
+.tabla-parametros input {
+    width: 100%;
+    min-width: 0;
 }
 
 /* Ventas del mes por casa comercial y variedad (fase 2), dentro de la tarjeta de metas */
