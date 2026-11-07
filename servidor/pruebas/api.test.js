@@ -21,6 +21,7 @@ import { recordarReportes, semanas, diasDeSemana, revisarPendientes, resumenDelL
 import { crearIA } from '../src/ia.js';
 import { actualizarToken } from '../src/cuentas.js';
 import { verificarServidor } from '../herramientas/verificar.js';
+import { asignarEjecutores, idRecompra } from '../src/pedidos.js';
 
 const BASES = (process.env.PRUEBA_BASES || '127.0.0.1:33061,127.0.0.1:33062').split(',');
 
@@ -739,7 +740,11 @@ for (const base of BASES) {
             // Luis: vendedor, RD + Gautier
             const luis = (await accion(sesiones.luis, { accion: 'sincronizar' })).json.datos;
             assert.deepEqual(Object.keys(luis).sort(), ['clientes', 'cotizaciones', 'envios', 'mensajes', 'pedidos', 'reuniones', 'sitios', 'tareas', 'visitas']);
-            assert.deepEqual(luis.clientes.map(c => c.id), ['rd-g']);
+            // Los de su casa, completos; el de otra casa de su país (RD · Fitó), solo la ficha básica (para no
+            // registrarlo dos veces), sin su casa ni nada comercial; los de otro país (VE), nada
+            assert.deepEqual(luis.clientes.map(c => c.id).sort(), ['rd-f', 'rd-g']);
+            assert.deepEqual(luis.clientes.find(c => c.id === 'rd-f'), { id: 'rd-f', nombre: 'Finca RD Fitó', pais: 'RD', compartida: true });
+            assert.equal(luis.clientes.find(c => c.id === 'rd-g').casa, 'Gautier Semences');
             assert.equal(luis.tareas.length, 1); // Las tareas son de todo el equipo
             // No puede crear fuera de su ámbito, ni en módulos que no son suyos, ni pisar ni borrar lo ajeno
             for (const op of [
@@ -1238,7 +1243,13 @@ for (const base of BASES) {
             assert.equal((await accion(sesiones.tec, { accion: 'reunion', operacion: 'acta', id: creada.reunion.id, temas: 'x' })).estado, 403);
 
             // Pedidos (con país y casa) y autoría fija: quien lo crea queda aunque otro lo edite
-            const pedido = { id: 'pe-1', clienteId: 'rd-g', cliente: 'Finca RD Gautier', pais: 'RD', casa: 'Gautier Semences', fecha: hoy, variedad: 'Tomate Hexagon', semillasMiles: 30, estado: 'Confirmado' };
+            const pedido = { id: 'pe-1', clienteId: 'rd-g', cliente: 'Finca RD Gautier', pais: 'RD', casa: 'Gautier Semences', fecha: hoy, variedad: 'Tomate Hexagon', semillasMiles: 30, precioMil: 4.5, estado: 'Confirmado' };
+            // Fase 2: confirmar sin precio en US$ (o sin semillas) se rechaza en el servidor, con el motivo
+            const sinPrecio = await accion(sesiones.luis, { accion: 'sincronizar', guardar: [{ modulo: 'pedidos', registro: { ...pedido, precioMil: '' } }] });
+            assert.equal(sinPrecio.estado, 400);
+            assert.match(sinPrecio.json.error, /precio por mil en US\$/);
+            assert.equal((await accion(sesiones.luis, { accion: 'sincronizar', guardar: [{ modulo: 'pedidos', registro: { ...pedido, semillasMiles: 0 } }] })).estado, 400);
+            assert.equal((await pool.query("SELECT COUNT(*) AS n FROM registros WHERE modulo = 'pedidos' AND id = 'pe-1'"))[0][0].n, 0, 'nada a medias');
             assert.equal((await accion(sesiones.luis, { accion: 'sincronizar', guardar: [
                 { modulo: 'pedidos', registro: pedido },
                 { modulo: 'pedidos', registro: { ...pedido, id: 'pe-2', semillasMiles: 50, estado: 'Cotizado' } },
@@ -1398,7 +1409,8 @@ for (const base of BASES) {
                 await accion(sesiones.jefa, { accion: 'accesos', operacion: 'aprobar', email: 'productor@gmail.com', cargo: 'vendedor', paises: ['VE'], casas: ['Fitó'] });
                 const datos = await accion(productor, { accion: 'sincronizar' });
                 assert.equal(datos.estado, 200);
-                assert.ok(datos.json.datos.clientes.every(c => c.pais === 'VE' && c.casa === 'Fitó'));
+                // Solo Venezuela: los de Fitó completos; los de otra casa, solo la ficha básica compartida
+                assert.ok(datos.json.datos.clientes.every(c => c.pais === 'VE' && (c.casa === 'Fitó' || (c.compartida === true && c.casa === undefined))));
                 // Sin Gmail conectado, lo que usa Google pide conectarlo
                 const correo = await accion(productor, { accion: 'correo', para: 'x@y.com', asunto: 'Hola', texto: 'x' });
                 assert.equal(correo.estado, 403);
@@ -1669,6 +1681,153 @@ for (const base of BASES) {
                 await pool.query('UPDATE usuarios SET paises = ?, casas = ? WHERE email = ?', [ana.paises, ana.casas, 'ana@semillasdata.com']);
                 await pool.query("DELETE FROM registros WHERE modulo = 'visitas' AND id IN ('meta-visita-rd', 'meta-visita-ve')");
             }
+        });
+
+        // ----- Fase 2: pedidos por casa y variedad, privacidad del vendedor ejecutor, recompra y metas en US$ -----
+        const fase2 = { sesiones: {}, hoy: '' };
+        const vendedorNuevo = async (nombre, casas) => {
+            const email = `${nombre}@semillasdata.com`;
+            google.identidades[`codigo-${nombre}`] = { email, verificado: true, dominio: 'semillasdata.com', nombre: nombre[0].toUpperCase() + nombre.slice(1), foto: '', tokenRefresco: `r-${nombre}`, permisos: '' };
+            const sesion = (await entrarComo(`codigo-${nombre}`)).json.sesion;
+            assert.equal((await accion(sesiones.jefa, { accion: 'accesos', operacion: 'aprobar', email, cargo: 'vendedor', paises: ['RD'], casas })).estado, 200);
+            return sesion;
+        };
+        const datosDe = async (sesion) => (await accion(sesion, { accion: 'sincronizar' })).json.datos;
+        const leer = async (modulo, id) => {
+            const [filas] = await pool.query('SELECT datos FROM registros WHERE modulo = ? AND id = ?', [modulo, id]);
+            return filas.length ? JSON.parse(filas[0].datos) : null;
+        };
+
+        test('fase 2: ficha compartida por país; pedidos y cotizaciones solo del vendedor que los ejecuta', async () => {
+            const { sesiones: s } = fase2;
+            s.marta = await vendedorNuevo('marta', ['Gautier Semences']);
+            s.nora = await vendedorNuevo('nora', ['Gautier Semences']);
+            s.pedro = await vendedorNuevo('pedro', ['Fitó']);
+            fase2.hoy = enZona(new Date(), config.zonaHoraria).fecha;
+            const finca = { id: 'f2-finca', nombre: 'Finca Dos Casas', pais: 'RD', casa: 'Gautier Semences', telefono: '8095551111', marca: 'Gautier', etapa: 'Cliente', asignado: 'marta@semillasdata.com' };
+            assert.equal((await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: finca }] })).estado, 200);
+
+            // Pedro (RD · Fitó) encuentra al cliente de Gautier (no lo duplica): solo la ficha básica, sin casa, marca,
+            // etapa ni asignado; y no puede cambiarla ni quedársela
+            const vista = (await datosDe(s.pedro)).clientes.find(c => c.id === 'f2-finca');
+            assert.deepEqual(vista, { id: 'f2-finca', nombre: 'Finca Dos Casas', pais: 'RD', telefono: '8095551111', compartida: true });
+            assert.equal((await accion(s.pedro, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: { ...vista, casa: 'Fitó' } }] })).estado, 403);
+            assert.equal((await accion(s.pedro, { accion: 'sincronizar', eliminar: [{ modulo: 'clientes', id: 'f2-finca' }] })).estado, 403);
+
+            // Cada vendedor registra al mismo cliente el pedido de su casa
+            const base = { clienteId: 'f2-finca', pais: 'RD', fecha: fase2.hoy, estado: 'Confirmado' };
+            assert.equal((await accion(s.pedro, { accion: 'sincronizar', guardar: [{ modulo: 'pedidos', registro: { ...base, id: 'f2-pf', casa: 'Fitó', variedad: 'Pimiento Fitó', semillasMiles: 20, precioMil: 6 } }] })).estado, 200);
+            assert.equal((await accion(s.marta, { accion: 'sincronizar', guardar: [
+                { modulo: 'pedidos', registro: { ...base, id: 'f2-pg', casa: 'Gautier Semences', variedad: 'Tomate Gautier', semillasMiles: 10, precioMil: 9, temporada: 'Invierno 2026' } },
+                { modulo: 'cotizaciones', registro: { id: 'f2-co', numero: 'COT-F2', clienteId: 'f2-finca', pais: 'RD', casa: 'Gautier Semences', moneda: 'US$', lineas: [{ producto: 'Tomate Gautier', cantidad: 10, unidad: 'mil', precio: 9 }] } }
+            ] })).estado, 200);
+            assert.equal((await leer('pedidos', 'f2-pg')).vendedor, 'marta@semillasdata.com');
+            assert.equal((await leer('cotizaciones', 'f2-co')).vendedor, 'marta@semillasdata.com');
+
+            // Privacidad: cada vendedor ve solo lo que él ejecuta, aunque sea de su misma casa (Nora no ve lo de Marta)
+            const ids = (d, m) => d[m].filter(r => String(r.id).startsWith('f2-')).map(r => r.id).sort();
+            const marta = await datosDe(s.marta), nora = await datosDe(s.nora), pedro = await datosDe(s.pedro);
+            assert.deepEqual([ids(marta, 'pedidos'), ids(marta, 'cotizaciones')], [['f2-pg'], ['f2-co']]);
+            assert.deepEqual([ids(nora, 'pedidos'), ids(nora, 'cotizaciones')], [[], []]);
+            assert.deepEqual([ids(pedro, 'pedidos'), ids(pedro, 'cotizaciones')], [['f2-pf'], []]);
+            // ... ni tocarlo: ni editar ni borrar lo de Marta, ni guardar a nombre de otro
+            for (const op of [
+                { guardar: [{ modulo: 'pedidos', registro: { ...(await leer('pedidos', 'f2-pg')), notas: 'mío' } }] },
+                { guardar: [{ modulo: 'pedidos', registro: { ...base, id: 'f2-pg', casa: 'Gautier Semences', variedad: 'x', semillasMiles: 1, precioMil: 1 } }] },
+                { eliminar: [{ modulo: 'pedidos', id: 'f2-pg' }] },
+                { eliminar: [{ modulo: 'cotizaciones', id: 'f2-co' }] },
+                { guardar: [{ modulo: 'pedidos', registro: { ...base, id: 'f2-nora', casa: 'Gautier Semences', variedad: 'x', semillasMiles: 1, precioMil: 1, vendedor: 'marta@semillasdata.com' } }] }
+            ]) {
+                const r = await accion(s.nora, { accion: 'sincronizar', ...op });
+                assert.deepEqual([r.estado, r.json.codigo], [403, 'permiso'], JSON.stringify(op).slice(0, 120));
+            }
+            assert.equal((await leer('pedidos', 'f2-pg')).variedad, 'Tomate Gautier');
+
+            // Administración (aprueba cotizaciones) ve las de su país y casa; el Master, todo
+            const ana = await datosDe(sesiones.ana), jefa = await datosDe(sesiones.jefa);
+            assert.deepEqual([ids(ana, 'pedidos'), ids(ana, 'cotizaciones')], [['f2-pf', 'f2-pg'], ['f2-co']]);
+            assert.deepEqual(ids(jefa, 'pedidos'), ['f2-pf', 'f2-pg']);
+            // Si administración lo edita, el vendedor ejecutor no cambia (aunque lo intente)
+            assert.equal((await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'pedidos', registro: { ...(await leer('pedidos', 'f2-pg')), notas: 'Revisado', vendedor: 'ana@semillasdata.com' } }] })).estado, 200);
+            assert.deepEqual([(await leer('pedidos', 'f2-pg')).vendedor, (await leer('pedidos', 'f2-pg')).notas], ['marta@semillasdata.com', 'Revisado']);
+            // Y puede registrarlo a nombre de un vendedor, que lo ve como suyo
+            assert.equal((await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'pedidos', registro: { ...base, id: 'f2-delegado', casa: 'Gautier Semences', variedad: 'Melón', semillasMiles: 5, precioMil: 2, estado: 'Cotizado', vendedor: 'nora@semillasdata.com' } }] })).estado, 200);
+            assert.deepEqual(ids(await datosDe(s.nora), 'pedidos'), ['f2-delegado']);
+        });
+
+        test('fase 2: metas en millares y en US$, con el desglose por casa y variedad del vendedor ejecutor', async () => {
+            const mes = fase2.hoy.slice(0, 7);
+            assert.equal((await accion(sesiones.ana, { accion: 'metas', operacion: 'guardar', mes, email: 'marta@semillasdata.com', indicador: 'ventasUsd', objetivo: 360 })).estado, 200);
+            const yo = (await accion(fase2.sesiones.marta, { accion: 'metas', mes })).json.personas[0];
+            assert.deepEqual([yo.avance.ventas, yo.avance.ventasUsd], [10, 90]);
+            assert.deepEqual(yo.avance.desglose, [{ casa: 'Gautier Semences', variedad: 'Tomate Gautier', miles: 10, usd: 90, pedidos: 1 }]);
+            assert.deepEqual(yo.metas.map(m => [m.indicador, m.avance, m.porcentaje]), [['ventasUsd', 90, 25]]);
+            // Lo de Pedro (Fitó) es suyo, no de Marta aunque Marta sea la asignada del cliente
+            const pedro = (await accion(fase2.sesiones.pedro, { accion: 'metas', mes })).json.personas[0];
+            assert.deepEqual([pedro.avance.ventas, pedro.avance.ventasUsd], [20, 120]);
+        });
+
+        test('fase 2: recompra — al confirmar se programa la próxima temporada; llega como pedido Cotizado del mismo vendedor', async () => {
+            const { sesiones: s } = fase2;
+            const silencio = { error: () => {} };
+            const evento = async (pedidoId) => (await pool.query(
+                'SELECT tipo, estado, carga, TIMESTAMPDIFF(DAY, UTC_TIMESTAMP(), proximo) AS dias FROM eventos WHERE clave = ?', [`recompra:${pedidoId}`]))[0][0];
+            // 90 días desde la fecha del pedido por defecto; con recompraDias, los que diga el vendedor
+            const pg = await evento('f2-pg');
+            assert.equal(pg.tipo, 'PEDIDO_RECOMPRA');
+            assert.ok(pg.dias >= 89 && pg.dias <= 90, `a 90 días: ${pg.dias}`);
+            const p30 = { id: 'f2-p30', clienteId: 'f2-finca', pais: 'RD', casa: 'Gautier Semences', fecha: fase2.hoy, variedad: 'Sandía', semillasMiles: 3, precioMil: 10, estado: 'Cotizado', recompraDias: 30 };
+            assert.equal((await accion(s.marta, { accion: 'sincronizar', guardar: [{ modulo: 'pedidos', registro: p30 }] })).estado, 200);
+            assert.equal(await evento('f2-p30'), undefined, 'Cotizado no programa nada');
+            for (const estado of ['Confirmado', 'Cotizado', 'Confirmado', 'Entregado']) {
+                assert.equal((await accion(s.marta, { accion: 'sincronizar', guardar: [{ modulo: 'pedidos', registro: { ...p30, estado } }] })).estado, 200);
+            }
+            const e30 = await evento('f2-p30');
+            assert.ok(e30.dias >= 29 && e30.dias <= 30, `a 30 días: ${e30.dias}`);
+            assert.equal(Number((await pool.query("SELECT COUNT(*) n FROM eventos WHERE clave = 'recompra:f2-p30'"))[0][0].n), 1, 'confirmar otra vez no lo repite');
+
+            // Pedro cancela el suyo antes de la próxima temporada: no se reabre
+            const pf = await leer('pedidos', 'f2-pf');
+            assert.equal((await accion(s.pedro, { accion: 'sincronizar', guardar: [{ modulo: 'pedidos', registro: { ...pf, estado: 'Cancelado' } }] })).estado, 200);
+            // Llega la temporada (se adelanta el reloj de esos eventos)
+            await pool.query("UPDATE eventos SET proximo = UTC_TIMESTAMP() WHERE clave IN ('recompra:f2-pg', 'recompra:f2-pf')");
+            await procesarEventos({ pool, config, google, avisos }, MANEJADORES, { registrar: silencio });
+            assert.deepEqual([(await evento('f2-pg')).estado, (await evento('f2-pf')).estado], ['hecho', 'hecho']);
+            assert.equal(await leer('pedidos', idRecompra('f2-pf')), null, 'el cancelado no se reabre');
+
+            const nuevo = await leer('pedidos', idRecompra('f2-pg'));
+            assert.deepEqual(
+                { ...nuevo, notas: undefined },
+                { id: idRecompra('f2-pg'), clienteId: 'f2-finca', pais: 'RD', casa: 'Gautier Semences', fecha: enZona(new Date(), config.zonaHoraria).fecha,
+                    variedad: 'Tomate Gautier', estado: 'Cotizado', semillasMiles: 10, recompraDe: 'f2-pg', vendedor: 'marta@semillasdata.com',
+                    responsable: 'Recompra automática', creadoPor: 'marta@semillasdata.com', cuenta: 'marta@semillasdata.com', notas: undefined });
+            assert.match(nuevo.notas, /Recompra de la temporada Invierno 2026/);
+            assert.equal(nuevo.precioMil, undefined, 'el precio de la nueva temporada, por confirmar');
+            // Es de Marta: ella lo ve y le llega a la campana; Nora no
+            assert.ok((await datosDe(s.marta)).pedidos.some(p => p.id === idRecompra('f2-pg')));
+            assert.ok(!(await datosDe(s.nora)).pedidos.some(p => p.id === idRecompra('f2-pg')));
+            assert.ok((await accion(s.marta, { accion: 'avisos' })).json.avisos.some(a => /Recompra: Finca Dos Casas · Gautier Semences · Tomate Gautier/.test(a.texto)));
+            // Reprocesar (un reintento) no lo duplica ni repite el aviso
+            await pool.query("UPDATE eventos SET estado = 'pendiente', proximo = UTC_TIMESTAMP(), pasos = NULL WHERE clave = 'recompra:f2-pg'");
+            await procesarEventos({ pool, config, google, avisos }, MANEJADORES, { registrar: silencio });
+            assert.equal(Number((await pool.query("SELECT COUNT(*) n FROM registros WHERE modulo = 'pedidos' AND id LIKE 'recompra-%'"))[0][0].n), 1);
+            // El ciclo sigue: al confirmar el de recompra (con su precio), se programa la temporada siguiente
+            assert.equal((await accion(s.marta, { accion: 'sincronizar', guardar: [{ modulo: 'pedidos', registro: { ...nuevo, estado: 'Confirmado', precioMil: 9.5 } }] })).estado, 200);
+            assert.equal((await evento(idRecompra('f2-pg'))).tipo, 'PEDIDO_RECOMPRA');
+        });
+
+        test('fase 2: los pedidos y cotizaciones de antes reciben su vendedor (asignado del cliente o quien los creó), una sola vez', async () => {
+            const viejo = (modulo, id, datos) => pool.query('INSERT INTO registros (modulo, id, datos) VALUES (?, ?, ?)', [modulo, id, JSON.stringify({ id, ...datos })]);
+            await viejo('pedidos', 'f2-viejo', { clienteId: 'f2-finca', pais: 'RD', casa: 'Gautier Semences', estado: 'Entregado', creadoPor: 'ana@semillasdata.com' });
+            await viejo('pedidos', 'f2-viejo-sin', { clienteId: 'no-existe', pais: 'RD', casa: 'Fitó', estado: 'Cotizado', creadoPor: 'pedro@semillasdata.com' });
+            await viejo('cotizaciones', 'f2-cviejo', { pais: 'RD', casa: 'Gautier Semences', creadoPor: 'nora@semillasdata.com', cuenta: 'ana@semillasdata.com' });
+            assert.ok(await asignarEjecutores(pool) >= 3);
+            assert.equal((await leer('pedidos', 'f2-viejo')).vendedor, 'marta@semillasdata.com', 'el asignado del cliente, como contaban las metas');
+            assert.equal((await leer('pedidos', 'f2-viejo-sin')).vendedor, 'pedro@semillasdata.com');
+            assert.equal((await leer('cotizaciones', 'f2-cviejo')).vendedor, 'nora@semillasdata.com');
+            assert.equal((await leer('pedidos', 'f2-pg')).vendedor, 'marta@semillasdata.com', 'lo que ya tenía vendedor no cambia');
+            assert.equal(await asignarEjecutores(pool), 0, 'la segunda vez no hay nada que completar');
+            assert.ok((await datosDe(fase2.sesiones.nora)).cotizaciones.some(c => c.id === 'f2-cviejo'));
         });
 
         test('salir cierra la sesión', async () => {

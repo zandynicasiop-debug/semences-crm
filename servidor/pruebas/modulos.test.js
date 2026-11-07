@@ -21,6 +21,7 @@ import { cuentaAutorizada, publico, retoDe, tipoCuenta } from '../src/cuentas.js
 import { opcionesAutorizacion, PERMISOS, PERMISOS_BASICOS } from '../src/google.js';
 import { germinacionDe, avisarGerminacionBaja, conGoogle, errorApp, ACCIONES } from '../src/acciones.js';
 import { cifrar } from '../src/cifrado.js';
+import { ajustarPedido, conVendedor, REGLA_RECOMPRA, pedidoDeRecompra, idRecompra, ejecutorDe } from '../src/pedidos.js';
 
 const { ambitoDe, dentroDelAmbito, puedeLeer, puedeEscribir, filtrarDatos, asignacionValida, PAISES, CASAS } = permisos;
 const CLAVE = 'a'.repeat(64);
@@ -164,7 +165,9 @@ describe('permisos: quién ve y quién escribe qué', () => {
         assert.equal(visto.tareas.length, 1);
         const vendedor = filtrarDatos(datos, vendedorRD);
         assert.equal(vendedor.germinador, undefined, 'el vendedor no recibe el módulo germinador');
-        assert.deepEqual(vendedor.clientes, [], 'los clientes de Fitó no son de su casa');
+        // RD · Fitó no es de su casa: solo la ficha básica compartida (nombre, contacto, ubicación), sin la casa
+        assert.deepEqual(vendedor.clientes, [{ id: 'c2', nombre: 'Finca RD', pais: 'RD', telefono: '8095551234', compartida: true }]);
+        assert.equal(filtrarDatos(datos, ambitoDe(persona(3, 'v2@semillasdata.com', 'vendedor', ['VE'], ['Gautier Semences']), config)).clientes.length, 1, 'de VE solo ve la ficha de VE');
     });
 
     test('asignacionValida: cargo real, al menos un país y una casa; nunca "master"', () => {
@@ -1173,5 +1176,63 @@ describe('ARM: motor de eventos, flujos, cuotas y rotación de la clave', async 
         }
         await assert.rejects(conCodigo(132001).whatsappUno('584141234567', 'hola'), (e) => e.status === 400 && !esPasajero(e), 'plantilla inexistente: definitivo');
         await assert.rejects(conCodigo(40).whatsappUno('584141234567', 'hola'), (e) => e.status === 400, '"40" no es el código 4');
+    });
+});
+
+// ---------------------------------------------------------------------------------------------------
+describe('pedidos (fase 2): vendedor ejecutor, confirmación con precio y recompra', () => {
+    const vendedor = { master: false, cargo: 'vendedor' };
+    const admin = { master: false, cargo: 'administrativo' };
+    const marta = { email: 'Marta@semillasdata.com' };
+    const ana = { email: 'ana@semillasdata.com' };
+    const pedido = { id: 'p1', clienteId: 'c1', pais: 'RD', casa: 'Fitó', fecha: '2026-11-07', variedad: 'Pimiento', semillasMiles: 20, precioMil: 6, estado: 'Confirmado' };
+
+    test('el vendedor ejecutor: quien lo crea (no puede ponerlo a nombre de otro); administración sí; y ya no cambia', () => {
+        assert.equal(ajustarPedido(vendedor, marta, { ...pedido, vendedor: 'luis@semillasdata.com' }, null).vendedor, 'marta@semillasdata.com');
+        assert.equal(ajustarPedido(admin, ana, { ...pedido, vendedor: 'Nora@semillasdata.com' }, null).vendedor, 'nora@semillasdata.com');
+        assert.equal(ajustarPedido(admin, ana, { ...pedido, vendedor: 'no es un correo' }, null).vendedor, 'ana@semillasdata.com');
+        assert.equal(ajustarPedido(admin, ana, { ...pedido, vendedor: 'ana@semillasdata.com' }, { ...pedido, vendedor: 'marta@semillasdata.com' }).vendedor, 'marta@semillasdata.com');
+        assert.equal(conVendedor(vendedor, marta, { id: 'co' }, { id: 'co', creadoPor: 'nora@semillasdata.com' }).vendedor, 'nora@semillasdata.com', 'una cotización de antes: quien la creó');
+        assert.equal(ejecutorDe({ creadoPor: 'ana@x.com' }, { asignado: 'Luis@x.com' }), 'luis@x.com', 'pedido de antes: el asignado del cliente');
+    });
+
+    test('Confirmado o Entregado exigen semillas y precio en US$ mayores que 0, al pasar a venta o al cambiar las cifras', () => {
+        assert.throws(() => ajustarPedido(vendedor, marta, { ...pedido, precioMil: '' }, null), (e) => e.estado === 400 && /precio por mil en US\$/.test(e.message));
+        assert.throws(() => ajustarPedido(vendedor, marta, { ...pedido, semillasMiles: 0, precioMil: 0 }, null), /las semillas \(miles\) y el precio/);
+        assert.throws(() => ajustarPedido(vendedor, marta, { ...pedido, estado: 'Entregado', precioMil: -1 }, { ...pedido, estado: 'Cotizado' }), /Entregado/);
+        assert.doesNotThrow(() => ajustarPedido(vendedor, marta, { ...pedido, estado: 'Cotizado', precioMil: '' }, null), 'Cotizado: el precio puede faltar');
+        // Uno confirmado antes de la regla, sin precio: pasar a Entregado sin tocar cifras no se bloquea…
+        const antiguo = { ...pedido, precioMil: undefined, vendedor: 'marta@semillasdata.com' };
+        assert.doesNotThrow(() => ajustarPedido(vendedor, marta, { ...antiguo, estado: 'Entregado' }, antiguo));
+        // …pero cambiar sus semillas sí exige el precio
+        assert.throws(() => ajustarPedido(vendedor, marta, { ...antiguo, semillasMiles: 25 }, antiguo), /precio/);
+    });
+
+    test('temporada y días de recompra se guardan limpios', () => {
+        const r = ajustarPedido(vendedor, marta, { ...pedido, temporada: '  Invierno\n2026  ', recompraDias: '45.7' }, null);
+        assert.deepEqual([r.temporada, r.recompraDias], ['Invierno 2026', 45]);
+        const sin = ajustarPedido(vendedor, marta, { ...pedido, temporada: '   ', recompraDias: 5000 }, null);
+        assert.deepEqual([sin.temporada, sin.recompraDias], [undefined, undefined]);
+    });
+
+    test('regla de recompra: solo al pasar a venta; espera hasta fecha + días (90 por defecto); una clave por pedido', () => {
+        const { cuando, evento } = REGLA_RECOMPRA;
+        assert.ok(cuando(pedido, null));
+        assert.ok(cuando({ ...pedido, estado: 'Entregado' }, { ...pedido, estado: 'Cotizado' }));
+        assert.ok(!cuando({ ...pedido, estado: 'Entregado' }, pedido), 'de Confirmado a Entregado ya estaba programada');
+        assert.ok(!cuando({ ...pedido, estado: 'Cotizado' }, null));
+        const e = evento(pedido, null, { usuario: { id: 7 }, hoy: '2026-11-07' });
+        assert.deepEqual([e.tipo, e.clave, e.carga.cuando, e.retrasoS], ['PEDIDO_RECOMPRA', 'recompra:p1', '2027-02-05', 90 * 86400]);
+        assert.equal(evento({ ...pedido, recompraDias: 30, fecha: '2026-11-01' }, null, { usuario: { id: 7 }, hoy: '2026-11-07' }).retrasoS, 24 * 86400);
+        assert.equal(evento({ ...pedido, fecha: '2025-01-01' }, null, { usuario: { id: 7 }, hoy: '2026-11-07' }).retrasoS, 0, 'si ya pasó, ahora');
+    });
+
+    test('pedido de recompra: mismo cliente, casa, variedad y vendedor; semillas como punto de partida; sin precio', () => {
+        const nuevo = pedidoDeRecompra({ ...pedido, vendedor: 'marta@semillasdata.com', temporada: '2026', notas: 'privado', precioMil: 6 }, '2027-02-05');
+        assert.equal(nuevo.id, idRecompra('p1'));
+        assert.equal(idRecompra('p1'), idRecompra('p1'));
+        assert.deepEqual([nuevo.clienteId, nuevo.casa, nuevo.variedad, nuevo.vendedor, nuevo.estado, nuevo.semillasMiles, nuevo.precioMil, nuevo.fecha],
+            ['c1', 'Fitó', 'Pimiento', 'marta@semillasdata.com', 'Cotizado', 20, undefined, '2027-02-05']);
+        assert.match(nuevo.notas, /Recompra de la temporada 2026/);
     });
 });

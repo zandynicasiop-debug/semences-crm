@@ -107,6 +107,42 @@ describe('CRM: enlaces de WhatsApp y fechas', () => {
     });
 });
 
+describe('pedidos (fase 2): confirmar exige semillas y precio en US$', () => {
+    const app = cargar(['crm.js']);
+    const CRM = app.global('CRM');
+    // validar() con un formulario simulado: cada campo es { value }, y se apuntan los errores que mostraría
+    const validar = (valores) => {
+        const errores = [];
+        const elementos = {};
+        for (const campo of app.global("MODULOS_CRM").pedidos.campos) elementos[campo.id] = { id: campo.id, value: '', focus() {}, removeAttribute() {} };
+        Object.entries(valores).forEach(([k, v]) => { elementos[k].value = String(v); });
+        const yo = { datos: { clientes: [] }, limpiarError() {}, mostrarError: (control, mensaje) => errores.push([control.id, mensaje]) };
+        const ok = CRM.prototype.validar.call(yo, 'pedidos', { elements: elementos });
+        return { ok, errores };
+    };
+    const pedido = { clienteId: 'c1', fecha: '2026-11-07', variedad: 'Tomate', semillasMiles: 20, precioMil: 6, estado: 'Confirmado' };
+
+    test('confirmado o entregado sin precio (o sin semillas): no se envía, con el motivo en su campo', () => {
+        const sinPrecio = validar({ ...pedido, precioMil: '' });
+        assert.equal(sinPrecio.ok, false);
+        assert.deepEqual(sinPrecio.errores, [['precioMil', 'Para confirmar el pedido escribe el precio por mil en US$, mayor que 0.']]);
+        assert.deepEqual(validar({ ...pedido, estado: 'Entregado', semillasMiles: 0 }).errores.map(e => e[0]), ['semillasMiles']);
+    });
+
+    test('con precio, o aún Cotizado sin precio: se envía', () => {
+        assert.equal(validar(pedido).ok, true);
+        assert.equal(validar({ ...pedido, estado: 'Cotizado', precioMil: '' }).ok, true);
+    });
+
+    test('el formulario trae temporada y días de recompra (1 a 730, entero)', () => {
+        const ids = app.global("MODULOS_CRM").pedidos.campos.map(c => c.id);
+        assert.ok(ids.includes('temporada') && ids.includes('recompraDias'));
+        assert.deepEqual(validar({ ...pedido, recompraDias: 1000 }).errores.map(e => e[0]), ['recompraDias']);
+        assert.deepEqual(validar({ ...pedido, recompraDias: 45.5 }).errores.map(e => e[0]), ['recompraDias']);
+        assert.equal(validar({ ...pedido, recompraDias: 120 }).ok, true);
+    });
+});
+
 // ---------------------------------------------------------------------------------------------------
 describe('base de datos de la app: copia local y sincronización', () => {
     let app;

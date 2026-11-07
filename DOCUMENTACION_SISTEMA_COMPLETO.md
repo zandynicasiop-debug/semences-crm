@@ -28,6 +28,7 @@
 14. [Decisiones, límites y próximos pasos](#14-decisiones-límites-y-próximos-pasos)
 15. [Motor de eventos y flujos automáticos (ARM)](#15-motor-de-eventos-y-flujos-automáticos-arm)
 16. [Subir a semillasdata.com (FastComet): el día del despliegue](#16-subir-a-semillasdatacom-fastcomet-el-día-del-despliegue)
+17. [Fase 2: pedidos por casa y variedad, privacidad y recompra](#17-fase-2-pedidos-por-casa-y-variedad-privacidad-y-recompra)
 
 ---
 
@@ -563,7 +564,7 @@ la cola se vacía, como el resto de la copia local.
 ### Tipos (TypeScript, sin compilar)
 
 `npx tsc --noEmit` (desde la raíz; o `npm run tipos`) comprueba en modo estricto los archivos con `// @ts-check`:
-`eventos.js`, `flujos.js`, `cuotas.js` y `lotes.js` del servidor y `colaEtapas.js` de la web. El proyecto sigue
+`eventos.js`, `flujos.js`, `cuotas.js`, `lotes.js` y `pedidos.js` del servidor y `colaEtapas.js` de la web. El proyecto sigue
 siendo JavaScript, sin paso de compilación en FastComet. GitHub Actions lo ejecuta en cada subida a `main` y, si
 falla, no publica.
 ## 16. Subir a semillasdata.com (FastComet): el día del despliegue
@@ -625,4 +626,36 @@ salen conectadas cuando el backend ya responde y existe el secreto `SEMENCES_API
 
 **Volver atrás.** Stop App, borra `semences-servidor`, renombra `semences-servidor-anterior` a `semences-servidor`,
 Restart. Si algo de la base falló, importa la copia del paso 0. La web: vuelve a extraer el zip de `public_html`.
+
+## 17. Fase 2: pedidos por casa y variedad, privacidad y recompra
+
+Sin tablas ni etapas nuevas: todo va sobre el módulo `pedidos` (en `registros`, estados Cotizado → Confirmado →
+Entregado / Cancelado), `metas.js` y el motor de eventos. Las reglas están en `servidor/src/pedidos.js`.
+
+**Un cliente, varias casas.** Cada pedido es una línea casa comercial + variedad del cliente. La ficha básica del
+cliente (nombre, teléfono, WhatsApp, correo, ubicación) la ve el equipo de su **país** aunque sea de otra casa, para
+no registrarlo dos veces: llega marcada `compartida`, sin su casa, marca que compra, etapa ni asignado, y no se puede
+cambiar ni borrar (la web la muestra como "Ficha compartida"). Así un vendedor de Fitó registra su pedido al cliente
+que ya trabaja Gautier.
+
+**Privacidad de las ventas.** Pedidos y cotizaciones (cantidades y precios en US$) llevan `vendedor`, el correo de
+quien los ejecuta: lo pone el servidor al crearlos y no cambia aunque otro los edite. Un vendedor solo ve y toca los
+suyos, aunque sea de la misma casa; **administración** ve los de su país y casa (aprueba las cotizaciones y gestiona
+pedidos y envíos) y puede registrar un pedido a nombre de un vendedor; el **Master** ve todo. Al arrancar, los
+pedidos y cotizaciones de antes reciben su vendedor (el asignado del cliente, como contaban las metas, o quien los
+creó), una sola vez.
+
+**Confirmar.** Un pedido Confirmado o Entregado necesita semillas (miles) y precio por mil en US$ mayores que 0; el
+servidor lo comprueba al pasar a ese estado o al cambiar esas cifras (400 con el motivo) y la web avisa en el campo.
+Los confirmados antes de la regla pueden pasar a Entregado sin tocarlos.
+
+**Ciclo de recompra.** Al pasar a Confirmado o Entregado se encola `PEDIDO_RECOMPRA` (una vez por pedido) para la
+fecha del pedido + "Recompra en (días)" (90 si no se indica). Ese día, si el pedido sigue siendo venta, se abre un
+pedido **Cotizado** para el mismo cliente, casa, variedad y vendedor, con las semillas del anterior como punto de
+partida y el precio por confirmar, y le llega el aviso a su campana (y por push). Al confirmarlo, el ciclo sigue.
+Cancelado antes de tiempo, no se reabre.
+
+**Metas.** Las ventas cuentan para el vendedor que ejecuta el pedido. Indicador nuevo `ventasUsd` (Ventas en US$:
+miles × precio por mil), y el avance trae el desglose del mes por casa comercial y variedad, que la web muestra en la
+tarjeta de metas.
 
