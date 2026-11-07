@@ -1,0 +1,34 @@
+# Verifica el servidor ya publicado en FastComet (prueba de humo, solo lectura: no entra con ninguna cuenta ni
+# escribe en la base): /api/salud con la base conectada, webhooks de Meta que rechazan lo que llega sin firma,
+# API cerrada sin sesión, CORS de la web y cabeceras de seguridad. Es servidor/herramientas/verificar.js.
+#
+# Se lanza a mano después de subir el backend: Actions › "Verificar el servidor publicado" › Run workflow.
+# Usa el secreto SEMENCES_API (el mismo que publica la app), o la dirección que se escriba al lanzarlo.
+# Verde: todo bien. Rojo: abrir el paso "Prueba de humo" y mirar las líneas con ✘.
+name: Verificar el servidor publicado
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Dirección del backend (vacío = secreto SEMENCES_API, o https://api.semillasdata.com)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  verificar:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Prueba de humo
+        env:
+          URL_ELEGIDA: ${{ inputs.url }}
+          SEMENCES_API: ${{ secrets.SEMENCES_API }}
+        run: node servidor/herramientas/verificar.js "${URL_ELEGIDA:-${SEMENCES_API:-https://api.semillasdata.com}}"

@@ -20,6 +20,7 @@ import { actualizarEnvio } from '../src/envios.js';
 import { recordarReportes, semanas, diasDeSemana, revisarPendientes, resumenDelLunes } from '../src/reportes.js';
 import { crearIA } from '../src/ia.js';
 import { actualizarToken } from '../src/cuentas.js';
+import { verificarServidor } from '../herramientas/verificar.js';
 
 const BASES = (process.env.PRUEBA_BASES || '127.0.0.1:33061,127.0.0.1:33062').split(',');
 
@@ -206,6 +207,16 @@ for (const base of BASES) {
         after(async () => {
             await new Promise(r => servidor.close(r));
             await pool.end();
+        });
+
+        test('verificar.js (prueba de humo de producción): todo en verde contra el servidor real', async () => {
+            const { ok, resultados, integraciones } = await verificarServidor(url, { origenes: [config.origenes[0]] });
+            const fallos = resultados.filter(r => !r.ok).map(r => `${r.nombre}: ${r.detalle}`);
+            assert.ok(ok, fallos.join(' | '));
+            assert.deepEqual(fallos.filter(f => !/Tiempo de respuesta|Flujos automáticos|Cola de avisos/.test(f)), []);
+            assert.ok(resultados.some(r => r.nombre === 'Webhook de WhatsApp sin firma' && r.ok));
+            assert.ok(resultados.some(r => r.nombre === 'CORS de un origen ajeno' && r.ok));
+            assert.equal(integraciones && integraciones.ia, true);
         });
 
         test('salud', async () => {

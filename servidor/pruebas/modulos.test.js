@@ -9,6 +9,8 @@ import * as permisos from '../src/permisos.js';
 import { leerConfig, comprobarConfig, horaResumen, validarEntorno, ORIGENES_POR_DEFECTO } from '../src/config.js';
 import { problemaEnDatos } from '../src/seguridad.js';
 import fs from 'node:fs';
+import http from 'node:http';
+import { drive as clienteDrive } from '@googleapis/drive';
 import { filasDe, pestanasDe, PESTANAS } from '../src/exportar.js';
 import { crearAvisos, suscripcionValida, normalizarTelefono, textoWhatsapp, tarjetaChat } from '../src/avisos.js';
 import { esPasajero, conReintentos } from '../src/reintentos.js';
@@ -394,6 +396,32 @@ describe('avisos: WhatsApp, Google Chat y push', () => {
     });
 });
 
+/**
+ * Error REAL de una API de Google: el cliente de Drive (googleapis + gaxios) llama a un servidor local que responde
+ * como Google. Así las pruebas ven el error con su forma de verdad (el cuerpo es un objeto, no un texto).
+ */
+async function errorDeGoogle(estado, cuerpo) {
+    const servidor = http.createServer((req, res) => {
+        res.writeHead(estado, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(cuerpo));
+    });
+    await new Promise(r => servidor.listen(0, '127.0.0.1', r));
+    try {
+        await clienteDrive({ version: 'v3', rootUrl: `http://127.0.0.1:${servidor.address().port}/` }).files.list({}, { retry: false });
+        throw new Error('Google simulado no devolvió un error');
+    } catch (error) {
+        return error;
+    } finally {
+        await new Promise(r => servidor.close(r));
+    }
+}
+const FALTA_SCOPE = { error: { code: 403, message: 'Request had insufficient authentication scopes.', status: 'PERMISSION_DENIED',
+    errors: [{ message: 'Insufficient Permission', domain: 'global', reason: 'insufficientPermissions' }],
+    details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'ACCESS_TOKEN_SCOPE_INSUFFICIENT' }] } };
+const cuotaDeGoogle = (reason) => ({ error: { code: 403, message: 'User rate limit exceeded.', errors: [{ message: 'User rate limit exceeded.', domain: 'usageLimits', reason }] } });
+const SIN_ACCESO_AL_ARCHIVO = { error: { code: 403, message: 'The user does not have sufficient permissions for file 1AbC.',
+    errors: [{ message: 'The user does not have sufficient permissions for file 1AbC.', domain: 'global', reason: 'insufficientFilePermissions' }] } };
+
 // ---------------------------------------------------------------------------------------------------
 describe('reintentos: qué fallos son pasajeros', () => {
     test('HTTP 429 y 5xx sí; 4xx no (también con el código en texto)', () => {
@@ -417,6 +445,15 @@ describe('reintentos: qué fallos son pasajeros', () => {
     test('tiempo agotado de fetch (AbortSignal.timeout): antes se daba por fallo definitivo', () => {
         assert.ok(esPasajero(new DOMException('The operation was aborted due to timeout', 'TimeoutError')));
         assert.ok(esPasajero({ code: 'TimeoutError' }), 'así lo deja gaxios (librerías de Google)');
+    });
+
+    test('Google: la cuota por minuto llega como 403 (no 429) y se reintenta; la diaria y los permisos no', async () => {
+        assert.ok(esPasajero(await errorDeGoogle(403, cuotaDeGoogle('userRateLimitExceeded'))), 'cuota por persona (Drive, Gmail, Calendar)');
+        assert.ok(esPasajero(await errorDeGoogle(403, cuotaDeGoogle('rateLimitExceeded'))), 'cuota del proyecto');
+        assert.ok(esPasajero(await errorDeGoogle(429, { error: { code: 429, message: 'Quota exceeded', status: 'RESOURCE_EXHAUSTED' } })), 'Sheets: 429');
+        assert.ok(!esPasajero(await errorDeGoogle(403, cuotaDeGoogle('dailyLimitExceeded'))), 'la diaria no se arregla en segundos');
+        assert.ok(!esPasajero(await errorDeGoogle(403, FALTA_SCOPE)), 'falta un permiso: reintentar no sirve');
+        assert.ok(!esPasajero(await errorDeGoogle(403, SIN_ACCESO_AL_ARCHIVO)));
     });
 
     test('red cortada con el fetch de Node: el motivo viene en error.cause', () => {
@@ -768,6 +805,32 @@ describe('acciones', () => {
             throw Object.assign(new Error('Request had insufficient authentication scopes.'), { code: 403 });
         }), /Falta un permiso de Google/);
         assert.equal(pool.consultas.length, 0);
+    });
+
+    test('conGoogle: falta un permiso con el error REAL de Google (cuerpo en objeto) → mensaje claro (antes leía "[object Object]")', async () => {
+        const errorReal = await errorDeGoogle(403, FALTA_SCOPE);
+        const pool = poolFalso();
+        await assert.rejects(conGoogle({ pool, config: { claveCifrado: CLAVE }, usuario }, async () => { throw errorReal; }),
+            (e) => e.estado === 403 && e.codigo === 'google' && /Falta un permiso de Google/.test(e.message));
+        assert.equal(pool.consultas.length, 0, 'el token sigue guardado');
+    });
+
+    test('conGoogle: un archivo de Drive sin acceso NO pide reconectar la cuenta (no lo arreglaría)', async () => {
+        const errorReal = await errorDeGoogle(403, SIN_ACCESO_AL_ARCHIVO);
+        await assert.rejects(conGoogle({ pool: poolFalso(), config: { claveCifrado: CLAVE }, usuario }, async () => { throw errorReal; }),
+            (e) => e === errorReal);
+    });
+
+    test('conGoogle: la cuota por minuto de Google (403 userRateLimitExceeded) se reintenta y la llamada sale', async () => {
+        const errorReal = await errorDeGoogle(403, cuotaDeGoogle('userRateLimitExceeded'));
+        let intentos = 0;
+        const resultado = await conGoogle({ pool: poolFalso(), config: { claveCifrado: CLAVE }, usuario }, async () => {
+            intentos++;
+            if (intentos === 1) throw errorReal;
+            return 'hecho';
+        });
+        assert.equal(resultado, 'hecho');
+        assert.equal(intentos, 2);
     });
 
     test('chat: sin Google Chat configurado es un 503 de configuración (antes un 500 interno)', async () => {
