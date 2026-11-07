@@ -727,6 +727,41 @@ describe('acciones', () => {
         assert.ok(pool.consultas.some(c => /SET token_google = NULL/.test(c.sql) && c.parametros[0] === 3));
     });
 
+    test('conGoogle: cada intento (también los reintentos) espera su turno en la cuota de Google de esa persona', async () => {
+        const { cuotaGoogle } = await import('../src/cuotas.js');
+        const original = cuotaGoogle.esperar;
+        const turnos = [];
+        cuotaGoogle.esperar = async (clave) => { turnos.push(clave); return 0; };
+        try {
+            let intentos = 0;
+            const resultado = await conGoogle({ pool: poolFalso(), config: { claveCifrado: CLAVE }, usuario }, async () => {
+                if (++intentos === 1) throw Object.assign(new Error('Backend Error'), { status: 503 });
+                return 'hecho';
+            });
+            assert.equal(resultado, 'hecho');
+            assert.deepEqual(turnos, [3, 3], 'el primer intento y el reintento, con la cuota de Ana');
+        } finally {
+            cuotaGoogle.esperar = original;
+        }
+    });
+
+    test('conGoogle: si no se puede guardar el token renovado (base caída), la llamada sigue y queda en el registro', async () => {
+        const pool = { query: async () => { throw new Error('Connection lost'); } };
+        const errores = [];
+        const consola = console.error;
+        console.error = (...args) => errores.push(args.join(' '));
+        try {
+            const resultado = await conGoogle({ pool, config: { claveCifrado: CLAVE }, usuario }, async (token, alRenovar) => {
+                await alRenovar('refresco-nuevo'); // Google renovó el token a mitad de la llamada
+                return 'hecho';
+            });
+            assert.equal(resultado, 'hecho');
+        } finally {
+            console.error = consola;
+        }
+        assert.ok(errores.some(e => /no se pudo guardar el token renovado de ana@semillasdata\.com: Connection lost/.test(e)), errores.join(' | '));
+    });
+
     test('conGoogle: falta un permiso (scope) → mensaje claro, sin borrar el token', async () => {
         const pool = poolFalso();
         await assert.rejects(conGoogle({ pool, config: { claveCifrado: CLAVE }, usuario }, async () => {
