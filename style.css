@@ -1055,6 +1055,17 @@ summary {
     white-space: nowrap;
 }
 
+/* Cliente de otra casa del mismo país (fase 2): se ve su ficha básica, sin poder cambiarla */
+.etiqueta-compartida {
+    display: inline-block;
+    padding: var(--sdc-espacio-0) var(--sdc-espacio-2);
+    border: 1px solid var(--ui-borde);
+    border-radius: var(--sdc-radio-pildora);
+    color: var(--ui-texto);
+    font-size: var(--sdc-texto-xs);
+    white-space: nowrap;
+}
+
 /* Variante con borde: el tono va en el borde izquierdo y el texto queda en el color del tema (listas largas,
    donde una pastilla llena por fila pesaría demasiado). data-tono: info, exito, aviso, peligro */
 .etiqueta-borde {
@@ -3972,6 +3983,33 @@ body.ventana-flotante {
 
 .meta-cumplida .meta-barra span {
     background: var(--sdc-primario);
+}
+
+/* Ventas del mes por casa comercial y variedad (fase 2), dentro de la tarjeta de metas */
+.tabla-desglose {
+    width: 100%;
+    border-collapse: collapse;
+    color: var(--ui-texto);
+    font-size: var(--sdc-texto-sm);
+}
+
+.tabla-desglose caption {
+    text-align: left;
+    color: var(--ui-titulo);
+    font-weight: var(--sdc-peso-medio);
+    padding-bottom: var(--sdc-espacio-1);
+}
+
+.tabla-desglose th,
+.tabla-desglose td {
+    padding: var(--sdc-espacio-1) var(--sdc-espacio-2);
+    border-bottom: 1px solid var(--ui-borde);
+    text-align: left;
+}
+
+.tabla-desglose .celda-dato {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
 }
 
 .meta-form {

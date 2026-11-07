@@ -8,6 +8,7 @@
 import * as db from './db.js';
 import { telefonosDelEquipo, guardarTelefono, esAdmin, publico,
     guardarSuscripcion, borrarSuscripcion, suscripcionesDelEquipo, tieneSuscripcion, destinosDe, tokenDe } from './cuentas.js';
+import { ajustarPedido, conVendedor } from './pedidos.js';
 import { ambitoDe, puedeEscribir, puedeLeer, dentroDelAmbito, filtrarDatos, asignacionValida, ajustarCotizacion, apruebaCotizaciones, PAISES, CASAS, CARGOS, NOMBRE_PAIS } from './permisos.js';
 import { construirCorreo, destinatarios } from './correo.js';
 import { pestanasDe } from './exportar.js';
@@ -185,7 +186,13 @@ function comprobarCambios(lista, nombre) {
 const conEventos = ({ usuario, config, red, ambito }) => ({
     alConfirmar: (conexion, guardados) => emitirEventosDeCambios(conexion, REGLAS, guardados, { usuario, hoy: enZona(new Date(), config.zonaHoraria).fecha }),
     auditoria: { config, red },
-    ajustar: (modulo, registro, anterior) => (modulo === 'cotizaciones' ? ajustarCotizacion(ambito, usuario, registro, anterior) : registro)
+    // Pedidos: vendedor ejecutor, y cantidad y precio en US$ obligatorios para confirmar (pedidos.js).
+    // Cotizaciones: su revisión (permisos.js) y también su vendedor ejecutor
+    ajustar: (modulo, registro, anterior) => {
+        if (modulo === 'pedidos') return ajustarPedido(ambito, usuario, registro, anterior);
+        if (modulo === 'cotizaciones') return conVendedor(ambito, usuario, ajustarCotizacion(ambito, usuario, registro, anterior), anterior);
+        return registro;
+    }
 });
 
 export const ACCIONES = {

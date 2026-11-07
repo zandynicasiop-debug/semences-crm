@@ -232,7 +232,7 @@ const MODULOS_CRM = {
     pedidos: {
         pestana: 'Pedidos',
         titulo: 'Pedidos de semilla',
-        subtitulo: 'Lo que compra cada cliente: variedad, miles de semillas y estado. Los confirmados y entregados cuentan como venta en las metas del vendedor del cliente.',
+        subtitulo: 'Lo que compra cada cliente por casa comercial y variedad. Para confirmarlo hacen falta las semillas (miles) y el precio en US$; los confirmados y entregados cuentan como venta del vendedor que lo ejecuta, y en la próxima temporada se abre solo el pedido de recompra.',
         nuevo: 'Registrar pedido',
         vacio: 'Todavía no hay pedidos. Registra el primero desde aquí o desde el expediente del cliente.',
         campos: [
@@ -241,8 +241,11 @@ const MODULOS_CRM = {
             { id: 'fecha', etiqueta: 'Fecha', tipo: 'date', requerido: true, hoy: true },
             { id: 'variedad', etiqueta: 'Variedad', tipo: 'text', requerido: true, lista: 'lista-variedades', falta: 'Escribe la variedad.' },
             { id: 'semillasMiles', etiqueta: 'Semillas (miles)', tipo: 'number', requerido: true, min: 0, paso: 'any' },
-            { id: 'precioMil', etiqueta: 'Precio por mil semillas (US$)', tipo: 'number', min: 0, paso: 'any' },
+            { id: 'precioMil', etiqueta: 'Precio por mil semillas (US$)', tipo: 'number', min: 0, paso: 'any', ejemplo: 'Obligatorio para confirmar' },
             { id: 'estado', etiqueta: 'Estado', tipo: 'select', opciones: ESTADOS_PEDIDO, requerido: true },
+            { id: 'temporada', etiqueta: 'Temporada', tipo: 'text', ejemplo: 'Ej.: Invierno 2026' },
+            // Ciclo de recompra: al confirmarlo, a los X días de su fecha se abre el pedido de la nueva temporada
+            { id: 'recompraDias', etiqueta: 'Recompra en (días)', tipo: 'number', min: 1, max: 730, paso: 1, ejemplo: '90' },
             { id: 'notas', etiqueta: 'Notas', tipo: 'textarea' }
         ],
         columnas: [
@@ -251,8 +254,11 @@ const MODULOS_CRM = {
             { titulo: 'Variedad', valor: r => r.variedad },
             { titulo: 'Semillas (miles)', valor: r => numero(r.semillasMiles), dato: true },
             { titulo: 'Estado', valor: r => r.estado, etiqueta: true },
+            { titulo: 'Temporada', valor: r => r.temporada },
             { titulo: 'Total (US$)', valor: r => (Number(r.precioMil) && Number(r.semillasMiles)) ? numero(Math.round(Number(r.precioMil) * Number(r.semillasMiles) * 100) / 100) : '', dato: true },
             ...COLUMNAS_AMBITO,
+            // Quien lo vende (lo pone el servidor): un vendedor solo ve los suyos; administración y el Master, todos
+            { titulo: 'Vendedor', valor: r => String(r.vendedor || '').split('@')[0], soloAmbito: true },
             { titulo: 'Registró', valor: r => r.responsable }
         ]
     },
@@ -818,8 +824,16 @@ class CRM {
                     abrir.addEventListener('click', () => window.cotizador.abrir({ id: registro.id }));
                     acciones.appendChild(abrir);
                 }
+                // Ficha compartida (cliente de otra casa de su país): se ve para no duplicarlo, pero no es suya
+                if (modulo === 'clientes' && registro.compartida) {
+                    const marca = document.createElement('span');
+                    marca.className = 'etiqueta-compartida';
+                    marca.textContent = 'Ficha compartida';
+                    marca.title = 'Cliente de otra casa comercial de tu país: ves su ficha básica y puedes registrarle pedidos de tu casa.';
+                    acciones.appendChild(marca);
+                }
                 const eliminar = document.createElement('button');
-                eliminar.hidden = modulo === 'cotizaciones' && registro.estado === 'Aprobada' && !window.cotizador.apruebo;
+                eliminar.hidden = (modulo === 'cotizaciones' && registro.estado === 'Aprobada' && !window.cotizador.apruebo) || (modulo === 'clientes' && Boolean(registro.compartida));
                 eliminar.type = 'button';
                 eliminar.className = 'btn-texto btn-peligro';
                 eliminar.textContent = 'Eliminar';
@@ -1290,7 +1304,7 @@ class CRM {
         // Etapa del embudo, cambiable aquí (si la persona puede editar clientes). Sin conexión se guarda en la cola
         // (colaEtapas.js) y sale sola al volver la señal; pasar a "Reunión" hace que el servidor prepare la reunión
         const ambitoEtapa = ambitoCRM();
-        if (!ambitoEtapa || ambitoEtapa.modulos.includes('clientes')) {
+        if ((!ambitoEtapa || ambitoEtapa.modulos.includes('clientes')) && !cliente.compartida) {
             const fila = document.createElement('label');
             fila.className = 'expediente-etapa';
             const nombre = document.createElement('span');
@@ -1689,6 +1703,11 @@ class CRM {
                 return fallo(control, 'Escribe un correo válido, por ejemplo cliente@ejemplo.com.');
             }
         });
+        // Un pedido Confirmado o Entregado cuenta como venta: necesita semillas y precio en US$ (el servidor lo exige igual)
+        if (modulo === 'pedidos' && ['Confirmado', 'Entregado'].includes(form.elements.estado.value)) {
+            if (!(Number(form.elements.semillasMiles.value) > 0)) fallo(form.elements.semillasMiles, 'Para confirmar el pedido escribe las semillas (miles), mayor que 0.');
+            if (!(Number(form.elements.precioMil.value) > 0)) fallo(form.elements.precioMil, 'Para confirmar el pedido escribe el precio por mil en US$, mayor que 0.');
+        }
         if (modulo === 'agronomia') {
             const ini = form.elements.fechaInicio.value, fin = form.elements.fechaFin.value;
             if (ini && fin && fin < ini) fallo(form.elements.fechaFin, 'La fecha de fin no puede ser anterior a la de inicio.');

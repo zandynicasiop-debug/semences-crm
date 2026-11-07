@@ -125,7 +125,7 @@ for (const base of BASES) {
         test('lo que hace la app funciona sobre la base puesta al día', async () => {
             await pool.query("UPDATE usuarios SET estado = 'aprobado', cargo = 'vendedor', paises = '[\"RD\"]', casas = '[\"Fitó\"]' WHERE email = 'ana@semillasdata.com'");
             const [[ana]] = await pool.query("SELECT * FROM usuarios WHERE email = 'ana@semillasdata.com'");
-            assert.deepEqual({ ...ambitoDe(ana, config), modulos: undefined, lectura: undefined }, { estado: 'aprobado', cargo: 'vendedor', master: false, paises: ['RD'], casas: ['Fitó'], modulos: undefined, lectura: undefined });
+            assert.deepEqual({ ...ambitoDe(ana, config), modulos: undefined, lectura: undefined }, { estado: 'aprobado', cargo: 'vendedor', master: false, email: 'ana@semillasdata.com', paises: ['RD'], casas: ['Fitó'], modulos: undefined, lectura: undefined });
             await encolar(pool, 'push', ['huella-1'], 'Aviso nuevo');
             const [[nuevo]] = await pool.query("SELECT canal, destino FROM cola_avisos WHERE texto = 'Aviso nuevo'");
             assert.deepEqual({ ...nuevo }, { canal: 'push', destino: 'huella-1' });

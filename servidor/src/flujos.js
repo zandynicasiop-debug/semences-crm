@@ -31,6 +31,7 @@ import { conGoogle } from './llamadasGoogle.js';
 import { esPasajero } from './reintentos.js';
 import { enZona, inicioDelDia, sumarDias } from './fechas.js';
 import { errorDefinitivo } from './eventos.js';
+import { REGLA_RECOMPRA, ESTADOS_VENTA, idRecompra, pedidoDeRecompra, ejecutorDe } from './pedidos.js';
 
 export const ETAPAS_CLIENTE = ['Prospecto', 'Contactado', 'Reunión', 'Propuesta', 'Cliente', 'Perdido'];
 
@@ -47,7 +48,9 @@ export const REGLAS = [
             usuarioId: usuario.id,
             carga: { clienteId: String(registro.id), etapaAnterior: (anterior && anterior.etapa) || '' }
         })
-    }
+    },
+    // Ciclo de recompra: pedido Confirmado o Entregado → en la próxima temporada, pedido Cotizado nuevo (pedidos.js)
+    REGLA_RECOMPRA
 ];
 
 /**
@@ -277,7 +280,44 @@ export async function alPasarAReunion(evento, { paso, contexto }) {
     });
 }
 
+/**
+ * Ciclo de recompra (pedidos.js): llegó la próxima temporada de un pedido confirmado. Si sigue siendo venta
+ * (no se canceló ni volvió a Cotizado), se abre el pedido Cotizado de la nueva temporada para el mismo cliente,
+ * casa, variedad y vendedor, y se le avisa en su campana (y por push). Cada paso con su punto de control.
+ * @type {import('./eventos.js').Manejador}
+ */
+export async function alLlegarLaRecompra(evento, { paso, contexto }) {
+    const { pool, config, avisos } = contexto;
+    const origen = await db.leerRegistro(pool, 'pedidos', String(evento.carga.pedidoId || ''));
+    if (!origen) return; // Se borró: no hay temporada que reabrir
+    if (!ESTADOS_VENTA.includes(origen.estado)) return; // Cancelado o vuelto a Cotizado: tampoco
+    const hoy = enZona(new Date(), config.zonaHoraria).fecha;
+    const nuevo = await paso('pedido', async () => {
+        const id = idRecompra(origen.id);
+        const ya = await db.leerRegistro(pool, 'pedidos', id);
+        if (!ya) {
+            await db.guardarRegistro(pool, 'pedidos', pedidoDeRecompra(origen, hoy), null, /** @type {any} */ ({ config, sistema: 'Recompra automática' }));
+        }
+        return { id, creado: !ya };
+    });
+    await paso('aviso', async () => {
+        const [filas] = await pool.query("SELECT id, email FROM usuarios WHERE email = ? AND estado = 'aprobado'", [ejecutorDe(origen)]);
+        const persona = filas[0];
+        if (!persona) return { omitido: 'El vendedor ya no está en el equipo: el pedido queda para administración' };
+        const cliente = await db.leerRegistro(pool, 'clientes', String(origen.clienteId || ''));
+        const texto = `🔁 Recompra: ${(cliente && cliente.nombre) || origen.cliente || 'tu cliente'} · ${origen.casa || ''} · ${origen.variedad || ''}. `
+            + 'Se abrió el pedido de la nueva temporada (Cotizado): confirma la cantidad y el precio.';
+        await registrarAviso(pool, [persona.id], 'cliente', texto.replace(/^🔁\s*/, ''));
+        if (avisos && avisos.pushActivo) {
+            const { huellas } = await destinosDe(pool, [persona.id]);
+            await encolar(pool, 'push', huellas, texto);
+        }
+        return { para: persona.email, pedido: nuevo.id };
+    });
+}
+
 /** @type {Record<string, import('./eventos.js').Manejador>} */
 export const MANEJADORES = {
-    CLIENTE_EN_REUNION: alPasarAReunion
+    CLIENTE_EN_REUNION: alPasarAReunion,
+    PEDIDO_RECOMPRA: alLlegarLaRecompra
 };

@@ -9,6 +9,7 @@
  */
 const NOMBRE_INDICADOR = {
     ventas: 'Ventas (miles de semillas)',
+    ventasUsd: 'Ventas (US$)',
     clientes: 'Clientes nuevos',
     visitas: 'Visitas a clientes',
     ensayos: 'Ensayos de validación por variedad',
@@ -356,7 +357,8 @@ class ReunionesMetas {
             nombre.textContent = m.nombre;
             const cifra = document.createElement('span');
             cifra.className = 'meta-cifra';
-            cifra.textContent = `${m.porcentaje >= 100 ? '✅ ' : ''}${Number(m.avance).toLocaleString(LOCALE)} de ${Number(m.objetivo).toLocaleString(LOCALE)}${m.indicador === 'actividades' ? ' %' : ''}`;
+            const usd = m.indicador === 'ventasUsd' ? 'US$ ' : '';
+            cifra.textContent = `${m.porcentaje >= 100 ? '✅ ' : ''}${usd}${Number(m.avance).toLocaleString(LOCALE)} de ${usd}${Number(m.objetivo).toLocaleString(LOCALE)}${m.indicador === 'actividades' ? ' %' : ''}`;
             const barra = document.createElement('div');
             barra.className = 'meta-barra';
             barra.setAttribute('role', 'progressbar');
@@ -383,6 +385,33 @@ class ReunionesMetas {
             }
             art.appendChild(fila);
         });
+        // Ventas del mes por casa comercial y variedad (pedidos Confirmados y Entregados que ejecuta la persona)
+        const desglose = (p.avance && p.avance.desglose) || [];
+        if (desglose.length) {
+            const tabla = document.createElement('table');
+            tabla.className = 'tabla-desglose';
+            const titulo = document.createElement('caption');
+            titulo.textContent = 'Ventas del mes por casa y variedad';
+            const cabecera = document.createElement('tr');
+            ['Casa comercial', 'Variedad', 'Miles de semillas', 'US$'].forEach(t => {
+                const th = document.createElement('th');
+                th.scope = 'col';
+                th.textContent = t;
+                cabecera.appendChild(th);
+            });
+            tabla.append(titulo, cabecera);
+            desglose.forEach(l => {
+                const tr = document.createElement('tr');
+                [l.casa, l.variedad, Number(l.miles).toLocaleString(LOCALE), Number(l.usd).toLocaleString(LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 })].forEach((v, i) => {
+                    const td = document.createElement('td');
+                    if (i >= 2) td.className = 'celda-dato';
+                    td.textContent = v;
+                    tr.appendChild(td);
+                });
+                tabla.appendChild(tr);
+            });
+            art.appendChild(tabla);
+        }
         if (p.puedoFijar) {
             const form = document.createElement('form');
             form.className = 'meta-form';

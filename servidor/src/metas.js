@@ -4,8 +4,9 @@
  * - Las fijan los Master (a cualquiera) y los administrativos (a quien comparte país y casa con ellos,
  *   no a sí mismos). Cada persona ve solo las suyas; administración, las de su equipo.
  * - Indicadores y de dónde sale el avance en el mes (en la zona horaria del equipo):
- *   ventas: miles de semillas de los pedidos Confirmados o Entregados de sus clientes (el vendedor
- *     asignado al cliente o, si no tiene, quien registró el pedido);
+ *   ventas: miles de semillas de los pedidos Confirmados o Entregados que ejecuta la persona (el `vendedor`
+ *     del pedido, pedidos.js; en los de antes, el vendedor asignado al cliente o quien registró el pedido);
+ *   ventasUsd: lo mismo en US$ (miles × precio por mil), y el desglose por casa comercial y variedad;
  *   clientes: clientes creados en el mes asignados a la persona (o creados por ella sin asignar);
  *   visitas: visitas con fecha del mes registradas por la persona;
  *   ensayos: ensayos de validación por variedad (cliente + lote + variedad distintos) con inicio en el mes;
@@ -16,9 +17,11 @@ import { enZona } from './fechas.js';
 import { diasDeSemana } from './reportes.js';
 import { registrarAviso } from './campana.js';
 import * as db from './db.js';
+import { ejecutorDe, ESTADOS_VENTA, totalUsd } from './pedidos.js';
 
 export const INDICADORES = {
     ventas: 'Ventas (miles de semillas)',
+    ventasUsd: 'Ventas (US$)',
     clientes: 'Clientes nuevos',
     visitas: 'Visitas a clientes',
     ensayos: 'Ensayos de validación por variedad',
@@ -58,10 +61,25 @@ export async function avanceDe(pool, config, persona, mes, datos) {
     const autor = (r) => correo(r.creadoPor || r.cuenta);
     const clientes = new Map((datos.clientes || []).map(c => [c.id, c]));
 
-    const ventas = (datos.pedidos || [])
-        .filter(p => delMes(p.fecha) && ['Confirmado', 'Entregado'].includes(p.estado))
-        .filter(p => correo((clientes.get(p.clienteId) || {}).asignado || p.creadoPor || p.cuenta) === email)
-        .reduce((s, p) => s + (Number(p.semillasMiles) || 0), 0);
+    const vendidos = (datos.pedidos || [])
+        .filter(p => delMes(p.fecha) && ESTADOS_VENTA.includes(p.estado))
+        .filter(p => ejecutorDe(p, clientes.get(p.clienteId) || null) === email);
+    const ventas = vendidos.reduce((s, p) => s + (Number(p.semillasMiles) || 0), 0);
+    const ventasUsd = vendidos.reduce((s, p) => s + totalUsd(p), 0);
+    // Desglose por casa comercial y variedad (de mayor a menor en US$)
+    const porLinea = new Map();
+    for (const p of vendidos) {
+        const casa = String(p.casa || 'Sin casa'), variedad = String(p.variedad || 'Sin variedad');
+        const clave = `${casa}\u0000${variedad.toLowerCase()}`;
+        const linea = porLinea.get(clave) || { casa, variedad, miles: 0, usd: 0, pedidos: 0 };
+        linea.miles += Number(p.semillasMiles) || 0;
+        linea.usd += totalUsd(p);
+        linea.pedidos++;
+        porLinea.set(clave, linea);
+    }
+    const desglose = [...porLinea.values()]
+        .map(l => ({ ...l, miles: Math.round(l.miles * 10) / 10, usd: Math.round(l.usd * 100) / 100 }))
+        .sort((a, b) => b.usd - a.usd || b.miles - a.miles);
     const clientesNuevos = (datos.clientes || []).filter(c => creadoEnMes(c.creado) && correo(c.asignado || c.creadoPor || c.cuenta) === email).length;
     const visitas = (datos.visitas || []).filter(v => delMes(v.fecha) && autor(v) === email).length;
     const ensayos = new Set((datos.agronomia || [])
@@ -76,6 +94,8 @@ export async function avanceDe(pool, config, persona, mes, datos) {
     });
     return {
         ventas: Math.round(ventas * 10) / 10,
+        ventasUsd: Math.round(ventasUsd * 100) / 100,
+        desglose,
         clientes: clientesNuevos,
         visitas,
         ensayos,

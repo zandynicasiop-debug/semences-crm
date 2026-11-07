@@ -16,6 +16,7 @@ import { crearTransportistas, iniciarRastreo } from './src/envios.js';
 import { crearInstagram } from './src/instagram.js';
 import { iniciarRecordatorios } from './src/reportes.js';
 import { crearIA } from './src/ia.js';
+import { asignarEjecutores } from './src/pedidos.js';
 
 try { process.loadEnvFile(new URL('./.env', import.meta.url)); } catch (e) { /* Sin .env: se usan las variables del panel */ }
 
@@ -35,6 +36,13 @@ process.on('unhandledRejection', (motivo) => {
 });
 
 const pool = await conectar(config.mysql);
+// Fase 2: los pedidos y cotizaciones de antes reciben su vendedor ejecutor (solo los que no lo tienen)
+try {
+    const completados = await asignarEjecutores(pool);
+    if (completados) console.log(`Pedidos y cotizaciones con su vendedor ejecutor: ${completados}`);
+} catch (error) {
+    console.error('No se pudo completar el vendedor de los pedidos antiguos:', error.message);
+}
 const avisos = crearAvisos(config);
 const google = crearGoogle(config);
 const transportistas = crearTransportistas(config);
