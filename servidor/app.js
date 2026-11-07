@@ -28,6 +28,12 @@ if (faltan.length) {
 }
 for (const aviso of avisosConfig) console.warn(`Configuración: ${aviso}`);
 
+// Red de seguridad: una promesa rechazada que nadie atiende (un fallo en un aviso, un evento de Google) queda en
+// stderr.log en vez de detener el servidor; Node la convertiría en un cierre del proceso entero
+process.on('unhandledRejection', (motivo) => {
+    console.error('Error sin atender (el servidor sigue en marcha):', motivo instanceof Error ? motivo.stack : motivo);
+});
+
 const pool = await conectar(config.mysql);
 const avisos = crearAvisos(config);
 const google = crearGoogle(config);

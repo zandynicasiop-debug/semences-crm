@@ -135,11 +135,19 @@ export function crearGoogle(config) {
         return { ...(await identidad(tokens.id_token)), tokenRefresco: tokens.refresh_token || '', permisos: tokens.scope || '' };
     }
 
-    // Cliente autenticado con el token de refresco de la persona. Si Google lo renueva, avisa
+    // Cliente autenticado con el token de refresco de la persona. Si Google lo renueva, avisa. El aviso llega
+    // como evento ('tokens'): un fallo al guardarlo (la base caída en ese momento) se registra y nunca queda sin
+    // atender, porque en Node un rechazo sin atender detiene el proceso entero
     function autenticado(tokenRefresco, alRenovar) {
         const auth = cliente();
         auth.setCredentials({ refresh_token: tokenRefresco });
-        if (alRenovar) auth.on('tokens', (t) => { if (t.refresh_token) alRenovar(t.refresh_token); });
+        if (alRenovar) {
+            auth.on('tokens', (t) => {
+                if (!t.refresh_token) return;
+                Promise.resolve().then(() => alRenovar(t.refresh_token))
+                    .catch((error) => console.error('Google: no se pudo guardar el token renovado:', error && error.message));
+            });
+        }
         return auth;
     }
 

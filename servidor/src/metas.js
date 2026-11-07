@@ -11,7 +11,7 @@
  *   ensayos: ensayos de validación por variedad (cliente + lote + variedad distintos) con inicio en el mes;
  *   actividades: % de actividades completadas en sus reportes semanales de las semanas del mes.
  */
-import { ambitoDe } from './permisos.js';
+import { ambitoDe, filtrarDatos } from './permisos.js';
 import { enZona } from './fechas.js';
 import { diasDeSemana } from './reportes.js';
 import { registrarAviso } from './campana.js';
@@ -129,7 +129,9 @@ export async function accionMetas(datos, contexto, { errorApp }) {
     const resultado = [];
     for (const p of personas) {
         const suyas = filas.filter(f => f.usuario_id === p.id);
-        const avance = await avanceDe(pool, config, p, mes, crm);
+        // El avance de otra persona se cuenta solo con lo que entra en el ámbito de quien mira (país, casa y
+        // módulos): un administrativo de RD · Fitó no ve la actividad que esa persona tenga en VE o en otra casa
+        const avance = await avanceDe(pool, config, p, mes, p.id === usuario.id ? crm : filtrarDatos(crm, ambito));
         resultado.push({
             email: p.email, nombre: p.nombre || p.email, cargo: ambitoDe(p, config).cargo, yo: p.id === usuario.id,
             puedoFijar: fija && puedeFijar(ambito, usuario, p, config),

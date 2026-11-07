@@ -429,3 +429,26 @@ describe('idioma: la app en inglés', () => {
         for (const [expresion] of app.PATRONES_EN) assert.doesNotThrow(() => new RegExp(`^${expresion}$`, 'u'), expresion);
     });
 });
+
+// ---------------------------------------------------------------------------------------------------
+describe('auditoría: exportación a CSV', () => {
+    const app = cargar(['googleSync.js', 'auditoria.js']);
+    const celda = app.global('celdaCSV');
+
+    test('lo que empieza por = + - @ (o tabulador) sale como texto, no como fórmula al abrirlo en Excel', () => {
+        assert.equal(celda('=HYPERLINK("http://x","clic")'), `"'=HYPERLINK(""http://x"",""clic"")"`);
+        assert.equal(celda('=cmd|\' /C calc\'!A0'), `"'=cmd|' /C calc'!A0"`, 'p. ej. en el navegador (User-Agent), que lo escribe quien hace la petición');
+        assert.equal(celda('+1 809 555 1234'), `"'+1 809 555 1234"`);
+        assert.equal(celda('-2+3'), `"'-2+3"`);
+        assert.equal(celda('@SUMA(A1)'), `"'@SUMA(A1)"`);
+        assert.equal(celda('\tcmd'), `"'\tcmd"`);
+    });
+
+    test('lo demás, tal cual (con las comillas dobladas, como pide el formato CSV)', () => {
+        assert.equal(celda('Finca López'), '"Finca López"');
+        assert.equal(celda('Dijo "hola"'), '"Dijo ""hola"""');
+        assert.equal(celda('2026-11-07T10:00:00.000Z'), '"2026-11-07T10:00:00.000Z"');
+        assert.equal(celda(null), '""');
+        assert.equal(celda(undefined), '""');
+    });
+});

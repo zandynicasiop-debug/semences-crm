@@ -39,7 +39,7 @@ export async function darBienvenida({ pool, config, avisos }, persona) {
  * del equipo que tienen la bienvenida pendiente de confirmar; lo demás se ignora.
  * Devuelve cuántas confirmó.
  */
-export async function recibirWhatsapp({ pool, config, avisos }, cuerpo) {
+export async function recibirWhatsapp({ pool, config, avisos, diferir = (tarea) => tarea() }, cuerpo) {
     const mensajes = [];
     for (const entrada of (cuerpo && Array.isArray(cuerpo.entry) ? cuerpo.entry : [])) {
         for (const cambio of (Array.isArray(entrada.changes) ? entrada.changes : [])) {
@@ -58,8 +58,9 @@ export async function recibirWhatsapp({ pool, config, avisos }, cuerpo) {
             const respuesta = m.type === 'button' ? (m.button && m.button.text) : m.type === 'interactive' ? 'botón' : (m.text && m.text.body);
             await auditar(pool, config, { usuario: persona, accion: 'whatsapp_confirmado', objeto: telefono, resumen: `Confirmó que le llegan los WhatsApp del equipo${respuesta ? ` («${String(respuesta).slice(0, 60)}»)` : ''}` });
             confirmadas++;
-            // Borja contesta (mensaje normal: la persona acaba de escribir). Si falla, la confirmación ya quedó
-            if (avisos.whatsappTexto) await avisos.whatsappTexto(telefono, traducir(textoConfirmado(persona), persona.idioma)).catch(() => {});
+            // Borja contesta (mensaje normal: la persona acaba de escribir). Si falla, la confirmación ya quedó.
+            // Va después de responder a Meta (diferir, desde aplicacion.js): enviar un WhatsApp puede tardar
+            if (avisos.whatsappTexto) await diferir(() => avisos.whatsappTexto(telefono, traducir(textoConfirmado(persona), persona.idioma)).catch(() => {}));
         }
     }
     return confirmadas;

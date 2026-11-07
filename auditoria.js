@@ -23,6 +23,17 @@ const CAMPOS_AUDITORIA = {
     invitados: 'Invitados', mensaje: 'Mensaje', texto: 'Texto', vendedor: 'Vendedor', telefono: 'Teléfono', nombre: 'Nombre',
     token: 'Token', pais: 'País', casa: 'Casa comercial', actividades: 'Actividades'
 };
+/**
+ * Celda de CSV: entre comillas y, si empieza por = + - @ (o tabulador o retorno), con un apóstrofo delante, para
+ * que Excel o Sheets la abran como texto y no como fórmula. Lo que entra aquí lo escribe cualquiera (el navegador
+ * de la petición, un nombre, un resumen con el nombre de un cliente) y el CSV lo abre un Master en su equipo.
+ */
+function celdaCSV(valor) {
+    let texto = String(valor ?? '');
+    if (/^[=+\-@\t\r]/.test(texto)) texto = `'${texto}`;
+    return `"${texto.replace(/"/g, '""')}"`;
+}
+
 const escaparAuditoria = (texto) => String(texto).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 class Auditoria {
@@ -389,7 +400,7 @@ class Auditoria {
 
     // Lo que hay en la lista ahora (con sus filtros), en CSV para Excel
     exportarCSV() {
-        const celda = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+        const celda = celdaCSV;
         const filas = [['Fecha', 'Persona', 'Correo', 'Acción', 'Módulo', 'Id', 'Resumen', 'Cambios', 'IP', 'Navegador'].map(t => celda(traducir(t))).join(',')];
         this.entradas.forEach(e => filas.push([new Date(e.creado).toISOString(), e.nombre, e.email, traducir(NOMBRE_ACCION_AUDITORIA[e.accion] || e.accion),
             e.modulo ? this.nombreModulo(e.modulo) : '', e.objeto, e.resumen, e.cambios ? JSON.stringify(e.cambios) : '', e.ip, e.agente].map(celda).join(',')));

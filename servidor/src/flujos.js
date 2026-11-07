@@ -31,7 +31,6 @@ import { conGoogle } from './llamadasGoogle.js';
 import { esPasajero } from './reintentos.js';
 import { enZona, inicioDelDia, sumarDias } from './fechas.js';
 import { errorDefinitivo } from './eventos.js';
-import { cuotaGoogle } from './cuotas.js';
 
 export const ETAPAS_CLIENTE = ['Prospecto', 'Contactado', 'Reunión', 'Propuesta', 'Cliente', 'Perdido'];
 
@@ -211,11 +210,9 @@ export async function alPasarAReunion(evento, { paso, contexto }) {
     if (cliente.etapa !== 'Reunión') return; // Cambió de etapa antes de procesarse: ya no toca nada
     const persona = await responsableDe(pool, config, cliente, evento.usuarioId);
     if (!persona) throw errorDefinitivo('Nadie del equipo aprobado puede ver ese cliente');
+    // Con la cuenta del responsable; conGoogle pone la cuota de Google (cuotas.js) en cada llamada
     /** @type {<T>(tarea: (token: string, alRenovar: (token: string) => Promise<void>) => Promise<T>) => Promise<T>} */
-    const conGoogleDe = (tarea) => conGoogle({ pool, config, usuario: persona }, async (/** @type {string} */ token, /** @type {(token: string) => Promise<void>} */ alRenovar) => {
-        await cuotaGoogle.esperar(persona.id);
-        return tarea(token, alRenovar);
-    });
+    const conGoogleDe = (tarea) => conGoogle({ pool, config, usuario: persona }, tarea);
     const carpetaCliente = { id: cliente.id, nombre: String(cliente.nombre || cliente.id).replace(/[\r\n/\\]/g, ' ').trim().slice(0, 150) || cliente.id };
     const ahora = new Date();
     const local = enZona(ahora, config.zonaHoraria);

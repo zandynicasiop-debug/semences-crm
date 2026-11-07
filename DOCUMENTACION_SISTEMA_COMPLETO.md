@@ -498,9 +498,19 @@ conectada o sin plantilla, queda "omitido" y el aviso sale igual.
 y el evento con su clave) y su manejador en `MANEJADORES`, escrito con `paso()`. Se prueba como
 `pruebas/api.test.js › ARM`.
 
-**Cuotas:** `CuboDeFichas` (10 llamadas seguidas, luego 5 por segundo y persona) delante de Google en los flujos y
-en la agenda de Calendar; WhatsApp: los límites de Meta (códigos `130429`, `131056`, `80007`, `4`, `613`, que llegan
-como HTTP 400) se tratan como pasajeros y la cola los reintenta con espera.
+**Cuotas:** `CuboDeFichas` (10 llamadas seguidas, luego 5 por segundo y persona) delante de **toda** llamada a Google:
+lo pone `conGoogle` (`llamadasGoogle.js`) en cada intento, también en los reintentos, así que acciones, flujos,
+agenda, respaldos y correos comparten la misma cuota; la agenda además espera turno en cada evento que crea o borra.
+WhatsApp: los límites de Meta (códigos `130429`, `131056`, `80007`, `4`, `613`, que llegan como HTTP 400) se tratan
+como pasajeros y la cola los reintenta con espera.
+
+**Webhooks de Meta (Instagram y WhatsApp):** antes de responder solo se guarda lo recibido (unas pocas escrituras en
+la base, para no perder nada); lo lento (pedir el perfil de Instagram, la respuesta de Borja por WhatsApp) sale en
+segundo plano después del 200, así Meta no reintenta ni desactiva el webhook por lentitud.
+
+**Tokens que Google renueva:** si no se pueden guardar (la base caída en ese momento), la llamada sigue y queda en
+`stderr.log`; ningún fallo de ese aviso, ni ninguna promesa rechazada sin atender, detiene el servidor
+(`process.on('unhandledRejection')` en `app.js`).
 
 **Rotar `CLAVE_CIFRADO`** sin que nadie vuelva a entrar: `npm run clave` → en el panel, `CLAVE_CIFRADO_ANTERIOR` = la
 de antes y `CLAVE_CIFRADO` = la nueva → reiniciar (cada token se vuelve a cifrar al usarse) → `npm run rotar-clave`

@@ -697,6 +697,7 @@ for (const base of BASES) {
             assert.equal(await verificacion.text(), '99');
             peticionesMeta.length = 0;
             assert.equal((await whatsappWebhook(respuestaLuis)).status, 200);
+            await esperarSegundoPlano(); // La respuesta de Borja sale después del 200 a Meta
             const contestaBorja = peticionesMeta.filter(p => p.destino.startsWith('https://graph.facebook.com') && p.cuerpo.type === 'text');
             assert.equal(contestaBorja.length, 1);
             assert.equal(contestaBorja[0].cuerpo.to, '18295550202');
@@ -972,7 +973,17 @@ for (const base of BASES) {
             assert.equal((await webhook(mensaje('m1', 'Hola'), `sha256=${'0'.repeat(64)}`)).status, 401);
             // Firmado: se guarda una sola vez aunque Meta lo reenvíe; otra cuenta que no es nuestra se ignora
             await pool.query('DELETE FROM cola_avisos');
+            // Meta recibe el 200 sin esperar a lo lento: con el perfil de Instagram tardando 1,5 s, responde antes
+            // y el perfil se pide después, en segundo plano
+            const perfilRapido = instagram.perfil;
+            instagram.perfil = async (...datos) => { await new Promise(r => setTimeout(r, 1500)); return perfilRapido(...datos); };
+            const inicioWebhook = Date.now();
             assert.equal((await webhook(mensaje('m1', '¿Precio del tomate Hexagon?'))).status, 200);
+            const tardo = Date.now() - inicioWebhook;
+            instagram.perfil = perfilRapido;
+            assert.ok(tardo < 1000, `el webhook respondió en ${tardo} ms`);
+            assert.equal((await pool.query("SELECT COUNT(*) n FROM instagram_mensajes WHERE mid = 'm1'"))[0][0].n, 1, 'el mensaje ya está guardado al responder');
+            await esperarSegundoPlano();
             assert.equal((await webhook(mensaje('m1', '¿Precio del tomate Hexagon?'))).status, 200);
             assert.equal((await webhook(mensaje('m9', 'Spam', { cuenta: '17841499999999999' }))).status, 200);
             assert.equal((await pool.query('SELECT COUNT(*) n FROM instagram_mensajes'))[0][0].n, 1);
@@ -1627,6 +1638,26 @@ for (const base of BASES) {
             assert.deepEqual([r.estado, r.json.codigo], [423, 'reporte']);
             assert.equal((await etapaDe('lote-rd')).etapa, 'Cliente');
             assert.equal((await pool.query('SELECT 1 FROM operaciones_lote WHERE operacion_id = ?', [bloqueada.operacionId]))[0].length, 0, 'ni se apunta: se reenviará');
+        });
+
+        test('metas: el avance de otra persona solo cuenta lo que entra en el país y la casa de quien mira', async () => {
+            const mes = enZona(new Date(), config.zonaHoraria).fecha.slice(0, 7);
+            // Dos visitas de Luis este mes: una en RD · Gautier y otra en VE · Fitó (la segunda, fuera del ámbito de Ana)
+            const visita = (id, pais, casa) => pool.query("INSERT INTO registros (modulo, id, datos) VALUES ('visitas', ?, ?)",
+                [id, JSON.stringify({ id, fecha: `${mes}-02`, estado: 'Realizada', pais, casa, creadoPor: 'luis@semillasdata.com' })]);
+            await visita('meta-visita-rd', 'RD', 'Gautier Semences');
+            await visita('meta-visita-ve', 'VE', 'Fitó');
+            const [[ana]] = await pool.query("SELECT paises, casas FROM usuarios WHERE email = 'ana@semillasdata.com'");
+            await pool.query(`UPDATE usuarios SET paises = '["RD"]', casas = '["Gautier Semences"]' WHERE email = 'ana@semillasdata.com'`);
+            try {
+                const visitasDeLuis = async (sesion) => (await accion(sesion, { accion: 'metas', mes })).json.personas.find(p => p.email === 'luis@semillasdata.com').avance.visitas;
+                const vistaPorJefa = await visitasDeLuis(sesiones.jefa);
+                const vistaPorAna = await visitasDeLuis(sesiones.ana);
+                assert.equal(vistaPorJefa - vistaPorAna, 1, `la Master ve ${vistaPorJefa}; Ana (RD · Gautier) no cuenta la de VE · Fitó: ${vistaPorAna}`);
+            } finally {
+                await pool.query('UPDATE usuarios SET paises = ?, casas = ? WHERE email = ?', [ana.paises, ana.casas, 'ana@semillasdata.com']);
+                await pool.query("DELETE FROM registros WHERE modulo = 'visitas' AND id IN ('meta-visita-rd', 'meta-visita-ve')");
+            }
         });
 
         test('salir cierra la sesión', async () => {

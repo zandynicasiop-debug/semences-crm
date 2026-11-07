@@ -27,6 +27,7 @@ import { semanaBloqueada, SIN_REPORTE } from './reportes.js';
 import { IDIOMAS } from './idioma.js';
 import { auditar, redDe, AUDITAR_ACCION } from './auditoria.js';
 import { comprobarLote, aplicarLote } from './lotes.js';
+import { enSegundoPlano } from './workspace.js';
 
 // El "state" de OAuth va firmado: así nadie puede inventar una vuelta de Google
 function firmarEstado(config, valor) {
@@ -83,19 +84,28 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
         if (!ok) return res.sendStatus(403);
         res.type('text/plain').send(String(req.query['hub.challenge'] || ''));
     });
-    // POST: mensajes nuevos. Sin firma válida no se mira nada
-    api.post('/instagram/webhook', async (req, res) => {
+    /**
+     * Webhooks de Meta: necesitan un 200 rápido aunque algo falle (si no, Meta reintenta y acaba desactivando el
+     * webhook). Lo que guarda el mensaje (unas pocas escrituras en la base) se hace antes de responder, para no
+     * perderlo; lo lento (llamadas a la API de Meta: el perfil de Instagram, la respuesta de Borja) se deja con
+     * diferir y sale en segundo plano después del 200, sin bloquear a nadie.
+     */
+    const webhookDeMeta = (nombre, recibir, contexto) => async (req, res) => {
         if (!firmaValida(config.instagram.secreto, req.cuerpoCrudo, req.get('X-Hub-Signature-256'))) {
             return res.status(401).json({ ok: false, error: 'Firma de Meta no válida' });
         }
+        const despues = [];
         try {
-            await recibirWebhook({ pool, config, avisos, instagram }, req.body);
+            await recibir({ ...contexto, diferir: (tarea) => { despues.push(tarea); } }, req.body);
         } catch (error) {
-            registrar.error('Webhook de Instagram:', error.message);
+            registrar.error(`Webhook de ${nombre}:`, error.message);
         }
-        // Meta necesita un 200 rápido aunque algo falle (si no, reintenta y acaba desactivando el webhook)
         res.status(200).send('EVENT_RECEIVED');
-    });
+        if (despues.length) enSegundoPlano((async () => { for (const tarea of despues) await tarea(); })(), registrar);
+    };
+
+    // POST: mensajes nuevos. Sin firma válida no se mira nada
+    api.post('/instagram/webhook', webhookDeMeta('Instagram', recibirWebhook, { pool, config, avisos, instagram }));
 
     // ----- Webhook de WhatsApp (Meta, la misma app y el mismo secreto): respuestas a la bienvenida de Borja -----
     api.get('/whatsapp/webhook', (req, res) => {
@@ -103,17 +113,7 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
         if (!ok) return res.sendStatus(403);
         res.type('text/plain').send(String(req.query['hub.challenge'] || ''));
     });
-    api.post('/whatsapp/webhook', async (req, res) => {
-        if (!firmaValida(config.instagram.secreto, req.cuerpoCrudo, req.get('X-Hub-Signature-256'))) {
-            return res.status(401).json({ ok: false, error: 'Firma de Meta no válida' });
-        }
-        try {
-            await recibirWhatsapp({ pool, config, avisos }, req.body);
-        } catch (error) {
-            registrar.error('Webhook de WhatsApp:', error.message);
-        }
-        res.status(200).send('EVENT_RECEIVED');
-    });
+    api.post('/whatsapp/webhook', webhookDeMeta('WhatsApp', recibirWhatsapp, { pool, config, avisos }));
 
     // Sesión obligatoria para todo lo que no es entrar
     const conSesion = async (req, res, next) => {

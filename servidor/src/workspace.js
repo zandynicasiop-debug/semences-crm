@@ -152,10 +152,11 @@ export async function cuentaDelSistema(pool, config) {
     return filas[0] || null;
 }
 
-// Tareas en segundo plano (correos): la acción responde sin esperarlas; las pruebas pueden esperarlas
+// Tareas en segundo plano (correos, lo lento de los webhooks de Meta): quien las lanza responde sin esperarlas;
+// las pruebas pueden esperarlas (esperarSegundoPlano)
 const pendientes = new Set();
 export function enSegundoPlano(promesa, registrar = console) {
-    const tarea = Promise.resolve(promesa).catch(error => registrar.error('Google Workspace en segundo plano:', error.message)).finally(() => pendientes.delete(tarea));
+    const tarea = Promise.resolve(promesa).catch(error => registrar.error('En segundo plano:', error.message)).finally(() => pendientes.delete(tarea));
     pendientes.add(tarea);
     return tarea;
 }

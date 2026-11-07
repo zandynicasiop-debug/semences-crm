@@ -99,6 +99,9 @@ const ahoraSql = (ms) => new Date(ms || Date.now());
  */
 export async function recibirWebhook(contexto, cuerpo) {
     const { pool, config, avisos, instagram } = contexto;
+    // Lo lento (pedir el perfil a la API de Instagram) puede ir después de responder a Meta: aplicacion.js pasa
+    // diferir para eso. Sin él (pruebas, uso directo) se hace aquí mismo, en orden
+    const diferir = contexto.diferir || ((tarea) => tarea());
     if (!cuerpo || cuerpo.object !== 'instagram' || !Array.isArray(cuerpo.entry)) return 0;
     let guardados = 0;
     for (const entrada of cuerpo.entry) {
@@ -127,10 +130,12 @@ export async function recibirWebhook(contexto, cuerpo) {
                 [cuentaId, igsid, m.text.slice(0, 500), fecha, eco ? null : fecha, eco ? 0 : 1]);
             // El nombre de usuario de Instagram, la primera vez (si Meta lo da)
             if (!eco && !(antes && antes.usuario) && instagram) {
-                try {
-                    const { usuario } = await instagram.perfil(descifrar(cuenta.token, config.claveCifrado, contextoToken(cuentaId)), igsid);
-                    if (usuario) await pool.query('UPDATE instagram_conversaciones SET usuario = ? WHERE cuenta_id = ? AND igsid = ?', [usuario, cuentaId, igsid]);
-                } catch (e) { /* sin permiso para el perfil: se queda con el id */ }
+                await diferir(async () => {
+                    try {
+                        const { usuario } = await instagram.perfil(descifrar(cuenta.token, config.claveCifrado, contextoToken(cuentaId)), igsid);
+                        if (usuario) await pool.query('UPDATE instagram_conversaciones SET usuario = ? WHERE cuenta_id = ? AND igsid = ?', [usuario, cuentaId, igsid]);
+                    } catch (e) { /* sin permiso para el perfil: se queda con el id */ }
+                });
             }
             if (!eco && !(antes && antes.sin_leer > 0)) await avisarAdministracion(contexto, cuenta, m.text);
         }
