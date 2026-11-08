@@ -629,6 +629,9 @@ salen conectadas cuando el backend ya responde y existe el secreto `SEMENCES_API
 5. `https://api.semillasdata.com/api/salud` → `"ok":true`, `"base":"ok"` y la clave `"eventos"`. Si la base venía de
    una versión anterior, el registro de la app dice `Base puesta al día (…)`: se añadieron las columnas nuevas sin
    tocar los datos. Si no arranca, el motivo está en ese registro (cPanel › Setup Node.js App, o `stderr.log`).
+6. **Cron de cPanel (obligatorio):** cPanel › Cron Jobs › cada 5 minutos (`*/5 * * * *`):
+   `curl -fsS --max-time 120 https://api.semillasdata.com/api/latido > /dev/null 2>&1`. Sin él, Passenger duerme
+   Node y los flujos, avisos, Borja y clientes dormidos se paran hasta la siguiente visita (`servidor/LEEME.md`).
 
 **2. Conectar la web y las apps**
 1. GitHub › Settings › Secrets and variables › Actions › secreto `SEMENCES_API` = `https://api.semillasdata.com`.

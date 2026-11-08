@@ -77,6 +77,7 @@ export const ESQUEMA_EVENTOS = [
         terminado DATETIME NULL,
         error VARCHAR(500) NOT NULL DEFAULT '',
         creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        avisado DATETIME NULL,
         UNIQUE KEY clave (clave),
         INDEX (estado, proximo)
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
@@ -213,15 +214,17 @@ export async function procesarEventos(contexto, manejadores, { lote = 5, registr
  * conexión con la base) se registra y el siguiente repaso lo vuelve a intentar. Devuelve la función para pararlo.
  * @param {Parameters<typeof procesarEventos>[0]} contexto
  * @param {Record<string, Manejador>} manejadores
- * @param {{ cadaMs?: number, registrar?: Pick<Console, 'error'> }} [opciones]
+ * @param {{ cadaMs?: number, registrar?: Pick<Console, 'error'>, alFallar?: (() => Promise<unknown>) | null }} [opciones]
  */
-export function iniciarEventos(contexto, manejadores, { cadaMs = 3000, registrar = console } = {}) {
+export function iniciarEventos(contexto, manejadores, { cadaMs = 3000, registrar = console, alFallar = null } = {}) {
     let ocupado = false;
     const temporizador = setInterval(async () => {
         if (ocupado) return;
         ocupado = true;
         try {
-            await procesarEventos(contexto, manejadores, { registrar });
+            const r = await procesarEventos(contexto, manejadores, { registrar });
+            // Un flujo pasó a 'fallido' definitivo: aviso inmediato al Master (latido.js › avisarFallidos)
+            if (r.fallidos && alFallar) await alFallar();
         } catch (error) {
             registrar.error('Eventos:', /** @type {Error} */ (error).message);
         } finally {

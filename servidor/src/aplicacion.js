@@ -20,6 +20,8 @@ import { ACCIONES, errorApp } from './acciones.js';
 import { estadoCola } from './cola.js';
 import { estadoEventos } from './eventos.js';
 import { ambitoDe } from './permisos.js';
+import { crearLatido } from './latido.js';
+import { MANEJADORES } from './flujos.js';
 import { cabecerasSeguras, limiteGeneral, limiteEntrada as limiteDeEntrada, limiteAcciones, validarEntrada } from './seguridad.js';
 import { firmaValida, recibirWebhook } from './instagram.js';
 import { recibirWhatsapp } from './bienvenida.js';
@@ -183,6 +185,11 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
             clientId: config.google.clientId
         });
     });
+
+    // Despertador para el Cron de cPanel (cada 5 min): despierta el proceso, hace una vuelta de todo lo pendiente
+    // (flujos, avisos, Borja, clientes dormidos) y avisa a los Master de los flujos fallidos (latido.js)
+    const latido = crearLatido({ pool, config, google, avisos }, MANEJADORES, { registrar });
+    api.get('/latido', (req, res, next) => latido(req, res).catch(next));
 
     const limiteEntrada = limiteDeEntrada(config);
 

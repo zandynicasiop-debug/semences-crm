@@ -89,6 +89,16 @@ El antivirus del cPanel de FastComet rechaza los `.zip` y `.tar.gz` con archivos
 
 `.cpanel.yml` lanza `herramientas/desplegar-cpanel.sh`: copia la web, ya conectada a `https://api.semillasdata.com`, a `public_html` (sin borrar `.well-known` ni `cgi-bin`), y el código del backend a `~/semences-servidor` (sin tocar su `.env` ni `node_modules`) y pide reiniciarlo. Cada actualización posterior son esos dos botones. Si cambian las dependencias, además **Run NPM Install**.
 
+### Despertador: Cron de cPanel cada 5 minutos (obligatorio en FastComet)
+
+Passenger duerme la app de Node cuando nadie la usa, y con ella se paran los flujos automáticos, la cola de avisos, Borja y los clientes dormidos. cPanel › **Cron Jobs** › *Add New Cron Job* › *Common Settings*: **Once Per Five Minutes** (`*/5 * * * *`), y el comando:
+
+```bash
+curl -fsS --max-time 120 https://api.semillasdata.com/api/latido > /dev/null 2>&1
+```
+
+`/api/latido` (`src/latido.js`) despierta el proceso y hace ahí mismo una vuelta de lo pendiente: flujos (eventos), avisos encolados (WhatsApp y push), el resumen de Borja, los clientes dormidos y el recordatorio del viernes. Todo es idempotente (repetirlo no duplica nada) y como mucho hace una vuelta por minuto y proceso. Si un flujo queda **fallido** (definitivo, ya no se reintenta), cada Master recibe al momento un aviso en la campana y un correo desde la cuenta del sistema, una sola vez por evento. `npm run verificar` comprueba también el latido.
+
 ### 5. Conectar la app
 
 En GitHub › Settings › Secrets and variables › Actions, crea el secreto `SEMENCES_API` = `https://api.semillasdata.com` y vuelve a ejecutar el flujo "Compilar APK y publicar la app". La web y el APK nuevos salen conectados. Desde la carpeta del proyecto:

@@ -20,7 +20,8 @@ export const ESQUEMA_CAMPANA = [
 ];
 
 // Qué abre la app al tocar el aviso (y su icono): un módulo, la agenda, los mensajes…
-export const TIPOS_AVISO = ['mensaje', 'cliente', 'tarea', 'reunion', 'germinador', 'envio', 'instagram', 'reporte', 'meta', 'cotizacion'];
+// 'sistema': avisos técnicos para el Master (un flujo automático que falló; latido.js)
+export const TIPOS_AVISO = ['mensaje', 'cliente', 'tarea', 'reunion', 'germinador', 'envio', 'instagram', 'reporte', 'meta', 'cotizacion', 'sistema'];
 
 export async function registrarAviso(pool, usuarioIds, tipo, texto, enlace = '') {
     const ids = [...new Set(usuarioIds.filter(Boolean))];

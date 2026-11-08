@@ -236,7 +236,8 @@ for (const base of BASES) {
         });
 
         test('verificar.js (prueba de humo de producción): todo en verde contra el servidor real', async () => {
-            const { ok, resultados, integraciones } = await verificarServidor(url, { origenes: [config.origenes[0]] });
+            // Sin el latido aquí: su vuelta (Borja, dormidos…) cambiaría lo que esperan las pruebas siguientes; se prueba al final
+            const { ok, resultados, integraciones } = await verificarServidor(url, { origenes: [config.origenes[0]], latido: false });
             const fallos = resultados.filter(r => !r.ok).map(r => `${r.nombre}: ${r.detalle}`);
             assert.ok(ok, fallos.join(' | '));
             assert.deepEqual(fallos.filter(f => !/Tiempo de respuesta|Flujos automáticos|Cola de avisos/.test(f)), []);
@@ -2253,6 +2254,39 @@ for (const base of BASES) {
             await procesar();
             assert.ok((await panel(sesiones.jefa, { operacion: 'agenda' })).json.listas['Supervisión Comercial'].some(i => /COT-B/.test(i.titulo)));
             await panel(sesiones.jefa, { operacion: 'agendaUmbral', umbral: 5000 });
+        });
+
+        test('latido del Cron de cPanel: despierta, hace la vuelta pendiente y avisa UNA vez a los Master de cada flujo fallido', async () => {
+            // Un flujo sin manejador falla del todo (definitivo)
+            await emitirEvento(pool, { tipo: 'PRUEBA_LATIDO', clave: `latido:${Date.now()}`, carga: {} });
+            const jefa = Number((await pool.query("SELECT id FROM usuarios WHERE email = 'jefa@gmail.com'"))[0][0].id);
+            const avisosSistema = async () => (await pool.query("SELECT texto FROM avisos_persona WHERE usuario_id = ? AND tipo = 'sistema' ORDER BY id", [jefa]))[0];
+            const antes = (await avisosSistema()).length;
+
+            // Sin sesión (el Cron no la tiene): responde y no dice nada de nadie
+            config.latidoMinimoS = 0;
+            const r = await llamar('/api/latido', { metodo: 'GET' });
+            assert.equal(r.estado, 200);
+            assert.equal(r.json.vuelta, 'hecha');
+            assert.ok(r.json.eventos.fallidos >= 1, 'el evento sin manejador queda fallido en la misma vuelta');
+            assert.ok(r.json.fallidosAvisados >= 1);
+            assert.deepEqual(Object.keys(r.json).sort(), ['despiertoS', 'eventos', 'fallidosAvisados', 'fallos', 'ok', 'vuelta']);
+            const [[pendientes]] = await pool.query("SELECT COUNT(*) n FROM eventos WHERE estado = 'fallido' AND avisado IS NULL");
+            assert.equal(Number(pendientes.n), 0, 'todos los fallidos quedan avisados');
+            const nuevos = (await avisosSistema()).slice(antes);
+            assert.equal(nuevos.length, 1, 'un solo aviso en la campana con todos los fallidos');
+            assert.match(nuevos[0].texto, /PRUEBA_LATIDO \(latido:\d+\)/);
+            assert.match(nuevos[0].texto, /No hay manejador/);
+
+            // Otra llamada enseguida: frenada (como mucho una vuelta por minuto); y avisar otra vez no repite nada
+            delete config.latidoMinimoS;
+            assert.equal((await llamar('/api/latido', { metodo: 'GET' })).json.vuelta, 'reciente');
+            const { avisarFallidos } = await import('../src/latido.js');
+            assert.equal(await avisarFallidos({ pool, config, google, avisos }), 0);
+            assert.equal((await avisosSistema()).length, antes + 1);
+            // La verificación de producción también lo comprueba
+            const { resultados } = await verificarServidor(url, { origenes: [config.origenes[0]] });
+            assert.deepEqual(resultados.find(x => x.nombre === 'Latido del Cron (/api/latido)'), { nombre: 'Latido del Cron (/api/latido)', ok: true, detalle: 'responde (vuelta reciente)', aviso: false });
         });
 
         test('salir cierra la sesión', async () => {
