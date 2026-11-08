@@ -34,7 +34,7 @@ const destino = path.resolve(RAIZ, argumentos.destino || (plataforma === 'capaci
 export const ARCHIVOS = [
     'index.html', 'style.css', 'manifest.webmanifest',
     'tema.js', 'textosIngles.js', 'idioma.js', 'googleSync.js', 'app.js', 'colaEtapas.js', 'datos.js', 'usuario.js', 'mapa.js', 'cotizador.js',
-    'crm.js', 'equipo.js', 'tareas.js', 'tablero.js', 'bandejaInstagram.js', 'panel.js', 'reporte.js', 'accesos.js', 'agenda.js', 'reunionesMetas.js', 'panelCeo.js', 'auditoria.js', 'pwa.js', 'ventana.js'
+    'crm.js', 'equipo.js', 'tareas.js', 'tablero.js', 'bandejaInstagram.js', 'panel.js', 'reporte.js', 'accesos.js', 'agenda.js', 'borja.js', 'reunionesMetas.js', 'panelCeo.js', 'auditoria.js', 'pwa.js', 'ventana.js'
 ];
 export const CARPETAS = ['iconos', 'marcas'];
 // Mismas direcciones que index.html → copia local (idéntica byte a byte a la de npm, ver DOCUMENTACION_COMPLETA.md)

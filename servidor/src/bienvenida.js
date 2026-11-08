@@ -16,6 +16,14 @@ import { normalizarTelefono } from './avisos.js';
 import { auditar } from './auditoria.js';
 import { traducir } from './idioma.js';
 import { pideBajaOAlta, aplicarBaja, TEXTO_BAJA, TEXTO_ALTA } from './bajas.js';
+import { ambitoDe } from './permisos.js';
+import { atenderOrdenBorja } from './acciones.js';
+
+// La persona del equipo (acceso aprobado, o ADMINS) que tiene ese teléfono; si no, null
+async function personaDelEquipo(pool, config, telefono) {
+    const [filas] = await pool.query('SELECT * FROM usuarios WHERE telefono = ? ORDER BY id', [telefono]);
+    return filas.find(p => ambitoDe(p, config).estado === 'aprobado') || null;
+}
 
 const primerNombre = (persona) => String(persona.nombre || persona.email || '').trim().split(/\s+/)[0] || 'equipo';
 
@@ -40,7 +48,7 @@ export async function darBienvenida({ pool, config, avisos }, persona) {
  * del equipo que tienen la bienvenida pendiente de confirmar; lo demás se ignora.
  * Devuelve cuántas confirmó.
  */
-export async function recibirWhatsapp({ pool, config, avisos, diferir = (tarea) => tarea() }, cuerpo) {
+export async function recibirWhatsapp({ pool, config, avisos, google = null, diferir = (tarea) => tarea() }, cuerpo) {
     const mensajes = [];
     const estados = [];
     for (const entrada of (cuerpo && Array.isArray(cuerpo.entry) ? cuerpo.entry : [])) {
@@ -69,6 +77,7 @@ export async function recibirWhatsapp({ pool, config, avisos, diferir = (tarea) 
         const telefono = normalizarTelefono(`+${String(m && m.from || '').replace(/\D/g, '')}`);
         if (!telefono) continue;
         const [filas] = await pool.query('SELECT * FROM usuarios WHERE telefono = ? AND whatsapp_bienvenida IS NOT NULL AND whatsapp_confirmado IS NULL', [telefono]);
+        const confirmo = filas.length > 0;
         for (const persona of filas) {
             await pool.query('UPDATE usuarios SET whatsapp_confirmado = UTC_TIMESTAMP() WHERE id = ?', [persona.id]);
             const respuesta = m.type === 'button' ? (m.button && m.button.text) : m.type === 'interactive' ? 'botón' : (m.text && m.text.body);
@@ -84,6 +93,26 @@ export async function recibirWhatsapp({ pool, config, avisos, diferir = (tarea) 
             await aplicarBaja({ pool, config }, telefono, que);
             await auditar(pool, config, { nombre: 'WhatsApp', accion: que === 'baja' ? 'whatsapp_baja' : 'whatsapp_alta', objeto: telefono, resumen: que === 'baja' ? 'Pidió no recibir más WhatsApp de la empresa' : 'Pidió volver a recibir WhatsApp de la empresa' });
             if (avisos.whatsappTexto) await diferir(() => avisos.whatsappTexto(telefono, que === 'baja' ? TEXTO_BAJA : TEXTO_ALTA).catch(() => {}));
+        }
+        // Borja bidireccional: el texto de una persona del equipo con acceso aprobado es una orden (borja.js). Un número
+        // que no es del equipo nunca da órdenes internas. Se atiende después de contestar a Meta (diferir)
+        if (!confirmo && !que && m.type === 'text' && m.text && m.text.body) {
+            const persona = await personaDelEquipo(pool, config, telefono);
+            if (!persona) continue;
+            const responder = (/** @type {string} */ texto) => (avisos.whatsappTexto ? avisos.whatsappTexto(telefono, traducir(texto, persona.idioma)).catch(() => {}) : null);
+            if (!Number(persona.comandos_whatsapp ?? 1)) {
+                await diferir(() => responder('Las órdenes a Borja por WhatsApp están desactivadas para este número. Escríbeme desde el chat de Borja en la app.'));
+                continue;
+            }
+            const orden = { texto: String(m.text.body), id: String(m.id || '') };
+            await diferir(async () => {
+                try {
+                    const { respuesta } = await atenderOrdenBorja({ pool, config, avisos, google }, persona, orden.texto, { canal: 'whatsapp', idMensaje: orden.id });
+                    if (respuesta) await responder(respuesta);
+                } catch (error) {
+                    await responder(`No pude hacerlo: ${String(/** @type {Error} */ (error).message || error).slice(0, 200)}`);
+                }
+            });
         }
     }
     return confirmadas;

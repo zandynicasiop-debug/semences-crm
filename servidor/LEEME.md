@@ -274,6 +274,24 @@ Lo que no aplica a la persona llega como "Sin pendientes".
 
 Es privado: se arma con el mismo filtro de cargo, país y casa comercial que la app, y le llega solo a esa persona por WhatsApp y push (si no tiene ninguno, por correo a sí misma desde su Gmail). Si no hay nada que contar, no se envía. Sale una vez al día por persona aunque haya varios procesos del servidor. Si a las 7:00 el servidor estaba dormido (Passenger), sale en cuanto despierta, hasta las 12:00; el Cron de cPanel que llama a `/api/salud` cada 5 minutos lo mantiene despierto. Cada quien puede dejar de recibirlo en menú › **Cuenta**.
 
+## Borja bidireccional (responderle a Borja)
+
+El equipo le contesta a Borja por **WhatsApp** (desde el número de su cuenta aprobada) o en el **chat de Borja** de la app (barra de accesos), con órdenes cortas que hacen cosas en el CRM sin abrir cada ficha (`src/borja.js`):
+
+| Orden | Qué hace |
+|---|---|
+| `RESUMEN` (o `PENDIENTES`, `AGENDA`) | Su resumen de ahora, con las tareas y los seguimientos de clientes **numerados** |
+| `LISTO 2` (o `HECHO 2`, `LISTO visita Constanza`) | Marca hecho ese pendiente: la tarea, o el seguimiento (se borra la fecha y queda «Seguimiento hecho» en la bitácora). Entra en el reporte del viernes |
+| `VISITA Finca X (regular): nota` | Visita de hoy a ese cliente. Sin el estado del cultivo entre paréntesis, Borja pregunta 1) Bueno 2) Regular 3) Plagas 4) Estrés hídrico 5) Listo para cosecha |
+| `NOTA Finca X: texto` | Una entrada en la **bitácora** del cliente (sale en su expediente; no cambia la etapa) |
+| `AYUDA` | El menú. BAJA / ALTA siguen siendo las del consentimiento |
+
+- **Nada se adivina:** si el nombre coincide con varios clientes de su país y sus casas, Borja pregunta cuál con números. Nunca toca fichas compartidas de otra casa.
+- **La lista numerada** es la del último resumen que recibió ese día (el de la mañana o el que pidió): queda congelada, así «LISTO 2» es lo mismo a las 7:00 y a las 15:00. Solo se numeran tareas y seguimientos; las prioridades en US$ y los envíos salen sin número (confirmar un pedido exige su precio).
+- **Mismo camino que la web:** permisos, eventos, avisos y auditoría HMAC con el antes y el después. Desde Borja nunca se borra nada ni se tocan precios, pedidos o cotizaciones. Técnicos y plantuladores pueden dejar una NOTA en la bitácora aunque no editen la ficha.
+- **Seguridad:** máximo 30 órdenes por hora y persona; cada orden queda en la auditoría («borja»). En *Equipo y accesos* el Master apaga al momento las órdenes por WhatsApp de una persona (teléfono perdido o robado); el chat de la app sigue funcionando con su sesión.
+- La conversación (lista del día, pregunta pendiente, límite) se guarda en una sola columna de `usuarios` (`borja_estado`), que se crea sola al arrancar.
+
 ## Barra de accesos: agenda, mensajes, avisos, reuniones y metas
 
 En la cabecera (y en el móvil, en la barra inferior con "Más"):

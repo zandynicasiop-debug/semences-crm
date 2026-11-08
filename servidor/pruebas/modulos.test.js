@@ -270,6 +270,46 @@ describe('esquema de las variables de entorno (.env.example)', () => {
     });
 });
 
+describe('Borja bidireccional (borja.js)', () => {
+    test('entiende las órdenes cortas y no adivina el resto', async () => {
+        const { interpretarBorja } = await import('../src/borja.js');
+        assert.deepEqual(interpretarBorja('RESUMEN'), { tipo: 'resumen' });
+        assert.deepEqual(interpretarBorja('mis pendientes'), { tipo: 'resumen' });
+        assert.deepEqual(interpretarBorja('Agenda'), { tipo: 'resumen' });
+        assert.deepEqual(interpretarBorja('LISTO 3'), { tipo: 'listo', numero: 3, texto: '' });
+        assert.deepEqual(interpretarBorja('hecho: 12'), { tipo: 'listo', numero: 12, texto: '' });
+        assert.deepEqual(interpretarBorja('listo visita Constanza'), { tipo: 'listo', numero: null, texto: 'visita Constanza' });
+        assert.deepEqual(interpretarBorja('VISITA Finca X (regular): todo bien'), { tipo: 'visita', cliente: 'Finca X', estado: 'Regular', estadoEscrito: 'regular', nota: 'todo bien' });
+        assert.deepEqual(interpretarBorja('visita Finca X: riego'), { tipo: 'visita', cliente: 'Finca X', estado: null, estadoEscrito: '', nota: 'riego' });
+        assert.equal(interpretarBorja('VISITA Finca X (plagas): trips').estado, 'Con plagas o enfermedades');
+        assert.equal(interpretarBorja('VISITA Finca X (Estrés hídrico): seca').estado, 'Estrés hídrico');
+        assert.equal(interpretarBorja('VISITA Finca X (5): lista').estado, 'Listo para cosecha');
+        assert.deepEqual(interpretarBorja('NOTA Juan: revisar riego'), { tipo: 'nota', cliente: 'Juan', nota: 'revisar riego' });
+        assert.equal(interpretarBorja('visita Finca X sin dos puntos').tipo, 'formato');
+        assert.deepEqual(interpretarBorja('3'), { tipo: 'numero', numero: 3 });
+        assert.equal(interpretarBorja('estado equipo').tipo, 'global');
+        assert.equal(interpretarBorja('AGENDAR visita mañana 10am').tipo, 'agendar');
+        assert.equal(interpretarBorja('¿me mandas el precio?').tipo, 'desconocido');
+        assert.equal(interpretarBorja('').tipo, 'ayuda');
+    });
+
+    test('bitácora: solo crece (une por id, en orden de fecha) y la lista del resumen se numera con lo visible', async () => {
+        const { unirBitacora, numerarSecciones } = await import('../src/borja.js');
+        const a = { id: 'a', fecha: '2026-11-08T10:00:00Z', autor: 'Ana', texto: 'uno' };
+        const b = { id: 'b', fecha: '2026-11-08T09:00:00Z', autor: 'Luis', texto: 'dos' };
+        assert.deepEqual(unirBitacora([a], [b]).map(e => e.id), ['b', 'a']);
+        assert.deepEqual(unirBitacora([a, b], undefined).map(e => e.id), ['b', 'a'], 'guardar sin la bitácora no la borra');
+        assert.deepEqual(unirBitacora([a], [{ ...a, texto: 'cambiado' }])[0].texto, 'uno', 'una entrada no se reescribe');
+        const { secciones, lista } = numerarSecciones([
+            { clave: 'prioridades', titulo: 'US$', lineas: ['Pedido X'] },
+            { clave: 'seguimientos', titulo: 'Seg', lineas: ['A (hoy)', 'B (hoy)'], items: [{ tipo: 'seguimiento', id: 'c1', etiqueta: 'A' }, { tipo: 'seguimiento', id: 'c2', etiqueta: 'B' }] },
+            { clave: 'tareas', titulo: 'Tareas', lineas: ['T (vence hoy)', 'y 3 tareas más'], items: [{ tipo: 'tarea', id: 't1', etiqueta: 'T' }] }
+        ]);
+        assert.deepEqual(secciones.map(s => s.lineas), [['Pedido X'], ['1) A (hoy)', '2) B (hoy)'], ['3) T (vence hoy)', 'y 3 tareas más']]);
+        assert.deepEqual(lista.map(x => [x.n, x.id]), [[1, 'c1'], [2, 'c2'], [3, 't1']]);
+    });
+});
+
 describe('simulacro de restauración (herramientas/comprobar-respaldo.js)', () => {
     test('un respaldo cortado, retocado o de otro programa no vale', async () => {
         const { validarRespaldo } = await import('../herramientas/comprobar-respaldo.js');

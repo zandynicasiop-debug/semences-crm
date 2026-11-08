@@ -1515,6 +1515,38 @@ class CRM {
             ? this.envolverTabla(this.construirTabla('visitas', visitas, { titulo: `Visitas a ${cliente.nombre}`, dentroDeCliente: true, conAcciones: false }))
             : this.textoVacio('Aún no tiene visitas registradas.'));
 
+        // Bitácora (lo último primero): notas y seguimientos hechos, también los que llegan por Borja (WhatsApp o chat).
+        // Solo crece: el servidor no deja que se borre una entrada. Y el último contacto (la visita o nota más reciente)
+        const bitacora = (Array.isArray(cliente.bitacora) ? cliente.bitacora : []).slice().sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+        const sBit = seccion('Bitácora', bitacora.length);
+        const ultimo = [visitas[0] && visitas[0].fecha, bitacora[0] && String(bitacora[0].fecha).slice(0, 10)].filter(Boolean).sort().pop();
+        if (ultimo) {
+            const p = document.createElement('p');
+            p.className = 'expediente-ultimo-contacto';
+            p.textContent = `Último contacto: ${formatearFecha(ultimo)}`;
+            sBit.appendChild(p);
+        }
+        if (!bitacora.length) {
+            sBit.appendChild(this.textoVacio('Sin notas todavía. Por WhatsApp o en el chat de Borja: NOTA nombre del cliente: lo que quieras anotar.'));
+        } else {
+            const ol = document.createElement('ol');
+            ol.className = 'bitacora-lista';
+            bitacora.slice(0, 30).forEach(e => {
+                const li = document.createElement('li');
+                const meta = document.createElement('span');
+                meta.className = 'bitacora-meta';
+                const cuando = new Date(e.fecha);
+                meta.textContent = `${Number.isNaN(cuando.getTime()) ? '' : cuando.toLocaleString(LOCALE, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · ${e.autor || ''}${e.origen === 'borja' ? ' · vía Borja' : ''}`;
+                const texto = document.createElement('span');
+                texto.className = 'bitacora-texto';
+                texto.textContent = e.texto || '';
+                texto.translate = false; // Lo escrito por la persona no se traduce
+                li.append(meta, texto);
+                ol.appendChild(li);
+            });
+            sBit.appendChild(ol);
+        }
+
         const rend = this.delCliente('rendimiento', clienteId).sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
         const sRen = seccion('Rendimientos', rend.length);
         sRen.appendChild(rend.length

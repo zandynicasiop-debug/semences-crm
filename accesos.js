@@ -145,7 +145,7 @@ class Accesos {
     }
 
     // Orden en la cabecera y qué va en la barra inferior del teléfono (el resto, en "Más")
-    static ORDEN = ['agenda', 'mensajes', 'avisos', 'equipo', 'reuniones', 'metas', 'tareas', 'chat'];
+    static ORDEN = ['agenda', 'mensajes', 'avisos', 'borja', 'equipo', 'reuniones', 'metas', 'tareas', 'chat'];
     static EN_BARRA = ['agenda', 'mensajes', 'avisos', 'tareas'];
 
     visibles() {

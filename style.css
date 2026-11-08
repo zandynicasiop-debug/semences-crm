@@ -4672,3 +4672,58 @@ body.ventana-flotante {
     text-align: center;
     color: var(--ui-texto-suave);
 }
+
+/* Chat con Borja (borja.js): la conversación ocupa el panel y el formulario queda abajo */
+.borja-chat {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sdc-espacio-3);
+    padding: var(--sdc-espacio-4) 0 0;
+}
+
+.borja-atajos {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sdc-espacio-2);
+    padding: 0 var(--sdc-espacio-5);
+}
+
+.borja-chat .chat-mensajes {
+    padding-top: 0;
+}
+
+/* Bitácora del cliente en su expediente */
+.bitacora-lista {
+    display: grid;
+    gap: var(--sdc-espacio-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.bitacora-lista li {
+    display: grid;
+    gap: var(--sdc-espacio-1);
+    padding: var(--sdc-espacio-3) var(--sdc-espacio-4);
+    background: var(--ui-apagado);
+    border-radius: var(--sdc-radio-sm);
+}
+
+.bitacora-meta,
+.expediente-ultimo-contacto {
+    color: var(--ui-texto-suave);
+    font-size: var(--sdc-texto-xs);
+}
+
+.bitacora-texto {
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
+
+
+/* Lo que escribe la persona en el chat de Borja: texto claro sobre el verde (en los dos temas) */
+.borja-chat .chat-propio,
+.borja-chat .chat-propio .chat-meta strong,
+.borja-chat .chat-propio .chat-meta time {
+    color: #fff;
+}

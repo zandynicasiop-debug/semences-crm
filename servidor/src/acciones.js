@@ -21,6 +21,9 @@ import { enZona } from './fechas.js';
 import { darBienvenida } from './bienvenida.js';
 import { sincronizarAgenda, respaldar, documentoValido, avisarPorCorreo, enSegundoPlano } from './workspace.js';
 import { whatsappDadoDeBaja } from './bajas.js';
+import { traducir } from './idioma.js';
+import { atenderBorja, unirBitacora } from './borja.js';
+import { textoResumenAhora } from './resumen.js';
 import { carpetaDe, carpetaDelCliente, compartirCon, conDriveDelCrm, crearReporteDelCrm, driveActivo, plantillaDeCasa } from './drive.js';
 import { avisarEnvio, actualizarEnvio } from './envios.js';
 import { accionInstagram } from './instagram.js';
@@ -188,17 +191,30 @@ function comprobarCambios(lista, nombre) {
 }
 
 // Disparadores (flujos.js): los eventos se guardan en la misma transacción que los cambios (outbox)
-const conEventos = ({ usuario, config, red, ambito }) => ({
+export const conEventos = ({ usuario, config, red, ambito }) => ({
     alConfirmar: (conexion, guardados) => emitirEventosDeCambios(conexion, REGLAS, guardados, { usuario, hoy: enZona(new Date(), config.zonaHoraria).fecha }),
     auditoria: { config, red },
     // Pedidos: vendedor ejecutor, y cantidad y precio en US$ obligatorios para confirmar (pedidos.js).
     // Cotizaciones: su revisión (permisos.js) y también su vendedor ejecutor
     ajustar: (modulo, registro, anterior) => {
         if (modulo === 'pedidos') return ajustarPedido(ambito, usuario, registro, anterior);
+        // La bitácora del cliente solo crece (borja.js): una ficha guardada sin la última nota no la borra
+        if (modulo === 'clientes' && ((anterior && Array.isArray(anterior.bitacora) && anterior.bitacora.length) || Array.isArray(registro.bitacora))) {
+            return { ...registro, bitacora: unirBitacora(anterior && anterior.bitacora, registro.bitacora) };
+        }
         if (modulo === 'cotizaciones') return conVendedor(ambito, usuario, ajustarCotizacion(ambito, usuario, registro, anterior), anterior);
         return registro;
     }
 });
+
+/**
+ * Borja bidireccional: atiende la orden de una persona del equipo (chat de la app o WhatsApp) con las mismas acciones
+ * que usa la web para guardar (ACCIONES.crm) y el mismo armado del resumen
+ * @param {any} contexto { pool, config, google, avisos } @param {any} persona @param {string} texto @param {any} [opciones]
+ */
+export function atenderOrdenBorja(contexto, persona, texto, opciones = {}) {
+    return atenderBorja({ ...contexto, ACCIONES, conEventos, prepararResumen: textoResumenAhora }, persona, texto, opciones);
+}
 
 export const ACCIONES = {
     // Base de datos compartida: aplica los cambios de la app y devuelve los datos que la persona puede ver
@@ -477,6 +493,14 @@ export const ACCIONES = {
         return { ok: true, usuario: publico(filas[0], config) };
     },
 
+    // Chat con Borja en la app: { texto } → { respuesta }. Las mismas órdenes que por WhatsApp (RESUMEN, LISTO, VISITA, NOTA)
+    async borja(datos, contexto) {
+        const texto = String(datos.texto || '').slice(0, 1500);
+        if (!texto.trim()) throw errorApp('Escribe algo para Borja');
+        const { respuesta } = await atenderOrdenBorja(contexto, contexto.usuario, texto, { canal: 'app' });
+        return { ok: true, respuesta: respuesta ? traducir(respuesta, contexto.usuario.idioma) : '' };
+    },
+
     // ----- Accesos (solo Master): aprobar, rechazar o cambiar el ámbito de cada persona -----
     async accesos(datos, contexto) {
         const { pool, usuario, ambito, config, avisos } = contexto;
@@ -512,15 +536,20 @@ export const ACCIONES = {
         } else if (datos.operacion === 'reabrir') {
             // Devuelve a la sala de espera a alguien rechazado (o quita el acceso a alguien aprobado)
             await pool.query(`UPDATE usuarios SET estado = 'pendiente', cargo = NULL, paises = '[]', casas = '[]' WHERE id = ?`, [persona.id]);
+        } else if (datos.operacion === 'comandos') {
+            // Interruptor de las órdenes a Borja por WhatsApp (p. ej. teléfono perdido o robado): al instante
+            const activo = datos.activo === true;
+            await pool.query('UPDATE usuarios SET comandos_whatsapp = ? WHERE id = ?', [activo ? 1 : 0, persona.id]);
+            await auditar(pool, config, { usuario, accion: 'accesos', objeto: persona.email, resumen: `${activo ? 'Activó' : 'Desactivó'} las órdenes a Borja por WhatsApp de ${persona.nombre || persona.email}`, red: contexto.red });
         } else if (datos.operacion !== 'listar') {
-            throw errorApp('Operación desconocida (listar, aprobar, rechazar o reabrir)');
+            throw errorApp('Operación desconocida (listar, aprobar, rechazar, reabrir o comandos)');
         }
         // Drive del CRM: si pierde el acceso o cambia de país o casa, se le retira la lectura de las carpetas de
         // los clientes que ya no ve (flujos.js › alCambiarAcceso). Una primera aprobación no tiene nada que retirar
-        if (datos.operacion !== 'listar' && driveActivo(config) && (datos.operacion !== 'aprobar' || persona.estado === 'aprobado')) {
+        if (!['listar', 'comandos'].includes(datos.operacion) && driveActivo(config) && (datos.operacion !== 'aprobar' || persona.estado === 'aprobado')) {
             await emitirEvento(pool, { tipo: 'ACCESO_CAMBIADO', clave: `acceso:${persona.email}:${Date.now()}`, usuarioId: usuario.id, carga: { email: persona.email } });
         }
-        if (datos.operacion !== 'listar') {
+        if (!['listar', 'comandos'].includes(datos.operacion)) {
             // Auditoría: el acceso de antes y el de ahora
             const [[ahora]] = await pool.query('SELECT estado, cargo, paises, casas FROM usuarios WHERE id = ?', [persona.id]);
             const leerLista = (v) => { try { return JSON.parse(v || '[]'); } catch (e) { return []; } };

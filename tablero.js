@@ -482,6 +482,23 @@ class TableroEquipo {
             grupo('Países', opciones.paises.map(p => casilla('pais', p.id, p.nombre, persona.paises.includes(p.id)))),
             grupo('Casas comerciales', opciones.casas.map(c => casilla('casa', c, c, persona.casas.includes(c))))
         );
+        // Interruptor de las órdenes a Borja por WhatsApp (teléfono perdido o robado): se aplica al momento
+        if (persona.estado === 'aprobado') {
+            const interruptor = casilla('comandos', '1', 'Puede dar órdenes a Borja por WhatsApp', persona.comandosWhatsapp !== false);
+            interruptor.classList.add('acceso-interruptor');
+            const caja = interruptor.querySelector('input');
+            caja.addEventListener('change', async () => {
+                caja.disabled = true;
+                const r = await this.google.enviar('accesos', { operacion: 'comandos', email: persona.email, activo: caja.checked }, true);
+                caja.disabled = false;
+                if (!r || !r.ok) {
+                    caja.checked = !caja.checked;
+                    error.textContent = (r && r.error) || 'No se pudo cambiar. Revisa la conexión.';
+                    error.hidden = false;
+                }
+            });
+            form.append(grupo('Borja por WhatsApp', [interruptor]));
+        }
         const error = document.createElement('p');
         error.className = 'form-error';
         error.setAttribute('role', 'alert');

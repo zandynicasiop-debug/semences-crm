@@ -170,6 +170,8 @@ export const publico = (usuario, config) => ({
     ...ambitoDe(usuario, config),
     solicitado: Boolean(usuario.solicitado),
     resumen: usuario.resumen_activo === undefined ? true : Boolean(Number(usuario.resumen_activo)),
+    // Órdenes a Borja por WhatsApp (el Master las apaga si el teléfono se pierde)
+    comandosWhatsapp: usuario.comandos_whatsapp === undefined || usuario.comandos_whatsapp === null ? true : Boolean(Number(usuario.comandos_whatsapp)),
     googleConectado: Boolean(usuario.token_google),
     hojaExportacion: usuario.hoja_exportacion ? `https://docs.google.com/spreadsheets/d/${usuario.hoja_exportacion}/edit` : '',
     permisos: String(usuario.permisos_google || '').split(' ').filter(Boolean)

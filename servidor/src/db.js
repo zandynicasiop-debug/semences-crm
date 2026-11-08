@@ -43,6 +43,10 @@ const ESQUEMA = [
         resumen_fecha DATE NULL,
         resumen_canal VARCHAR(30) NOT NULL DEFAULT '',
         resumen_enviado DATETIME NULL,
+        -- Borja bidireccional (borja.js): la conversación (lista numerada del día, pregunta pendiente, límite por hora)
+        -- y el interruptor del Master para las órdenes por WhatsApp (teléfono perdido o robado)
+        borja_estado MEDIUMTEXT NULL,
+        comandos_whatsapp TINYINT(1) NOT NULL DEFAULT 1,
         creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         ultimo_acceso DATETIME NULL
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,

@@ -177,7 +177,8 @@ for (const base of BASES) {
                 // Las pruebas de siempre, con el acceso cerrado; las cuentas personales (opción B) se prueban al final
                 CUENTAS_PERSONALES: 'no',
                 CLAVE_CIFRADO: crypto.randomBytes(32).toString('hex'),
-                ORIGENES: 'https://semillasdata.com', ENTRADAS_POR_MINUTO: '1000',
+                // Toda la batería sale de la misma IP en menos de un minuto: los límites por IP, holgados (se prueban aparte)
+                ORIGENES: 'https://semillasdata.com', ENTRADAS_POR_MINUTO: '1000', PETICIONES_POR_MINUTO: '5000', ACCIONES_POR_MINUTO: '5000',
                 CHAT_WEBHOOK: 'https://chat.googleapis.com/v1/spaces/X/messages?key=k',
                 WHATSAPP_TOKEN: 'meta-token', WHATSAPP_TELEFONO_ID: '123', WHATSAPP_PLANTILLA: 'aviso_equipo', WHATSAPP_PLANTILLA_CLIENTES: 'aviso_cliente',
                 VAPID_PUBLICA: 'BPublica', VAPID_PRIVADA: 'privada',
@@ -623,7 +624,8 @@ for (const base of BASES) {
             assert.equal(r.cabeceras.get('referrer-policy'), 'no-referrer');
             assert.equal(r.cabeceras.get('cache-control'), 'no-store');
             assert.equal(r.cabeceras.get('x-powered-by'), null);
-            assert.match(r.cabeceras.get('ratelimit-policy'), /600-in-1min/);
+            assert.match(r.cabeceras.get('ratelimit-policy'), new RegExp(`"${config.peticionesPorMinuto}-in-1min"`), 'el límite configurado (600 por defecto; aquí, holgado)');
+            assert.equal(leerConfig({}).peticionesPorMinuto, 600);
         });
 
         test('entrada de datos: solo objetos JSON, sin contaminar prototipos ni nombres de acción raros', async () => {
@@ -870,13 +872,13 @@ for (const base of BASES) {
             assert.ok(!wa.texto.includes('Finca VE Gautier')); // Venezuela no es de su ámbito
             // Con la plantilla de resumen, a Meta le llegan sus 7 variables
             assert.equal(wa.plantilla, 'resumen_diario');
-            assert.deepEqual(JSON.parse(wa.parametros).slice(0, 4), ['Luis', 'Vendedor · 🇩🇴 RD · Gautier Semences', 'Sin pendientes', 'Finca RD Gautier (hoy)']);
+            assert.deepEqual(JSON.parse(wa.parametros).slice(0, 4), ['Luis', 'Vendedor · 🇩🇴 RD · Gautier Semences', 'Sin pendientes', '1) Finca RD Gautier (hoy)']);
             peticionesMeta.length = 0;
             await repasar(pool, avisos);
             const plantilla = peticionesMeta.find(p => p.cuerpo.to === '18295550202').cuerpo.template;
             assert.equal(plantilla.name, 'resumen_diario');
             assert.equal(plantilla.components[0].parameters.length, 7);
-            assert.equal(plantilla.components[0].parameters[4].text, 'Llevar muestras (vence hoy, prioridad alta)');
+            assert.equal(plantilla.components[0].parameters[4].text, '2) Llevar muestras (vence hoy, prioridad alta)', 'tareas y seguimientos numerados para LISTO');
             // La jefa: por correo, a sí misma, con su agenda de Google Calendar
             assert.deepEqual(r.personas.find(p => p.email === 'jefa@gmail.com'), { email: 'jefa@gmail.com', canal: 'correo' });
             const correo = Buffer.from(google.llamadas.filter(l => l.tipo === 'correo').at(-1).crudo, 'base64url').toString();
@@ -2363,6 +2365,127 @@ for (const base of BASES) {
             assert.equal((await db.leerRegistro(pool, 'clientes', 'cli-baja')).sinWhatsapp, false);
             assert.equal((await correo()).json.avisoWhatsapp, true);
             await pool.query('DELETE FROM cola_avisos');
+        });
+
+        test('Borja bidireccional (B1): RESUMEN numerado, LISTO, VISITA con estado o repregunta, NOTA sin adivinar, chat de la app e interruptor', async () => {
+            const hoy = enZona(new Date(), config.zonaHoraria).fecha;
+            google.identidades['codigo-bruno'] = { email: 'bruno@semillasdata.com', verificado: true, dominio: 'semillasdata.com', nombre: 'Bruno Díaz', foto: '', tokenRefresco: '', permisos: '' };
+            sesiones.bruno = (await entrarComo('codigo-bruno')).json.sesion;
+            assert.equal((await accion(sesiones.bruno, { accion: 'telefono', telefono: '809 555 8888' })).estado, 200);
+            await accion(sesiones.jefa, { accion: 'accesos', operacion: 'aprobar', email: 'bruno@semillasdata.com', cargo: 'vendedor', paises: ['RD'], casas: ['Gautier Semences'] });
+            await accion(sesiones.jefa, { accion: 'sincronizar', guardar: [
+                { id: 'bj-1', nombre: 'Finca Juan Pérez', pais: 'RD', casa: 'Gautier Semences', asignado: 'bruno@semillasdata.com', ubicacion: 'Constanza' },
+                { id: 'bj-2', nombre: 'Finca Juan Gómez', pais: 'RD', casa: 'Gautier Semences' },
+                { id: 'bj-3', nombre: 'Agro Constanza', pais: 'RD', casa: 'Gautier Semences', seguimiento: hoy, asignado: 'bruno@semillasdata.com' },
+                { id: 'bj-fito', nombre: 'Finca Juan Fitó', pais: 'RD', casa: 'Fitó' }
+            ].map(registro => ({ modulo: 'clientes', registro })).concat([{ modulo: 'tareas', registro: { id: 'bj-t1', titulo: 'Llamar a la cooperativa', para: 'Bruno Díaz', vence: hoy, creadaPor: 'Jefa' } }]) });
+
+            let numero = 0;
+            const escribe = async (texto, { desde = '18095558888', id = `wamid.bruno-${++numero}` } = {}) => {
+                const antes = peticionesMeta.length;
+                const cuerpo = JSON.stringify({ object: 'whatsapp_business_account', entry: [{ changes: [{ field: 'messages', value: { messages: [{ id, from: desde, type: 'text', text: { body: texto } }] } }] }] });
+                const r = await fetch(`${url}/api/whatsapp/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Hub-Signature-256': `sha256=${crypto.createHmac('sha256', 'secreto-meta').update(cuerpo).digest('hex')}` }, body: cuerpo });
+                assert.equal(r.status, 200);
+                await esperarSegundoPlano();
+                return peticionesMeta.slice(antes).filter(p => p.cuerpo.type === 'text' && p.cuerpo.to === desde).map(p => p.cuerpo.text.body).join('\n');
+            };
+            assert.match(await escribe('OK'), /Confirmado/, 'la primera respuesta confirma la bienvenida (no es una orden)');
+
+            // RESUMEN: tareas y seguimientos numerados, y cómo cerrarlos
+            let r = await escribe('Resumen');
+            assert.match(r, /1\) Agro Constanza \(hoy\)/);
+            assert.match(r, /2\) Llamar a la cooperativa \(vence hoy\)/);
+            assert.match(r, /responde LISTO y su número/);
+            const [[fila]] = await pool.query("SELECT borja_estado FROM usuarios WHERE email = 'bruno@semillasdata.com'");
+            assert.deepEqual(JSON.parse(fila.borja_estado).lista.map(x => [x.n, x.tipo, x.id]), [[1, 'seguimiento', 'bj-3'], [2, 'tarea', 'bj-t1']], 'la lista del día queda congelada');
+
+            // LISTO 2: la tarea, hecha a su nombre; repetirlo no vuelve a tocar nada
+            assert.match(await escribe('LISTO 2'), /Hecho \(#2\).*Llamar a la cooperativa/);
+            const tarea = (await accion(sesiones.jefa, { accion: 'sincronizar' })).json.datos.tareas.find(t => t.id === 'bj-t1');
+            assert.ok(tarea.hecha && tarea.hechaPor === 'Bruno Díaz');
+            assert.match(await escribe('listo 2'), /ya lo marcaste hecho/);
+            // LISTO 1: el seguimiento, cerrado (sin fecha) y con "Seguimiento hecho" en su bitácora
+            assert.match(await escribe('hecho 1'), /Hecho \(#1\).*Agro Constanza/);
+            const constanza = (await accion(sesiones.jefa, { accion: 'sincronizar' })).json.datos.clientes.find(c => c.id === 'bj-3');
+            assert.equal(constanza.seguimiento, '');
+            assert.deepEqual(constanza.bitacora.map(e => [e.texto, e.tipo, e.autor]), [['Seguimiento hecho', 'seguimiento', 'Bruno Díaz']]);
+            assert.match(await escribe('LISTO 9'), /no hay un 9: va del 1 al 2/);
+
+            // VISITA sin adivinar: dos clientes "Juan" de su casa (el de Fitó no es suyo) → elige; sin estado → lo pregunta
+            r = await escribe('VISITA Juan: riego por goteo bien');
+            assert.match(r, /Tengo 2 clientes con «Juan»:\n1\) Finca Juan Gómez \(Gautier Semences\)\n2\) Finca Juan Pérez/);
+            assert.doesNotMatch(r, /Fitó/);
+            assert.match(await escribe('2'), /¿Cómo está el cultivo en Finca Juan Pérez\?[\s\S]*2\) Regular/);
+            assert.match(await escribe('2'), /Visita de hoy registrada en Finca Juan Pérez \(cultivo: Regular\)/);
+            assert.match(await escribe('VISITA Constanza (plagas): trips en el borde'), /registrada en Agro Constanza \(cultivo: Con plagas o enfermedades\)/);
+            assert.match(await escribe('VISITA Constanza (lluvioso): nada'), /No reconozco el estado «lluvioso»/);
+            const visitas = (await accion(sesiones.jefa, { accion: 'sincronizar' })).json.datos.visitas.filter(v => ['bj-1', 'bj-3'].includes(v.clienteId));
+            assert.deepEqual(visitas.map(v => [v.clienteId, v.estado, v.fecha, v.comentarios, v.creadoPor]).sort(), [
+                ['bj-1', 'Regular', hoy, 'riego por goteo bien', 'bruno@semillasdata.com'],
+                ['bj-3', 'Con plagas o enfermedades', hoy, 'trips en el borde', 'bruno@semillasdata.com']
+            ]);
+            assert.equal(visitas.find(v => v.clienteId === 'bj-1').ubicacion, 'Constanza');
+
+            // NOTA: bitácora del cliente; la bitácora solo crece aunque alguien guarde la ficha sin ella
+            assert.match(await escribe('NOTA Pérez: pidió precio de tomate'), /Nota guardada en la bitácora de Finca Juan Pérez/);
+            await accion(sesiones.jefa, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: { id: 'bj-1', nombre: 'Finca Juan Pérez', pais: 'RD', casa: 'Gautier Semences', asignado: 'bruno@semillasdata.com', telefono: '8095550101' } }] });
+            const perez = (await accion(sesiones.jefa, { accion: 'sincronizar' })).json.datos.clientes.find(c => c.id === 'bj-1');
+            assert.equal(perez.telefono, '8095550101');
+            assert.deepEqual(perez.bitacora.map(e => e.texto), ['pidió precio de tomate']);
+
+            // Lo que no entiende: el menú. Un número suelto sin pregunta: no se adivina
+            assert.match(await escribe('qué tal todo'), /No te entendí[\s\S]*RESUMEN[\s\S]*LISTO 2[\s\S]*VISITA[\s\S]*NOTA/);
+            assert.match(await escribe('5'), /Escribe LISTO 5/);
+            // Meta reenvía el mismo mensaje: se atiende una vez
+            assert.match(await escribe('NOTA Gómez: primera visita la semana próxima', { id: 'wamid.repetido' }), /Nota guardada/);
+            assert.equal(await escribe('NOTA Gómez: primera visita la semana próxima', { id: 'wamid.repetido' }), '');
+            // Un número que no es del equipo nunca da órdenes internas
+            assert.equal(await escribe('RESUMEN', { desde: '18095550000' }), '');
+
+            // El chat de Borja en la app: mismas órdenes. Un técnico deja una nota aunque no edite la ficha
+            google.identidades['codigo-teo'] = { email: 'teo@semillasdata.com', verificado: true, dominio: 'semillasdata.com', nombre: 'Teo', foto: '', tokenRefresco: '', permisos: '' };
+            sesiones.teo = (await entrarComo('codigo-teo')).json.sesion;
+            await accion(sesiones.jefa, { accion: 'accesos', operacion: 'aprobar', email: 'teo@semillasdata.com', cargo: 'tecnico', paises: ['RD'], casas: ['Gautier Semences'] });
+            const app = await accion(sesiones.bruno, { accion: 'borja', texto: 'resumen' });
+            assert.equal(app.estado, 200);
+            assert.match(app.json.respuesta, /No tienes pendientes|Prioridades|Tus tareas|Seguimientos/);
+            const notaTec = await accion(sesiones.teo, { accion: 'borja', texto: 'NOTA Agro Constanza: revisar trips el jueves' });
+            assert.match(notaTec.json.respuesta, /Nota guardada en la bitácora de Agro Constanza/, JSON.stringify(notaTec.json));
+            assert.match((await accion(sesiones.teo, { accion: 'borja', texto: 'VISITA Agro Constanza (bueno): sin trips' })).json.respuesta, /registrada en Agro Constanza \(cultivo: Bueno\)/);
+            const fichaTec = (await accion(sesiones.jefa, { accion: 'sincronizar' })).json.datos.clientes.find(c => c.id === 'bj-3');
+            assert.deepEqual(fichaTec.bitacora.map(e => [e.texto, e.autor]).at(-1), ['revisar trips el jueves', 'Teo']);
+            assert.equal((await accion(sesiones.teo, { accion: 'crm', modulo: 'clientes', registro: { ...fichaTec, nombre: 'Otro nombre' } })).estado, 403, 'la ficha la sigue sin poder editar');
+            assert.match((await accion(sesiones.bruno, { accion: 'borja', texto: 'NOTA Finca Juan Fitó: x' })).json.respuesta, /No encuentro ningún cliente/, 'la ficha compartida de otra casa (Fitó) no es suya');
+
+            // Interruptor del Master (teléfono perdido): por WhatsApp no, desde la app sí; y vuelve a funcionar
+            assert.equal((await accion(sesiones.bruno, { accion: 'accesos', operacion: 'comandos', email: 'bruno@semillasdata.com', activo: false })).estado, 403);
+            await accion(sesiones.jefa, { accion: 'accesos', operacion: 'comandos', email: 'bruno@semillasdata.com', activo: false });
+            const lista = (await accion(sesiones.jefa, { accion: 'accesos', operacion: 'listar' })).json.personas;
+            assert.equal(lista.find(p => p.email === 'bruno@semillasdata.com').comandosWhatsapp, false);
+            assert.match(await escribe('RESUMEN'), /desactivadas para este número/);
+            assert.equal((await accion(sesiones.bruno, { accion: 'borja', texto: 'ayuda' })).estado, 200);
+            await accion(sesiones.jefa, { accion: 'accesos', operacion: 'comandos', email: 'bruno@semillasdata.com', activo: true });
+            assert.match(await escribe('ayuda'), /Hola, soy Borja/);
+
+            // Límite: 30 órdenes por hora
+            const [[conMarcas]] = await pool.query("SELECT id, borja_estado FROM usuarios WHERE email = 'bruno@semillasdata.com'");
+            const estado = JSON.parse(conMarcas.borja_estado);
+            await pool.query('UPDATE usuarios SET borja_estado = ? WHERE id = ?', [JSON.stringify({ ...estado, marcas: Array.from({ length: 30 }, () => Date.now()) }), conMarcas.id]);
+            assert.match(await escribe('RESUMEN'), /límite de 30 órdenes por hora/);
+
+            // Auditoría: cada orden y cada cambio (antes y después), a su nombre
+            const [ordenes] = await pool.query("SELECT resumen FROM auditoria WHERE accion = 'borja' AND email = 'bruno@semillasdata.com'");
+            assert.ok(ordenes.some(o => /WhatsApp\): listo 2 \(tarea: Llamar a la cooperativa\)/.test(o.resumen)));
+            const [[cambio]] = await pool.query("SELECT cambios FROM auditoria WHERE accion = 'modificar' AND modulo = 'tareas' AND objeto = 'bj-t1' AND email = 'bruno@semillasdata.com'");
+            assert.ok(JSON.parse(cambio.cambios).hecha);
+            assert.equal((await accion(sesiones.jefa, { accion: 'auditoria', operacion: 'verificar' })).json.ok, true, 'la cadena sigue entera');
+
+            // Viernes: lo cerrado vía Borja (seguimiento y visitas) entra solo
+            const { actividadesDelCrm } = await import('../src/pedidos.js');
+            const datos = (await accion(sesiones.jefa, { accion: 'sincronizar' })).json.datos;
+            const auto = actividadesDelCrm(datos, 'bruno@semillasdata.com', { lunes: hoy, domingo: hoy }, (iso) => enZona(new Date(iso), config.zonaHoraria).fecha);
+            assert.ok(auto.some(a => a.titulo === 'Seguimiento a Agro Constanza' && a.estado === 'Completada'));
+            assert.equal(auto.filter(a => a.id.startsWith('auto:visita:')).length, 2);
         });
 
         test('latido del Cron de cPanel: despierta, hace la vuelta pendiente y avisa UNA vez a los Master de cada flujo fallido', async () => {

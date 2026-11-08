@@ -48,7 +48,7 @@ export const ESQUEMA_AUDITORIA = [
 
 export const ACCIONES_AUDITADAS = ['ingreso', 'ingreso_rechazado', 'salida', 'crear', 'modificar', 'eliminar', 'accesos', 'equipo',
     'metas', 'instagram', 'exportar', 'respaldo', 'correo', 'documento', 'reporte', 'reunion', 'calendario', 'perfil', 'alerta',
-    'dispositivo', 'denegado', 'whatsapp_baja', 'whatsapp_alta'];
+    'dispositivo', 'denegado', 'whatsapp_baja', 'whatsapp_alta', 'borja'];
 
 // Campos que pone el servidor en cada registro: no son un cambio de la persona
 // (y la hora del último rastreo, que cambia en cada consulta aunque el envío siga igual)

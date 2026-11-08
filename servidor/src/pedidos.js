@@ -247,6 +247,13 @@ export function actividadesDelCrm(datos, email, { lunes, domingo }, fechaLocal) 
         lista.push({ id: `auto:visita:${v.id}`, titulo: `Visita a ${nombre(v)} (${v.fecha})`, estado: 'Completada', auto: true,
             comentario: [v.estado && `Cultivo: ${v.estado}`, v.comentarios].filter(Boolean).join(' · ') || 'Visita registrada en el CRM.' });
     }
+    // Borja bidireccional: los seguimientos de clientes que cerró esa semana ("LISTO n"), desde la bitácora del cliente
+    for (const c of datos.clientes || []) {
+        for (const e of Array.isArray(c.bitacora) ? c.bitacora : []) {
+            if (e.tipo !== 'seguimiento' || correo(e.email) !== yo || !enSemana(dia(e.fecha))) continue;
+            lista.push({ id: `auto:seguimiento:${c.id}:${e.id}`, titulo: `Seguimiento a ${c.nombre || 'cliente'}`, estado: 'Completada', auto: true, comentario: 'Seguimiento hecho (avisado a Borja).' });
+        }
+    }
     for (const c of datos.cotizaciones || []) {
         if (ejecutorDe(c) !== yo || !enSemana(c.fecha || dia(c.creado))) continue;
         lista.push({ id: `auto:cotizacion:${c.id}`, titulo: `Cotización ${c.numero || ''} a ${nombre(c)}`.replace(/\s+/g, ' '), auto: true,

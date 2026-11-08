@@ -365,6 +365,20 @@ window.TEXTOS_EN = {
     'Editar ficha': 'Edit record',
     'Cargando la finca 3D…': 'Loading the 3D farm…',
     'Reintentar': 'Try again',
+    // Borja bidireccional (borja.js, expediente y accesos)
+    'Lo mismo que por WhatsApp: pídele tu resumen, marca pendientes, registra visitas y notas.': 'Same as on WhatsApp: ask for your summary, mark items done, log visits and notes.',
+    'Mi resumen': 'My summary',
+    'Qué puedo pedir': 'What can I ask',
+    'Conversación con Borja': 'Conversation with Borja',
+    'Mensaje para Borja': 'Message for Borja',
+    'Ej.: LISTO 2 · NOTA Finca X: pidió precio': 'E.g.: LISTO 2 · NOTA Farm X: asked for a price',
+    'Hola, soy Borja. Escribe RESUMEN para ver tus pendientes de hoy numerados, o AYUDA para ver lo que puedo hacer.': "Hi, I'm Borja. Type RESUMEN to see today's to-dos numbered, or AYUDA to see what I can do.",
+    'No pude contestarte ahora. Revisa la conexión.': "I couldn't answer right now. Check your connection.",
+    'Bitácora': 'Log',
+    'Sin notas todavía. Por WhatsApp o en el chat de Borja: NOTA nombre del cliente: lo que quieras anotar.': 'No notes yet. On WhatsApp or in the Borja chat: NOTA customer name: what you want to note.',
+    'Puede dar órdenes a Borja por WhatsApp': 'Can give Borja commands on WhatsApp',
+    'No se pudo cambiar. Revisa la conexión.': "Couldn't change it. Check your connection.",
+    'Borja por WhatsApp': 'Borja on WhatsApp',
     'No quiere mensajes de WhatsApp de la empresa (pidió la baja)': 'Does not want WhatsApp messages from the company (opted out)',
     'No se pudo cargar la finca 3D. Revisa la conexión.': 'Could not load the 3D farm. Check your connection.',
     'Programado': 'Scheduled',
@@ -1135,6 +1149,10 @@ window.PATRONES_EN = (() => {
         // Cola sin conexión de las etapas (colaEtapas.js)
         [String.raw`(\d+) cambios de etapa hechos sin conexión no se guardaron`, '{1} stage changes made offline were not saved'],
         [String.raw`\(ahora: (.+)\)`, '(now: {1})'],
+        // Borja bidireccional: el expediente
+        [String.raw`Último contacto: (.+)`, 'Last contact: {1}'],
+        [String.raw`Bitácora \((\d+)\)`, 'Log ({1})'],
+        [String.raw`(.+) · vía Borja`, '{1} · via Borja'],
         // Lote B: Torre de control (panelCeo.js)
         [String.raw`Agendar una revisión por Meet con (.+)`, 'Schedule a Meet review with {1}'],
         [String.raw`Hecho: (.+)`, 'Done: {1}'],

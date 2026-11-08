@@ -115,7 +115,7 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
         if (!ok) return res.sendStatus(403);
         res.type('text/plain').send(String(req.query['hub.challenge'] || ''));
     });
-    api.post('/whatsapp/webhook', webhookDeMeta('WhatsApp', recibirWhatsapp, { pool, config, avisos }));
+    api.post('/whatsapp/webhook', webhookDeMeta('WhatsApp', recibirWhatsapp, { pool, config, avisos, google }));
 
     // Sesión obligatoria para todo lo que no es entrar
     const conSesion = async (req, res, next) => {

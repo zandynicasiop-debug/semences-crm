@@ -21,6 +21,7 @@ import { germinacionDe } from './acciones.js';
 import { traducir } from './idioma.js';
 import { prioridadesUsd } from './pedidos.js';
 import { renderizar, leerMensajes, leerBorja, MENSAJES_POR_DEFECTO } from './mensajes.js';
+import { numerarSecciones, congelarLista } from './borja.js';
 
 const MAX_LINEAS = 6;
 const VENTANA_HORAS = 5;
@@ -41,7 +42,8 @@ function recortar(lineas, resto) {
  */
 export function componerResumen({ persona, ambito, datos, eventos = [], sinLeer = 0, hoy, zona, umbral = 85 }) {
     const secciones = [];
-    const seccion = (clave, titulo, lineas) => secciones.push({ clave, titulo, lineas });
+    // items: lo que Borja puede numerar para "LISTO n" (tareas y seguimientos), alineado con las líneas visibles
+    const seccion = (clave, titulo, lineas, items) => secciones.push(items ? { clave, titulo, lineas, items } : { clave, titulo, lineas });
     const yo = [normal(persona.nombre), normal(persona.email)].filter(Boolean);
     const esMio = (texto) => yo.includes(normal(texto));
 
@@ -66,7 +68,8 @@ export function componerResumen({ persona, ambito, datos, eventos = [], sinLeer 
             .sort((a, b) => String(a.seguimiento).localeCompare(String(b.seguimiento)));
         if (seguimientos.length) {
             seccion('seguimientos', '🤝 Seguimientos de clientes',
-                recortar(seguimientos.map(c => `${c.nombre} (${c.seguimiento === hoy ? 'hoy' : `atrasado desde el ${fechaCorta(c.seguimiento)}`})`), 'clientes'));
+                recortar(seguimientos.map(c => `${c.nombre} (${c.seguimiento === hoy ? 'hoy' : `atrasado desde el ${fechaCorta(c.seguimiento)}`})`), 'clientes'),
+                seguimientos.slice(0, MAX_LINEAS).map(c => ({ tipo: 'seguimiento', id: String(c.id), etiqueta: String(c.nombre || '') })));
         }
     }
 
@@ -75,7 +78,8 @@ export function componerResumen({ persona, ambito, datos, eventos = [], sinLeer 
         .sort((a, b) => String(a.vence).localeCompare(String(b.vence)));
     if (tareas.length) {
         seccion('tareas', '📋 Tus tareas',
-            recortar(tareas.map(t => `${t.titulo} (${t.vence === hoy ? 'vence hoy' : `vencida desde el ${fechaCorta(t.vence)}`}${t.prioridad === 'Alta' ? ', prioridad alta' : ''})`), 'tareas'));
+            recortar(tareas.map(t => `${t.titulo} (${t.vence === hoy ? 'vence hoy' : `vencida desde el ${fechaCorta(t.vence)}`}${t.prioridad === 'Alta' ? ', prioridad alta' : ''})`), 'tareas'),
+            tareas.slice(0, MAX_LINEAS).map(t => ({ tipo: 'tarea', id: String(t.id), etiqueta: String(t.titulo || '') })));
     }
 
     if (ambito.modulos.includes('agronomia')) {
@@ -148,8 +152,12 @@ export function textoAlcance(ambito) {
  * procesos y "equipo y mensajes". Meta no deja saltos de línea dentro de una variable: los saltos los pone
  * la plantilla y cada variable es una línea. Sin esa plantilla, todo en una línea con la del equipo.
  */
+export const PISTA_LISTO = 'Cuando termines algo de la lista, responde LISTO y su número (AYUDA: lo que puedo hacer).';
+
 export function textosResumen(secciones, persona, hoy, ambito, mensaje = MENSAJES_POR_DEFECTO.resumen) {
     const nombre = String(persona.nombre || '').split(' ')[0] || persona.email;
+    // Borja bidireccional: si hay pendientes numerados, cómo cerrarlos contestando
+    const pista = secciones.some(s => s.lineas.some(l => /^\d+\) /.test(l))) ? PISTA_LISTO : '';
     const alcance = ambito ? textoAlcance(ambito) : '';
     const completo = secciones.map(s => `${s.titulo}\n${s.lineas.map(l => `• ${l}`).join('\n')}`).join('\n\n');
     // Saludo y asunto editables en la Torre de control (mensajes.js); por defecto, los de siempre
@@ -158,23 +166,26 @@ export function textosResumen(secciones, persona, hoy, ambito, mensaje = MENSAJE
     const conLista = /\{\{\s*lista_pendientes\s*\}\}/.test(mensaje.texto);
     const de = (...claves) => secciones.filter(s => claves.includes(s.clave)).flatMap(s => s.lineas).join('; ').slice(0, 900) || 'Sin pendientes';
     return {
-        whatsapp: `${saludo}${alcance ? ` (${alcance})` : ''}: ${secciones.map(s => `${s.titulo}: ${s.lineas.join('; ')}`).join(' · ')}`.slice(0, 1000),
+        whatsapp: `${saludo}${alcance ? ` (${alcance})` : ''}: ${secciones.map(s => `${s.titulo}: ${s.lineas.join('; ')}`).join(' · ')}${pista ? ` · ${pista}` : ''}`.slice(0, 1000),
+        completo: `${saludo}${alcance ? ` (${alcance})` : ''}\n\n${completo}${pista ? `\n\n${pista}` : ''}`,
         parametros: [nombre, alcance || '—', de('agenda'), de('prioridades', 'seguimientos'), de('tareas'), de('procesos', 'germinador'), de('envios', 'equipo', 'mensajes')],
         push: `${saludo}\n${secciones.map(s => `${s.titulo}: ${s.lineas.length} · ${s.lineas[0]}`).join('\n')}`,
         correo: {
             asunto: renderizar(mensaje.asunto || MENSAJES_POR_DEFECTO.resumen.asunto || '', variables),
             texto: conLista
                 ? `${renderizar(mensaje.texto, { ...variables, lista_pendientes: completo }).trim()}\n\nBorja · Semences del Caribe`
-                : `${saludo}.${alcance ? `\nTu alcance: ${alcance}.` : ''}\n\n${completo}\n\nBorja · Semences del Caribe`
+                : `${saludo}.${alcance ? `\nTu alcance: ${alcance}.` : ''}\n\n${completo}${pista ? `\n\n${pista}` : ''}\n\nBorja · Semences del Caribe`
         }
     };
 }
 
-// Resumen de una persona (ya reclamado su día): arma, decide canales y encola. Devuelve el canal usado o null.
-// ajustes: los mensajes y las secciones de Borja (si no vienen, se leen); la Torre de control lo usa para reenviar
-/** @param {any} contexto @param {any} persona @param {any} datosTodos @param {string} hoy @param {any} [ajustes] @returns {Promise<string | null>} */
-export async function resumirPersona(contexto, persona, datosTodos, hoy, ajustes = null) {
-    const { pool, config, google, avisos } = contexto;
+/**
+ * Lo que lleva el resumen de una persona ahora mismo: { ambito, secciones (con tareas y seguimientos numerados), lista
+ * (lo numerado, para congelarlo), textos, token }. null si no tiene acceso o no hay nada que contar.
+ * @param {any} contexto @param {any} persona @param {any} datosTodos @param {string} hoy @param {any} [ajustes]
+ */
+export async function prepararResumen(contexto, persona, datosTodos, hoy, ajustes = null) {
+    const { pool, config, google } = contexto;
     const { mensajes, borja } = ajustes || { mensajes: await leerMensajes(pool), borja: await leerBorja(pool) };
     const ambito = ambitoDe(persona, config);
     if (ambito.estado !== 'aprobado') return null;
@@ -187,12 +198,33 @@ export async function resumirPersona(contexto, persona, datosTodos, hoy, ajustes
     }
     const [[sinLeer]] = await pool.query('SELECT COUNT(*) n FROM directos WHERE para_id = ? AND leido = 0', [persona.id]);
     // Solo las secciones que el Master dejó activas en el centro de Borja
-    const secciones = componerResumen({ persona, ambito, datos: filtrarDatos(datosTodos, ambito), eventos, sinLeer: Number(sinLeer.n), hoy, zona: config.zonaHoraria, umbral: config.umbralGerminacion })
+    const filtradas = componerResumen({ persona, ambito, datos: filtrarDatos(datosTodos, ambito), eventos, sinLeer: Number(sinLeer.n), hoy, zona: config.zonaHoraria, umbral: config.umbralGerminacion })
         .filter(s => borja[s.clave] !== false);
-    if (!secciones.length) return null;
-
+    if (!filtradas.length) return null;
+    // Borja bidireccional: tareas y seguimientos numerados (los que salen), para "LISTO n"
+    const { secciones, lista } = numerarSecciones(filtradas);
     const mensaje = mensajes.resumen || MENSAJES_POR_DEFECTO.resumen;
-    const textos = textosResumen(secciones, persona, hoy, ambito, mensaje);
+    return { ambito, secciones, lista, mensaje, textos: textosResumen(secciones, persona, hoy, ambito, mensaje), token };
+}
+
+/**
+ * El resumen de ahora como texto (lo pide la persona con RESUMEN a Borja): { texto, lista }
+ * @param {any} contexto @param {any} persona @param {string} hoy
+ */
+export async function textoResumenAhora(contexto, persona, hoy) {
+    const preparado = await prepararResumen(contexto, persona, await listarTodo(contexto.pool), hoy);
+    if (!preparado) return { texto: '', lista: [] };
+    return { texto: traducir(preparado.textos.completo, persona.idioma), lista: preparado.lista };
+}
+
+// Resumen de una persona (ya reclamado su día): arma, decide canales y encola. Devuelve el canal usado o null.
+// ajustes: los mensajes y las secciones de Borja (si no vienen, se leen); la Torre de control lo usa para reenviar
+/** @param {any} contexto @param {any} persona @param {any} datosTodos @param {string} hoy @param {any} [ajustes] @returns {Promise<string | null>} */
+export async function resumirPersona(contexto, persona, datosTodos, hoy, ajustes = null) {
+    const { pool, config, google, avisos } = contexto;
+    const preparado = await prepararResumen(contexto, persona, datosTodos, hoy, ajustes);
+    if (!preparado) return null;
+    const { mensaje, textos, token, lista } = preparado;
     const { huellas, telefonos } = await destinosDe(pool, [persona.id]);
     const canales = [];
     const seguimiento = { origen: 'resumen', usuarioId: persona.id };
@@ -213,6 +245,8 @@ export async function resumirPersona(contexto, persona, datosTodos, hoy, ajustes
     const canal = (await Promise.all(canales)).join('+') || null;
     // Para el monitor de briefings: por dónde salió y cuándo
     if (canal) await pool.query('UPDATE usuarios SET resumen_canal = ?, resumen_enviado = UTC_TIMESTAMP() WHERE id = ?', [canal, persona.id]);
+    // La lista numerada que acaba de recibir queda congelada para hoy ("LISTO 2" es lo que vio)
+    if (canal) await congelarLista(pool, persona.id, hoy, lista);
     return canal;
 }
 

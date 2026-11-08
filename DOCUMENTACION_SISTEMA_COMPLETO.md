@@ -822,3 +822,26 @@ la pestaña) entra en la lista de cada Master, una sola vez por cotización, con
 **Meta (revisión de la app):** *Privacy Policy URL* = `https://semillasdata.com/privacidad.html`, *Terms of Service URL* =
 `https://semillasdata.com/condiciones.html`, *User Data Deletion* → *Data deletion instructions URL* =
 `https://semillasdata.com/privacidad.html#borrar-datos`.
+
+---
+
+## 21. Borja bidireccional — B1 (rama `borja/bidireccional`)
+
+El equipo le contesta a Borja (WhatsApp o chat de la app) con órdenes cortas: `RESUMEN`, `LISTO n`, `VISITA cliente
+(estado): nota`, `NOTA cliente: texto` y `AYUDA` (detalle en `servidor/LEEME.md`, *Borja bidireccional*).
+
+| Pieza | Dónde |
+|---|---|
+| Intérprete de órdenes, desambiguación, repregunta del estado del cultivo, límite de 30/h, órdenes repetidas por Meta | `servidor/src/borja.js › interpretarBorja, atenderBorja` |
+| Lista numerada del día (solo tareas y seguimientos), congelada al enviar el resumen o al pedirlo | `resumen.js › prepararResumen` + `borja.js › numerarSecciones, congelarLista` |
+| WhatsApp: solo personas del equipo aprobadas, después de la bienvenida y de BAJA/ALTA; respuesta tras el 200 a Meta | `bienvenida.js › recibirWhatsapp` |
+| Chat en la app (acción `borja`) | `acciones.js`, `borja.js` (web) |
+| Guardado igual que la web (`ACCIONES.crm`: permisos, eventos, avisos, auditoría HMAC) | `acciones.js › atenderOrdenBorja` |
+| Bitácora del cliente: lista que solo crece (se une por id al guardar la ficha) y se ve en el expediente con el último contacto | `borja.js › unirBitacora`, `acciones.js › conEventos.ajustar`, `crm.js` |
+| Interruptor del Master «órdenes por WhatsApp» | `acciones.js › accesos (comandos)`, `tablero.js` |
+| Viernes: los seguimientos cerrados con LISTO entran solos (las tareas y visitas ya entraban) | `pedidos.js › actividadesDelCrm` |
+| Esquema: `usuarios.borja_estado` (JSON) y `usuarios.comandos_whatsapp` (sin tablas nuevas) | `db.js` |
+
+Queda para B2: `AGENDAR` (FreeBusy + Calendar), `ESTADO EQUIPO` / `RESUMEN GLOBAL` para el Master y el marcador
+`{{bitacora}}` en el expediente PDF.
+
