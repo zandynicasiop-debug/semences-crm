@@ -15,7 +15,7 @@ import { pestanasDe } from './exportar.js';
 import { normalizarTelefono, suscripcionValida } from './avisos.js';
 import { errorApp, conGoogle } from './llamadasGoogle.js';
 import { encolar, estadoCola } from './cola.js';
-import { emitirEventosDeCambios } from './eventos.js';
+import { emitirEventosDeCambios, emitirEvento } from './eventos.js';
 import { REGLAS } from './flujos.js';
 import { enZona } from './fechas.js';
 import { darBienvenida } from './bienvenida.js';
@@ -515,6 +515,11 @@ export const ACCIONES = {
         } else if (datos.operacion !== 'listar') {
             throw errorApp('Operación desconocida (listar, aprobar, rechazar o reabrir)');
         }
+        // Drive del CRM: si pierde el acceso o cambia de país o casa, se le retira la lectura de las carpetas de
+        // los clientes que ya no ve (flujos.js › alCambiarAcceso). Una primera aprobación no tiene nada que retirar
+        if (datos.operacion !== 'listar' && driveActivo(config) && (datos.operacion !== 'aprobar' || persona.estado === 'aprobado')) {
+            await emitirEvento(pool, { tipo: 'ACCESO_CAMBIADO', clave: `acceso:${persona.email}:${Date.now()}`, usuarioId: usuario.id, carga: { email: persona.email } });
+        }
         if (datos.operacion !== 'listar') {
             // Auditoría: el acceso de antes y el de ahora
             const [[ahora]] = await pool.query('SELECT estado, cargo, paises, casas FROM usuarios WHERE id = ?', [persona.id]);
@@ -712,7 +717,11 @@ export const ACCIONES = {
             await pool.query('DELETE s FROM sesiones s JOIN usuarios u ON u.id = s.usuario_id WHERE u.email = ?', [email]);
             await pool.query('DELETE p FROM push_suscripciones p JOIN usuarios u ON u.id = p.usuario_id WHERE u.email = ?', [email]);
             // Y vuelve a la sala de espera: si un día puede entrar otra vez, un Master decide su acceso
-            await pool.query("UPDATE usuarios SET estado = 'pendiente', cargo = NULL, paises = '[]', casas = '[]' WHERE email = ?", [email]);
+            const [r] = await pool.query("UPDATE usuarios SET estado = 'pendiente', cargo = NULL, paises = '[]', casas = '[]' WHERE email = ?", [email]);
+            // Sin acceso a la app, tampoco a las carpetas de Drive que se le compartieron (flujos.js › alCambiarAcceso)
+            if (r.affectedRows && driveActivo(config)) {
+                await emitirEvento(pool, { tipo: 'ACCESO_CAMBIADO', clave: `acceso:${email}:${Date.now()}`, usuarioId: usuario.id, carga: { email } });
+            }
         } else if (datos.operacion !== 'listar') {
             throw errorApp('Operación desconocida (listar, guardar o quitar)');
         }

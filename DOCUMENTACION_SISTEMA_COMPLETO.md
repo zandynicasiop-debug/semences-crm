@@ -286,6 +286,10 @@ Semences del Caribe · CRM/
 - **Quién ve qué:** cuando alguien sube un documento, abre los documentos o genera un reporte de un cliente que
   puede ver (su país y su casa), recibe acceso de **lectura** a la carpeta de ese cliente, sin correo de Google. Los
   cambios entran siempre por la app (y quedan en la auditoría). Respaldos y plantillas no se comparten.
+- **Y la pierde sola:** cuando un Master le cambia el país o la casa comercial, la devuelve a la sala de espera, le
+  rechaza el acceso o la quita del equipo, el servidor (evento `ACCESO_CAMBIADO`, con reintentos si Google falla)
+  pregunta a Drive qué tiene compartido con su correo y retira la lectura de las carpetas de los clientes que ya no ve;
+  si ya no tiene acceso a la app, también la de los reportes sueltos. Queda en la auditoría ("Drive del CRM").
 - Las variables `REPORTE_PLANTILLA_ID`, `REPORTE_CARPETA_ID`, `DOCUMENTOS_CARPETA_ID` y `RESPALDO_CARPETA_ID` ya no
   se usan (si siguen en el `.env`, el arranque solo lo avisa). Las carpetas hechas a mano antes de este cambio siguen
   donde estaban, pero la app ya no las ve: lo que haga falta conservar se sube de nuevo desde la app.
@@ -811,6 +815,7 @@ la pestaña) entra en la lista de cada Master, una sola vez por cotización, con
 | **Alerta de flujos fallidos** | Un evento `fallido` definitivo avisa a cada Master en la campana (tipo `sistema`, abre la Torre de control) y por correo, una vez por evento (`eventos.avisado`). | `src/latido.js` |
 | **Arranque directo en el CRM** | three.js (~650 KB) ya no se carga al abrir: se descarga con su huella SRI solo al entrar en el Simulador 3D. El service worker ya no lo descarga al instalarse. En las apps nativas va dentro (`lib/`). | `app.js › iniciarSimulador` |
 | **Privacidad y condiciones** | Google Workspace (`drive.file`, Calendar, Gmail, Sheets), WhatsApp Business, Instagram, consentimiento y baja (Ley 172-13), instrucciones de borrado (`privacidad.html#borrar-datos`, URL para Meta). | `privacidad.html`, `condiciones.html` |
+| **Revocación automática en Drive** | Al cambiar el país o la casa de alguien, devolverlo a la sala de espera, rechazarlo o quitarlo del equipo, se le retira la lectura de las carpetas de los clientes que ya no ve (y de todo, si ya no entra). Sin tablas nuevas: se pregunta a Drive. | `drive.js › revisarAccesoDrive`, evento `ACCESO_CAMBIADO` |
 | **Respaldos que se pueden recuperar** | `npm run comprobar-respaldo`: simulacro en seco (la clave abre todos los tokens, auditoría entera, respaldo de Drive válido y cuadrado); `--restaurar` lo vuelca en una base nueva y vacía. `CLAVE_CIFRADO` se guarda también fuera de FastComet. | `herramientas/comprobar-respaldo.js` |
 | **Baja de WhatsApp de los clientes** | El cliente escribe **BAJA** (o STOP) y deja de recibir WhatsApp de la empresa al momento (lista en `ajustes › whatsappBajas` + casilla en su ficha, auditado); **ALTA** lo reactiva. El equipo también puede marcarla. | `src/bajas.js` |
 

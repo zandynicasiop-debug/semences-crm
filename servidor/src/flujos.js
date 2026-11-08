@@ -36,7 +36,7 @@ import { REGLA_RECOMPRA, ESTADOS_VENTA, idRecompra, pedidoDeRecompra, ejecutorDe
 import { REGLA_PLANTULACION, alPlantular, alEntregarEnvio, alDormirCliente } from './campo.js';
 import { leerMensajes, renderizar } from './mensajes.js';
 import { REGLA_SUPERVISION_CEO, alOrdenarABorja, alSupervisarCotizacion } from './agendaCeo.js';
-import { conDriveDelCrm, carpetaDelCliente, carpetaDe, driveActivo, textoPlantilla } from './drive.js';
+import { conDriveDelCrm, carpetaDelCliente, carpetaDe, driveActivo, textoPlantilla, revisarAccesoDrive } from './drive.js';
 
 export { textoPlantilla };
 
@@ -263,6 +263,18 @@ export async function alPasarAReunion(evento, { paso, contexto }) {
 }
 
 /**
+ * El Master quitó el acceso a una persona, la devolvió a la sala de espera o le cambió el país o la casa comercial:
+ * se le retira la lectura de las carpetas de Drive de los clientes que ya no puede ver (drive.js › revisarAccesoDrive).
+ * Si Google está caído se reintenta (motor de eventos); si el Drive del CRM está apagado, queda "omitido".
+ * @type {import('./eventos.js').Manejador}
+ */
+export async function alCambiarAcceso(evento, { paso, contexto }) {
+    const email = String(evento.carga.email || '').trim().toLowerCase();
+    if (!email) throw errorDefinitivo('Falta el correo de la persona');
+    await paso('drive', () => opcional(() => revisarAccesoDrive(/** @type {any} */ (contexto), email)));
+}
+
+/**
  * Ciclo de recompra (pedidos.js): llegó la próxima temporada de un pedido confirmado. Si sigue siendo venta
  * (no se canceló ni volvió a Cotizado), se abre el pedido Cotizado de la nueva temporada para el mismo cliente,
  * casa, variedad y vendedor, y se le avisa en su campana (y por push). Cada paso con su punto de control.
@@ -311,5 +323,6 @@ export const MANEJADORES = {
     CLIENTE_DORMIDO: alDormirCliente,
     // Lote B (agendaCeo.js): órdenes del CEO a Borja (Calendar y Gmail) y Supervisión Comercial
     BORJA_CEO_ORDEN: alOrdenarABorja,
-    CEO_SUPERVISION: alSupervisarCotizacion
+    CEO_SUPERVISION: alSupervisarCotizacion,
+    ACCESO_CAMBIADO: alCambiarAcceso
 };

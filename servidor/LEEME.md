@@ -131,7 +131,7 @@ La app solo pide el permiso mínimo de Drive (`drive.file`: los archivos que cre
 2. A los pocos segundos aparece en su Drive **Semences del Caribe · CRM** con `Clientes` (una carpeta por cliente), `Reportes`, `Respaldos` y `Plantillas`.
 3. En `Plantillas › Plantilla base del expediente` (Google Docs) dale el diseño de la empresa sin quitar los `{{campos}}`: `{{cliente}}`, `{{pais}}`, `{{casa}}`, `{{ubicacion}}`, `{{telefono}}`, `{{whatsapp}}`, `{{marca}}`, `{{seguimiento}}`, `{{fecha}}`, `{{responsable}}`, `{{procesos}}`, `{{visitas}}`, `{{rendimientos}}`. La de cada casa comercial se copia de ella la primera vez.
 
-Quien sube un documento, abre los documentos o genera un reporte de un cliente que puede ver recibe acceso de **lectura** a la carpeta de ese cliente. Las carpetas se reconocen por su marca, no por el nombre: se pueden renombrar; si alguien las borra, se vuelven a crear. `REPORTE_PLANTILLA_ID`, `REPORTE_CARPETA_ID`, `DOCUMENTOS_CARPETA_ID` y `RESPALDO_CARPETA_ID` ya no se usan.
+Quien sube un documento, abre los documentos o genera un reporte de un cliente que puede ver recibe acceso de **lectura** a la carpeta de ese cliente. Y la pierde sola: si un Master le cambia el país o la casa comercial, la devuelve a la sala de espera, la rechaza o la quita del equipo, el servidor retira la lectura de las carpetas que ya no le tocan (y de todo, si ya no entra en la app), y lo apunta en la auditoría. Las carpetas se reconocen por su marca, no por el nombre: se pueden renombrar; si alguien las borra, se vuelven a crear. `REPORTE_PLANTILLA_ID`, `REPORTE_CARPETA_ID`, `DOCUMENTOS_CARPETA_ID` y `RESPALDO_CARPETA_ID` ya no se usan.
 
 En la app: ficha del cliente › **Reporte PDF en Drive** y **Documentos en Drive**.
 

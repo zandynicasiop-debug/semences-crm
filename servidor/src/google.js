@@ -367,6 +367,39 @@ export function crearGoogle(config) {
             });
         },
 
+        /**
+         * Lo que dentro de carpetaId está compartido como lectura con ese correo: [{ id, cliente }] (cliente: la marca
+         * semencesCliente de la carpeta, o '' si es un archivo suelto). Con drive.file solo salen archivos de la app
+         */
+        async compartidosCon(tokenRefresco, alRenovar, { carpetaId, email }) {
+            const unidad = drive({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });
+            const correo = String(email).replace(/['\\]/g, '');
+            const encontrados = [];
+            let pagina;
+            do {
+                const r = await unidad.files.list({
+                    q: `'${carpetaId}' in parents and '${correo}' in readers and trashed = false`,
+                    fields: 'nextPageToken, files(id, appProperties)', pageSize: 1000, pageToken: pagina,
+                    supportsAllDrives: true, includeItemsFromAllDrives: true
+                });
+                for (const f of r.data.files || []) encontrados.push({ id: f.id, cliente: (f.appProperties && f.appProperties.semencesCliente) || '' });
+                pagina = r.data.nextPageToken || undefined;
+            } while (pagina);
+            return encontrados;
+        },
+
+        // Quita el acceso de ese correo a una carpeta o archivo (nunca al dueño). Devuelve cuántos permisos quitó
+        async revocar(tokenRefresco, alRenovar, { id, email }) {
+            const unidad = drive({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });
+            const r = await unidad.permissions.list({ fileId: id, fields: 'permissions(id, emailAddress, role)', supportsAllDrives: true });
+            const suyos = (r.data.permissions || []).filter(p => String(p.emailAddress || '').toLowerCase() === String(email).toLowerCase() && p.role !== 'owner');
+            for (const permiso of suyos) {
+                await unidad.permissions.delete({ fileId: id, permissionId: permiso.id, supportsAllDrives: true })
+                    .catch(e => { if (Number(e.code || e.status) !== 404) throw e; }); // Ya no estaba
+            }
+            return suyos.length;
+        },
+
         // ----- Calendar: la agenda del CRM (seguimientos, tareas, trasplantes) en el calendario de cada persona -----
 
         // Eventos que puso el CRM entre desde y hasta

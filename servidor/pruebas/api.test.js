@@ -87,7 +87,18 @@ function googleFalso() {
             g.llamadas.push({ tipo: 'estructura', token, datos });
             return { raiz: 'drive-raiz', documentos: 'drive-clientes', reportes: 'drive-reportes', respaldos: 'drive-respaldos', plantillas: 'drive-plantillas', base: 'drive-base' };
         },
-        compartir: async (token, alRenovar, datos) => { g.llamadas.push({ tipo: 'compartir', token, datos }); },
+        compartir: async (token, alRenovar, datos) => { g.llamadas.push({ tipo: 'compartir', token, datos }); g.compartidos.push({ ...datos }); },
+        compartidos: [],
+        // Lo compartido con un correo: en "Clientes", las carpetas (carpeta-<cliente>); en "Reportes", lo suelto
+        compartidosCon: async (token, alRenovar, { carpetaId, email }) => g.compartidos
+            .filter(c => c.email === email && (carpetaId === 'drive-clientes' ? c.id.startsWith('carpeta-') : !c.id.startsWith('carpeta-')))
+            .map(c => ({ id: c.id, cliente: c.id.startsWith('carpeta-') ? c.id.slice(8) : '' })),
+        revocar: async (token, alRenovar, { id, email }) => {
+            g.llamadas.push({ tipo: 'revocar', token, datos: { id, email } });
+            const antes = g.compartidos.length;
+            g.compartidos = g.compartidos.filter(c => !(c.id === id && c.email === email));
+            return antes - g.compartidos.length;
+        },
         carpetas: new Set(),
         // Drive y Calendar simulados (workspace.js)
         archivos: [],
@@ -1576,6 +1587,56 @@ for (const base of BASES) {
                 assert.equal(correos[0].token, 'refresco-jefa');
                 const mensaje = Buffer.from(correos[0].crudo, 'base64url').toString('utf8');
                 assert.match(mensaje, /^To: jefa@gmail\.com/);
+            } finally {
+                config.workspace = original;
+            }
+        });
+
+        test('Drive: al cambiar el país o la casa de alguien, o quitarle el acceso, pierde la lectura de lo que ya no ve', async () => {
+            const original = config.workspace;
+            config.workspace = { ...original, cuentaSistema: 'jefa@gmail.com' };
+            const silencio = { error: () => {} };
+            const procesar = async () => { for (let i = 0; i < 5; i++) if (!(await procesarEventos({ pool, config, google, avisos }, MANEJADORES, { registrar: silencio })).hechos) break; };
+            try {
+                await procesar(); // Lo que dejaron pendiente otras pruebas
+                google.identidades['codigo-vera'] = { email: 'vera@semillasdata.com', verificado: true, dominio: 'semillasdata.com', nombre: 'Vera', foto: '', tokenRefresco: 'r-vera', permisos: '' };
+                sesiones.vera = (await entrarComo('codigo-vera')).json.sesion;
+                await accion(sesiones.jefa, { accion: 'accesos', operacion: 'aprobar', email: 'vera@semillasdata.com', cargo: 'vendedor', paises: ['VE'], casas: ['Fitó', 'Hexagon Seeds'] });
+                const eventos = async () => Number((await pool.query("SELECT COUNT(*) n FROM eventos WHERE clave LIKE 'acceso:vera@semillasdata.com:%'"))[0][0].n);
+                assert.equal(await eventos(), 0, 'la primera aprobación no tiene nada que retirar');
+
+                // Vera abre documentos de un cliente Fitó y sube uno a un cliente Hexagon; genera un reporte suelto
+                await accion(sesiones.jefa, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: { id: 'cli-hex', nombre: 'Finca Hexagon', pais: 'VE', casa: 'Hexagon Seeds' } }] });
+                assert.equal((await accion(sesiones.vera, { accion: 'documentos', clienteId: 'cli-docs' })).estado, 200);
+                assert.equal((await accion(sesiones.vera, { accion: 'subirDocumento', clienteId: 'cli-hex', nombre: 'Permiso', tipo: 'application/pdf', base64: Buffer.from('%PDF').toString('base64') })).estado, 200);
+                assert.equal((await accion(sesiones.vera, { accion: 'reporte', titulo: 'Ruta de la semana' })).estado, 200);
+                const deVera = () => google.compartidos.filter(c => c.email === 'vera@semillasdata.com').map(c => c.id).sort();
+                assert.deepEqual(deVera(), ['carpeta-cli-docs', 'carpeta-cli-hex', 'pdf-1']);
+
+                // Pasa a llevar solo Hexagon Seeds: pierde la carpeta del cliente Fitó; lo demás lo conserva. A Ana no se le toca
+                await accion(sesiones.jefa, { accion: 'accesos', operacion: 'aprobar', email: 'vera@semillasdata.com', cargo: 'vendedor', paises: ['VE'], casas: ['Hexagon Seeds'] });
+                assert.equal(await eventos(), 1);
+                await procesar();
+                assert.deepEqual(deVera(), ['carpeta-cli-hex', 'pdf-1']);
+                assert.ok(google.compartidos.some(c => c.id === 'carpeta-cli-docs' && c.email === 'ana@semillasdata.com'));
+                assert.ok(google.llamadas.filter(l => l.tipo === 'revocar').every(l => l.token === 'refresco-jefa'), 'lo hace la cuenta dueña del Drive');
+
+                // Sale del equipo (vuelve a la sala de espera): pierde todo lo que se le compartió
+                await accion(sesiones.jefa, { accion: 'accesos', operacion: 'reabrir', email: 'vera@semillasdata.com' });
+                await procesar();
+                assert.deepEqual(deVera(), []);
+                const [[estado]] = await pool.query("SELECT GROUP_CONCAT(estado) e FROM eventos WHERE clave LIKE 'acceso:vera@semillasdata.com:%'");
+                assert.equal(estado.e, 'hecho,hecho');
+                const [auditoria] = await pool.query("SELECT resumen FROM auditoria WHERE accion = 'accesos' AND nombre = 'Drive del CRM' AND objeto = 'vera@semillasdata.com' ORDER BY id");
+                assert.deepEqual(auditoria.map(a => a.resumen), [
+                    'Retiró la lectura de 1 carpeta(s) o archivo(s) de Drive a Vera (ya no son de su país o casa comercial)',
+                    'Retiró la lectura de 2 carpeta(s) o archivo(s) de Drive a Vera (sin acceso a la app)'
+                ]);
+
+                // Sin el Drive del CRM no hay nada que retirar: no se encola nada
+                config.workspace = { ...original, cuentaSistema: '' };
+                await accion(sesiones.jefa, { accion: 'accesos', operacion: 'rechazar', email: 'vera@semillasdata.com' });
+                assert.equal(await eventos(), 2);
             } finally {
                 config.workspace = original;
             }

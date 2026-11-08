@@ -16,9 +16,16 @@
  * Quien puede ver un cliente (su país y su casa comercial) recibe acceso de LECTURA a la carpeta de ese cliente
  * cuando sube o abre algo de él, para que el enlace le abra en Drive. Los cambios entran siempre por la app, así que
  * quedan en la cadena de auditoría y nadie toca el Drive del Master directamente.
+ *
+ * Y lo pierde solo: cuando el Master le quita el acceso, lo devuelve a la sala de espera o le cambia el país o la casa
+ * comercial (evento ACCESO_CAMBIADO), el servidor busca en Drive lo compartido con su correo y retira la lectura de lo
+ * que ya no puede ver (revisarAccesoDrive).
  */
 import { conGoogle, errorApp } from './llamadasGoogle.js';
 import { guardarAjuste } from './mensajes.js';
+import * as db from './db.js';
+import { ambitoDe, puedeLeer, dentroDelAmbito } from './permisos.js';
+import { auditar } from './auditoria.js';
 
 /** Nombres de las carpetas (solo para crearlas: después se reconocen por su marca, así que se pueden renombrar) */
 export const NOMBRES_DRIVE = {
@@ -157,8 +164,10 @@ export async function conDriveDelCrm(contexto, tarea) {
     }
 }
 
-// Lo ya compartido en este proceso (carpeta:correo), por cliente de Google: no se repite la llamada
+// Lo ya compartido en este proceso (carpeta:correo → cuándo), por cliente de Google: no se repite la llamada. Caduca a
+// los 30 minutos: si otro proceso le retiró el acceso y luego lo recuperó, aquí se vuelve a compartir
 const compartidos = new WeakMap();
+const VIGENCIA_COMPARTIDO_MS = 30 * 60000;
 
 /**
  * Acceso de LECTURA a una carpeta o archivo del CRM para una persona (sin correo de Google). Si Google no deja (p. ej.
@@ -173,17 +182,61 @@ export async function compartirCon(contexto, id, email) {
     const sistema = await cuentaDelSistema(contexto.pool, contexto.config);
     if (!id || !correo || !sistema || correo === sistema.email) return true;
     let hechos = compartidos.get(contexto.google);
-    if (!hechos) { hechos = new Set(); compartidos.set(contexto.google, hechos); }
+    if (!hechos) { hechos = new Map(); compartidos.set(contexto.google, hechos); }
     const clave = `${id}:${correo}`;
-    if (hechos.has(clave)) return true;
+    if (Date.now() - (hechos.get(clave) || 0) < VIGENCIA_COMPARTIDO_MS) return true;
     try {
         await conSistema(contexto, sistema, (token, alRenovar) => contexto.google.compartir(token, alRenovar, { id, email: correo }));
-        hechos.add(clave);
+        hechos.set(clave, Date.now());
         return true;
     } catch (fallo) {
         console.error(`Drive del CRM: no se pudo compartir ${id} con ${correo}:`, /** @type {Error} */ (fallo).message);
         return false;
     }
+}
+
+/**
+ * Retira la lectura de Drive que ya no le corresponde a una persona: las carpetas de los clientes que ya no puede ver
+ * (otro país o casa comercial) y, si ya no tiene acceso a la app, también los reportes sueltos que se le compartieron.
+ * Pregunta a Drive qué tiene compartido con su correo (no hace falta guardarlo en ninguna tabla) y deja constancia en
+ * la auditoría. Devuelve { revocadas, revisadas } o { omitido } si el Drive del CRM está apagado.
+ * @param {{ pool: any, config: any, google: any }} contexto
+ * @param {string} email
+ */
+export async function revisarAccesoDrive(contexto, email) {
+    const { pool, config, google } = contexto;
+    const correo = String(email || '').trim().toLowerCase();
+    if (!driveActivo(config)) return { omitido: 'Drive del CRM apagado (CUENTA_GOOGLE_SISTEMA)' };
+    if (correo === config.workspace.cuentaSistema) return { omitido: 'Es la cuenta dueña del Drive del CRM' };
+    const [filas] = await pool.query('SELECT * FROM usuarios WHERE email = ?', [correo]);
+    const persona = filas[0];
+    const ambito = persona ? ambitoDe(persona, config) : null;
+    const activo = Boolean(ambito && ambito.estado === 'aprobado');
+    const resultado = await conDriveDelCrm(contexto, async (token, alRenovar, ids) => {
+        const carpetas = await google.compartidosCon(token, alRenovar, { carpetaId: ids.documentos, email: correo });
+        const sueltos = activo ? [] : await google.compartidosCon(token, alRenovar, { carpetaId: ids.reportes, email: correo });
+        let revocadas = 0;
+        for (const carpeta of carpetas) {
+            const cliente = carpeta.cliente ? await db.leerRegistro(pool, 'clientes', carpeta.cliente) : null;
+            const laVe = activo && cliente && puedeLeer(ambito, 'clientes') && dentroDelAmbito(ambito, 'clientes', cliente);
+            if (laVe) continue;
+            if (await google.revocar(token, alRenovar, { id: carpeta.id, email: correo })) revocadas++;
+        }
+        for (const archivo of sueltos) {
+            if (await google.revocar(token, alRenovar, { id: archivo.id, email: correo })) revocadas++;
+        }
+        return { revocadas, revisadas: carpetas.length + sueltos.length };
+    });
+    // Lo que este proceso recordaba como compartido con esa persona ya no vale
+    const hechos = compartidos.get(google);
+    if (hechos) for (const clave of [...hechos.keys()]) if (clave.endsWith(`:${correo}`)) hechos.delete(clave);
+    if (resultado.revocadas) {
+        await auditar(pool, config, {
+            nombre: 'Drive del CRM', accion: 'accesos', objeto: correo,
+            resumen: `Retiró la lectura de ${resultado.revocadas} carpeta(s) o archivo(s) de Drive a ${persona && persona.nombre ? persona.nombre : correo}${activo ? ' (ya no son de su país o casa comercial)' : ' (sin acceso a la app)'}`
+        });
+    }
+    return resultado;
 }
 
 /** Nombre de la carpeta de un cliente (se reconoce por su id, no por el nombre: renombrar no crea otra) @param {{ id: string, nombre?: string }} cliente */
