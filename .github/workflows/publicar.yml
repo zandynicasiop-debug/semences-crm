@@ -1,5 +1,7 @@
-# Cada vez que se suben cambios a main: compila y firma el APK y publica la app (con el APK para descargar)
-# en GitHub Pages. También se puede lanzar a mano desde la pestaña Actions › "Compilar APK y publicar la app".
+# Cada vez que se suben cambios a main: pruebas (servidor, web y tipos), APK firmado y los paquetes para FastComet
+# (artifact "Semences-para-FastComet"). La web pública de GitHub Pages ya NO se publica sola en cada push: solo
+# a mano (Actions › "Compilar APK y publicar la app" › Run workflow), en el mismo momento en que se sube el
+# servidor a cPanel. Así la web nunca va por delante (o por detrás) del backend.
 #
 # Secretos del repositorio (Settings › Secrets and variables › Actions):
 #   SEMENCES_FIRMA  el archivo android/firma/semences.keystore en base64
@@ -19,9 +21,10 @@ permissions:
   pages: write
   id-token: write
 
+# Un push nuevo cancela la comprobación anterior de esa rama; una publicación a mano no la cancela nadie
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: publicar-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
   # Pruebas del backend (servidor/) contra MySQL y MariaDB reales: si fallan, no se publica nada.
@@ -184,8 +187,10 @@ jobs:
         with:
           path: publicar
 
+  # Solo a mano (workflow_dispatch): la web se publica cuando se sube el servidor, no en cada push
   desplegar:
     needs: compilar
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     environment:
       name: github-pages

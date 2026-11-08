@@ -1,8 +1,10 @@
 # Apps nativas: Android (APK firmado), iPhone/iPad (comprobación del proyecto Xcode), Windows (.exe) y Mac (.dmg),
-# y una versión de prueba en Releases con los enlaces de descarga directa.
+# y una versión en Releases con los enlaces de descarga directa.
 #
-# Se ejecuta con cada cambio en las ramas auditoria/** y apps/**, con las etiquetas v* y a mano (Actions › Run
-# workflow). No toca GitHub Pages: la web se sigue publicando solo desde main (publicar.yml).
+# - Ramas auditoria/** y apps/**: versión de PRUEBA (vX.Y.Z-beta.N, marcada como prerelease).
+# - Rama version/** (p. ej. version/2.1.0) o etiqueta v*: versión DEFINITIVA vX.Y.Z (la última en Releases).
+#   Con la rama no hace falta poder subir etiquetas: la crea GitHub al publicar la versión.
+# - También a mano (Actions › Run workflow). No toca GitHub Pages (publicar.yml).
 #
 # Secretos que usa (los mismos que publicar.yml):
 #   SEMENCES_FIRMA  keystore del APK en base64: con la misma firma y el mismo id, la app nueva actualiza la anterior
@@ -12,7 +14,7 @@ name: Apps nativas (Android, iOS, Windows y Mac)
 
 on:
   push:
-    branches: ['auditoria/**', 'apps/**']
+    branches: ['auditoria/**', 'apps/**', 'version/**']
     tags: ['v*']
     # Un cambio solo en la documentación no vuelve a compilar las apps
     paths-ignore: ['**.md']
@@ -26,7 +28,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  VERSION_APP: '2.0.0'
+  # 2.1.0: Fase 2 + Lote A + Lote B + salida a producción (drive.file, Editar, latido, arranque directo en el CRM)
+  VERSION_APP: '2.1.0'
 
 jobs:
   pruebas:
@@ -87,8 +90,8 @@ jobs:
           SEMENCES_CLAVE: ${{ secrets.SEMENCES_CLAVE }}
           VERSION_NAME: ${{ env.VERSION_APP }}
         run: |
-          # versionCode: 200 (2.0.0) más el número de la ejecución, para que cada APK actualice al anterior
-          export VERSION_CODE=$((200 + GITHUB_RUN_NUMBER))
+          # versionCode: 210 (2.1.0) más el número de la ejecución, para que cada APK actualice al anterior
+          export VERSION_CODE=$((210 + GITHUB_RUN_NUMBER))
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon --stacktrace
       # La app nueva solo se instala encima de la que ya tiene el equipo si va firmada con el mismo certificado:
@@ -228,7 +231,9 @@ jobs:
       - name: Versión de prueba en Releases, con los enlaces de descarga
         env:
           GH_TOKEN: ${{ github.token }}
-          ETIQUETA: v${{ env.VERSION_APP }}-beta.${{ github.run_number }}
+          # Definitiva desde version/** o una etiqueta v*; de prueba desde las demás ramas
+          DEFINITIVA: ${{ startsWith(github.ref, 'refs/heads/version/') || startsWith(github.ref, 'refs/tags/v') }}
+          ETIQUETA: ${{ (startsWith(github.ref, 'refs/heads/version/') || startsWith(github.ref, 'refs/tags/v')) && format('v{0}', env.VERSION_APP) || format('v{0}-beta.{1}', env.VERSION_APP, github.run_number) }}
           ANDROID: ${{ needs.android.result }}
           WINDOWS: ${{ needs.windows.result }}
           MAC: ${{ needs.mac.result }}
@@ -238,7 +243,11 @@ jobs:
           # Una fila por plataforma que compiló; las demás, en la lista de lo que falta
           faltan=""
           {
-            echo "Versión de prueba de las apps de Semences del Caribe (${GITHUB_REF_NAME}, ${GITHUB_SHA::7})."
+            if [ "$DEFINITIVA" = true ]; then
+              echo "Versión ${VERSION_APP} de las apps de Semences del Caribe (${GITHUB_SHA::7}): Fase 2 (pedidos, recompra y metas en US\$), Lote A (del pedido al campo), Lote B (Torre de control del Master y Mi agenda con Borja) y la salida a producción (Drive con drive.file, Editar en todos los módulos, despertador del servidor, arranque directo en el CRM)."
+            else
+              echo "Versión de prueba de las apps de Semences del Caribe (${GITHUB_REF_NAME}, ${GITHUB_SHA::7})."
+            fi
             echo
             echo "| Plataforma | Archivo | Cómo instalar |"
             echo "|---|---|---|"
@@ -276,7 +285,12 @@ jobs:
             gh release upload "$ETIQUETA" archivos/* --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit "$ETIQUETA" --repo "$GITHUB_REPOSITORY" --notes-file notas.md
           else
-            gh release create "$ETIQUETA" archivos/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-              --prerelease --title "Apps ${VERSION_APP} (prueba ${{ github.run_number }})" --notes-file notas.md
+            if [ "$DEFINITIVA" = true ]; then
+              gh release create "$ETIQUETA" archivos/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+                --latest --title "Semences del Caribe ${VERSION_APP}" --notes-file notas.md
+            else
+              gh release create "$ETIQUETA" archivos/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+                --prerelease --title "Apps ${VERSION_APP} (prueba ${{ github.run_number }})" --notes-file notas.md
+            fi
           fi
           echo "Descargas: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${ETIQUETA}"

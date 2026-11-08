@@ -1,7 +1,7 @@
 {
   "name": "semences-escritorio",
   "productName": "Semences del Caribe",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "App de escritorio (Windows y Mac) del CRM de Semences del Caribe",
   "author": "Semences del Caribe",

@@ -417,14 +417,16 @@ npm run dist:mac       # dmg/zip (en un Mac)
 
 | Flujo | Cuándo | Qué hace |
 |---|---|---|
-| `publicar.yml` | cada cambio en `main` | pruebas (Node 22 y 24, MySQL 8.4 y MariaDB 10.11, web) → APK anterior → web en GitHub Pages |
-| `multiplataforma.yml` | ramas `auditoria/**` y `apps/**`, etiquetas `v*`, o a mano | pruebas → en paralelo: **Android** (APK firmado y comprobado), **iOS** (Simulador), **Windows** (`.exe`), **Mac** (`.dmg`/`.zip` con firma ad-hoc comprobada) → **versión de prueba en Releases** con todos los archivos |
+| `publicar.yml` | cada cambio en `main` (comprobación) y **a mano** (publicación) | pruebas (Node 22 y 24, MySQL 8.4 y MariaDB 10.11, web y tipos) → APK anterior → paquetes para FastComet. La web de GitHub Pages **solo se publica a mano** (Actions › *Compilar APK y publicar la app* › *Run workflow*), en el mismo momento en que se sube el servidor a cPanel: así web y backend nunca van desfasados |
+| `multiplataforma.yml` | ramas `auditoria/**` y `apps/**` (versión de **prueba** `vX.Y.Z-beta.N`), rama `version/**` o etiqueta `v*` (versión **definitiva** `vX.Y.Z`), o a mano | pruebas → en paralelo: **Android** (APK firmado y comprobado), **iOS** (Simulador), **Windows** (`.exe`), **Mac** (`.dmg`/`.zip` con firma ad-hoc comprobada) → **versión en Releases** con todos los archivos |
+| `mantenimiento.yml` | rama `mantenimiento/limpieza`, o a mano | borra las ramas ya fusionadas en `main` (comprueba antes que no tengan nada fuera de `main`) y retira las versiones de prueba antiguas; las listas están escritas en el propio flujo |
 
 La firma del APK nuevo **se compara con la del APK publicado**: si no coincidiera, la app no se instalaría encima y el
 flujo se detiene sin publicar nada.
 
-**Descargas:** <https://github.com/zandynicasiop-debug/semences-crm/releases> (cada compilación crea una versión de
-prueba `v2.0.0-beta.N` con enlaces directos a cada archivo). La primera completa es
+**Descargas:** <https://github.com/zandynicasiop-debug/semences-crm/releases>. La versión definitiva vigente es
+**`v2.1.0`** (Fase 2 + Lote A + Lote B + salida a producción), publicada desde la rama `version/2.1.0`; las de prueba
+(`vX.Y.Z-beta.N`) salen de las ramas `apps/**`. Historial de las betas 2.0.0: La primera completa es
 [`v2.0.0-beta.4`](https://github.com/zandynicasiop-debug/semences-crm/releases/tag/v2.0.0-beta.4):
 
 | Plataforma | Descarga directa | Tamaño |
