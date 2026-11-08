@@ -16,8 +16,8 @@ on:
   push:
     branches: ['auditoria/**', 'apps/**', 'version/**']
     tags: ['v*']
-    # Un cambio solo en la documentación no vuelve a compilar las apps
-    paths-ignore: ['**.md']
+    # Sin filtro de rutas: una rama nueva que apunta al mismo commit que main (p. ej. version/2.1.0) no tiene
+    # "cambios" para GitHub y con paths-ignore no se compilaba nunca
   workflow_dispatch:
 
 permissions:
