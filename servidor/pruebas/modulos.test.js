@@ -21,7 +21,8 @@ import { cuentaAutorizada, publico, retoDe, tipoCuenta } from '../src/cuentas.js
 import { opcionesAutorizacion, PERMISOS, PERMISOS_BASICOS } from '../src/google.js';
 import { germinacionDe, avisarGerminacionBaja, conGoogle, errorApp, ACCIONES } from '../src/acciones.js';
 import { cifrar } from '../src/cifrado.js';
-import { ajustarPedido, conVendedor, REGLA_RECOMPRA, pedidoDeRecompra, idRecompra, ejecutorDe } from '../src/pedidos.js';
+import { ajustarPedido, conVendedor, REGLA_RECOMPRA, pedidoDeRecompra, idRecompra, ejecutorDe, prioridadesUsd, actividadesDelCrm } from '../src/pedidos.js';
+import { validarAgronomia, planDeSiembra, cultivoDe, clientesDormidos, REGLA_PLANTULACION, AGRONOMIA_POR_DEFECTO } from '../src/campo.js';
 
 const { ambitoDe, dentroDelAmbito, puedeLeer, puedeEscribir, filtrarDatos, asignacionValida, PAISES, CASAS } = permisos;
 const CLAVE = 'a'.repeat(64);
@@ -1234,5 +1235,111 @@ describe('pedidos (fase 2): vendedor ejecutor, confirmación con precio y recomp
         assert.deepEqual([nuevo.clienteId, nuevo.casa, nuevo.variedad, nuevo.vendedor, nuevo.estado, nuevo.semillasMiles, nuevo.precioMil, nuevo.fecha],
             ['c1', 'Fitó', 'Pimiento', 'marta@semillasdata.com', 'Cotizado', 20, undefined, '2027-02-05']);
         assert.match(nuevo.notas, /Recompra de la temporada 2026/);
+    });
+});
+
+// ---------------------------------------------------------------------------------------------------
+describe('Lote A: plantulación, dormidos, prioridades en US$ y viernes sin teclear', () => {
+    const agro = AGRONOMIA_POR_DEFECTO;
+
+    test('parámetros agronómicos: los valores por defecto acordados y la validación de lo que se guarda', () => {
+        assert.deepEqual([agro.alveolos, agro.alveolosPorDefecto, agro.extraPct], [[128, 162, 200], 128, 10]);
+        assert.deepEqual(Object.fromEntries(Object.entries(agro.cultivos).map(([c, v]) => [c, v.vivero])),
+            { Tomate: 28, Pimiento: 40, 'Ají': 35, Cebolla: 35, 'Melón': 18, 'Sandía': 18, Pepino: 18, 'Calabacín': 18 });
+        assert.deepEqual([agro.cultivos.Tomate.densidad, agro.cultivos.Pimiento.densidad, agro.cultivos['Ají'].densidad, agro.cultivos.Pepino.densidad, agro.cultivos['Melón'].densidad, agro.cultivos['Sandía'].densidad, agro.cultivos.Cebolla.densidad, agro.cultivos['Calabacín'].densidad],
+            [25000, 30000, 30000, 22000, 12000, 5000, 250000, 10000]);
+        assert.deepEqual(validarAgronomia(agro), { agronomia: agro });
+        assert.match(validarAgronomia({ ...agro, extraPct: 120 }).error, /de 0 a 100/);
+        assert.match(validarAgronomia({ ...agro, cultivos: { Tomate: { vivero: 0, densidad: 1 } } }).error, /Días de vivero de Tomate/);
+        assert.match(validarAgronomia({ ...agro, cultivos: { '<b>': { vivero: 3 } } }).error, /no válido/);
+        assert.deepEqual(validarAgronomia({ ...agro, alveolos: [200, '128', 128, 5] }).agronomia.alveolos, [128, 200]);
+    });
+
+    test('plan de siembra: bandejas hacia arriba, el % extra una vez, y fechas hacia atrás desde la entrega', () => {
+        const pedido = { fecha: '2026-11-07', semillasMiles: 22, cultivo: 'Tomate', entregaPlantulas: '2026-12-17' };
+        assert.deepEqual(planDeSiembra(pedido, agro, '2026-11-07'), { semillas: 22000, alveolos: 128, bandejas: 172, plantas: 20000, extraPct: 10, cultivo: 'Tomate', vivero: 28, siembra: '2026-11-19', trasplante: '2026-12-17', atrasada: '' });
+        // Sin fecha de entrega: se siembra ya y la entrega es siembra + vivero; con bandeja de 200
+        assert.deepEqual(planDeSiembra({ ...pedido, entregaPlantulas: '', alveolos: 200 }, agro, '2026-11-07'), { semillas: 22000, alveolos: 200, bandejas: 110, plantas: 20000, extraPct: 10, cultivo: 'Tomate', vivero: 28, siembra: '2026-11-07', trasplante: '2026-12-05', atrasada: '' });
+        // Va tarde: se adelanta a hoy y se dice cuándo había que sembrar
+        const tarde = planDeSiembra({ ...pedido, cultivo: 'Pimiento', entregaPlantulas: '2026-11-20' }, agro, '2026-11-07');
+        assert.deepEqual([tarde.siembra, tarde.trasplante, tarde.atrasada], ['2026-11-07', '2026-12-17', '2026-10-11']);
+        // El cultivo sale de la variedad si no se eligió (sin tildes ni mayúsculas)
+        assert.equal(cultivoDe({ variedad: 'Sandia Crimson Fitó' }, agro), 'Sandía');
+        assert.equal(cultivoDe({ variedad: 'Lechuga' }, agro), '');
+    });
+
+    test('regla de plantulación: solo con la casilla y al pasar a venta (o al marcarla ya confirmado)', () => {
+        const p = { id: 'p', estado: 'Confirmado', conPlantulacion: true };
+        assert.ok(REGLA_PLANTULACION.cuando(p, null));
+        assert.ok(REGLA_PLANTULACION.cuando(p, { ...p, conPlantulacion: undefined }));
+        assert.ok(!REGLA_PLANTULACION.cuando(p, p));
+        assert.ok(!REGLA_PLANTULACION.cuando({ ...p, conPlantulacion: undefined }, null));
+        assert.ok(!REGLA_PLANTULACION.cuando({ ...p, estado: 'Cotizado' }, null));
+        assert.equal(REGLA_PLANTULACION.evento(p, null, { usuario: { id: 1 }, hoy: '2026-11-07' }).clave, 'plantulacion:p');
+    });
+
+    test('clientes dormidos: vencido el ciclo sin gestión nueva; la recompra sin trabajar da 14 días de gracia', () => {
+        const venta = { id: 'v1', clienteId: 'c', casa: 'Fitó', pais: 'RD', fecha: '2026-07-01', estado: 'Entregado', variedad: 'Melón', vendedor: 'pedro@x.com' };
+        const datos = (pedidos, cotizaciones = []) => ({ pedidos, cotizaciones, clientes: [{ id: 'c', nombre: 'Finca C' }] });
+        assert.deepEqual(clientesDormidos(datos([venta]), '2026-09-29'), [], 'el día 90 aún no');
+        const [d] = clientesDormidos(datos([venta]), '2026-09-30');
+        assert.deepEqual([d.cliente, d.casa, d.vendedor, d.pedidoId, d.dias, d.recompraAbierta], ['Finca C', 'Fitó', 'pedro@x.com', 'v1', 90, false]);
+        assert.deepEqual(clientesDormidos(datos([{ ...venta, recompraDias: 120 }]), '2026-09-30'), [], 'con su propio ciclo');
+        // Gestión nueva: una cotización posterior, o un pedido nuevo (no cancelado)
+        assert.deepEqual(clientesDormidos(datos([venta], [{ clienteId: 'c', casa: 'Fitó', fecha: '2026-08-01', estado: 'Aprobada' }]), '2026-10-30'), []);
+        assert.equal(clientesDormidos(datos([venta], [{ clienteId: 'c', casa: 'Fitó', fecha: '2026-08-01', estado: 'Rechazada' }]), '2026-10-30').length, 1);
+        assert.deepEqual(clientesDormidos(datos([venta, { ...venta, id: 'n', estado: 'Cotizado', fecha: '2026-09-01' }]), '2026-10-30'), []);
+        assert.equal(clientesDormidos(datos([venta, { ...venta, id: 'n', estado: 'Cancelado', fecha: '2026-09-01' }]), '2026-10-30').length, 1);
+        // Otra casa del mismo cliente no cuenta
+        assert.equal(clientesDormidos(datos([venta, { ...venta, id: 'g', casa: 'Gautier Semences', estado: 'Cotizado', fecha: '2026-09-01' }]), '2026-10-30').length, 1);
+        // La recompra automática sin trabajar: gracia de 14 días desde que se abrió; con precio, ya la trabajan
+        const recompra = { ...venta, id: 'r', estado: 'Cotizado', fecha: '2026-09-29', recompraDe: 'v1', precioMil: undefined };
+        assert.deepEqual(clientesDormidos(datos([venta, recompra]), '2026-10-12'), []);
+        const tras = clientesDormidos(datos([venta, recompra]), '2026-10-13');
+        assert.deepEqual([tras.length, tras[0].recompraAbierta], [1, true]);
+        assert.deepEqual(clientesDormidos(datos([venta, { ...recompra, precioMil: 30 }]), '2026-10-30'), []);
+    });
+
+    test('prioridades en US$: sus cotizaciones abiertas y pedidos cotizados, de mayor a menor; la recompra se estima', () => {
+        const datos = {
+            clientes: [{ id: 'a', nombre: 'Finca A' }, { id: 'b', nombre: 'Finca B' }],
+            cotizaciones: [
+                { id: 'c1', numero: 'COT-1', clienteId: 'a', estado: 'Aprobada', moneda: 'US$', total: 4500, vendedor: 'yo@x.com' },
+                { id: 'c2', numero: 'COT-2', clienteId: 'a', estado: 'Rechazada', moneda: 'US$', total: 9000, vendedor: 'yo@x.com' },
+                { id: 'c3', numero: 'COT-3', clienteId: 'a', estado: 'Pendiente', moneda: 'RD$', total: 90000, vendedor: 'yo@x.com' },
+                { id: 'c4', numero: 'COT-4', clienteId: 'a', estado: 'Pendiente', moneda: 'US$', total: 99999, vendedor: 'otro@x.com' }
+            ],
+            pedidos: [
+                { id: 'o', clienteId: 'b', casa: 'Fitó', variedad: 'Tomate', estado: 'Entregado', semillasMiles: 20, precioMil: 30, vendedor: 'yo@x.com' },
+                { id: 'r', clienteId: 'b', casa: 'Fitó', variedad: 'Tomate', estado: 'Cotizado', semillasMiles: 20, recompraDe: 'o', fecha: '2026-11-01', vendedor: 'yo@x.com' },
+                { id: 'q', clienteId: 'a', casa: 'Fitó', variedad: 'Pepino', estado: 'Cotizado', semillasMiles: 10, precioMil: 12, fecha: '2026-11-05', vendedor: 'yo@x.com' }
+            ]
+        };
+        assert.deepEqual(prioridadesUsd(datos, 'YO@x.com', '2026-11-07'), [
+            'US$ 4,500 · Cotización COT-1 · Finca A (aprobada: ciérrala con el cliente)',
+            '≈ US$ 600 · Recompra vencida · Finca B · Fitó · Tomate (abierta el 2026-11-01)',
+            'US$ 120 · Pedido cotizado · Finca A · Fitó · Pepino'
+        ]);
+        assert.equal(prioridadesUsd(datos, 'yo@x.com', '2026-11-07', 1).length, 1);
+        assert.deepEqual(prioridadesUsd(datos, 'nadie@x.com', '2026-11-07'), []);
+    });
+
+    test('viernes sin teclear: visitas, cotizaciones y pedidos confirmados de la persona en esa semana, ya rellenados', () => {
+        const semana = { lunes: '2026-11-02', domingo: '2026-11-08' };
+        const datos = {
+            clientes: [{ id: 'a', nombre: 'Finca A' }],
+            visitas: [{ id: 'v1', clienteId: 'a', fecha: '2026-11-03', estado: 'Bueno', comentarios: 'Floración pareja', creadoPor: 'yo@x.com' },
+                { id: 'v2', clienteId: 'a', fecha: '2026-10-30', creadoPor: 'yo@x.com' }, { id: 'v3', clienteId: 'a', fecha: '2026-11-04', creadoPor: 'otro@x.com' }],
+            cotizaciones: [{ id: 'c1', numero: 'COT-1', clienteId: 'a', fecha: '2026-11-05', estado: 'Rechazada', motivo: 'precio', moneda: 'US$', total: 450, vendedor: 'yo@x.com' }],
+            pedidos: [{ id: 'p1', clienteId: 'a', casa: 'Fitó', variedad: 'Tomate', estado: 'Confirmado', fecha: '2026-10-20', confirmado: '2026-11-06T15:00:00Z', semillasMiles: 20, precioMil: 30, vendedor: 'yo@x.com' },
+                { id: 'p2', clienteId: 'a', casa: 'Fitó', variedad: 'Ají', estado: 'Cotizado', fecha: '2026-11-06', vendedor: 'yo@x.com' }]
+        };
+        const lista = actividadesDelCrm(datos, 'yo@x.com', semana, (iso) => iso.slice(0, 10));
+        assert.deepEqual(lista.map(a => [a.id, a.estado, a.comentario]), [
+            ['auto:visita:v1', 'Completada', 'Cultivo: Bueno · Floración pareja'],
+            ['auto:cotizacion:c1', 'Terminada sin éxito', 'US$ 450 · Rechazada (precio).'],
+            ['auto:pedido:p1', 'Completada', '20 mil semillas · US$ 600.']
+        ]);
+        assert.ok(lista.every(a => a.comentario.length >= 5 && a.auto === true));
     });
 });

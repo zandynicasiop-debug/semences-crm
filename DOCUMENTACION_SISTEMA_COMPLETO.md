@@ -29,6 +29,7 @@
 15. [Motor de eventos y flujos automáticos (ARM)](#15-motor-de-eventos-y-flujos-automáticos-arm)
 16. [Subir a semillasdata.com (FastComet): el día del despliegue](#16-subir-a-semillasdatacom-fastcomet-el-día-del-despliegue)
 17. [Fase 2: pedidos por casa y variedad, privacidad y recompra](#17-fase-2-pedidos-por-casa-y-variedad-privacidad-y-recompra)
+18. [Lote A: del pedido al campo](#18-lote-a-del-pedido-al-campo)
 
 ---
 
@@ -564,7 +565,7 @@ la cola se vacía, como el resto de la copia local.
 ### Tipos (TypeScript, sin compilar)
 
 `npx tsc --noEmit` (desde la raíz; o `npm run tipos`) comprueba en modo estricto los archivos con `// @ts-check`:
-`eventos.js`, `flujos.js`, `cuotas.js`, `lotes.js` y `pedidos.js` del servidor y `colaEtapas.js` de la web. El proyecto sigue
+`eventos.js`, `flujos.js`, `cuotas.js`, `lotes.js`, `pedidos.js` y `campo.js` del servidor y `colaEtapas.js` de la web. El proyecto sigue
 siendo JavaScript, sin paso de compilación en FastComet. GitHub Actions lo ejecuta en cada subida a `main` y, si
 falla, no publica.
 ## 16. Subir a semillasdata.com (FastComet): el día del despliegue
@@ -658,4 +659,51 @@ Cancelado antes de tiempo, no se reabre.
 **Metas.** Las ventas cuentan para el vendedor que ejecuta el pedido. Indicador nuevo `ventasUsd` (Ventas en US$:
 miles × precio por mil), y el avance trae el desglose del mes por casa comercial y variedad, que la web muestra en la
 tarjeta de metas.
+
+## 18. Lote A: del pedido al campo
+
+Todo en `servidor/src/campo.js` (y `pedidos.js`), con el motor de eventos: cada automatismo es un evento con clave
+única (no se repite) y pasos con punto de control (un reintento no duplica nada).
+
+**Parámetros agronómicos** (tabla `ajustes`, clave `agronomia`; acción `ajustes`). Por defecto: bandejas de 128, 162 y
+200 alvéolos (128 la de partida), 10 % de siembra extra, y por cultivo los días de vivero (tomate 28, pimiento 40, ají y
+cebolla 35, melón, sandía, pepino y calabacín 18) y la densidad en plantas por hectárea (tomate 25.000, pimiento y ají
+30.000, pepino 22.000, melón 12.000, sandía 5.000, cebolla 250.000, calabacín 10.000). Si a un cultivo le falta la
+densidad (uno nuevo), la calculadora la pide a mano. Los lee todo el equipo; los cambian el Master y los técnicos en menú › **Parámetros agronómicos** (validados
+y en la auditoría). Superficie: la tarea dominicana de 628,86 m² en RD y la hectárea en Venezuela.
+
+**La regla de la siembra** (servidor y calculadora): el % extra se aplica una vez, al pasar de plantas a semillas.
+Siembra = plantas × (1 + extra); bandejas = semillas ÷ alvéolos, hacia arriba. Un pedido de 22 mil semillas se siembra
+entero: 172 bandejas de 128 y unas 20.000 plantas.
+
+**#2 Pedido → plantulación.** Casilla "Con plantulación" en el pedido (desmarcada por defecto), con bandeja, cultivo y
+fecha de entrega de las plántulas. Al confirmarse (o entregarse) se crea en el germinador un lote **Programado** con
+sus bandejas y fechas: con fecha de entrega, siembra = entrega − días de vivero; sin ella, se siembra ya y la entrega es
+siembra + vivero. Si ya va tarde, se siembra hoy, con prioridad alta y el aviso de cuándo había que sembrar. La siembra
+queda como tarea con fecha del plantulador del país y casa (sale en su agenda y en su Google Calendar), y les llega el
+aviso a él y al vendedor.
+
+**#3 Entregado → visita técnica.** Cuando un envío pasa a Entregado (rastreo de DHL/FedEx o a mano), se crea una tarea de
+visita de seguimiento a los 7 días para el técnico de su país y casa que ya trabaja con ese cliente (su última visita o
+proceso); si no, el primero por nombre; sin técnicos, el vendedor asignado. Una vez por envío.
+
+**#5 Clientes dormidos.** Cada hora: por cliente y casa, si pasaron los días de recompra del último pedido confirmado (90
+por defecto) sin cotización ni pedido nuevo, aviso al vendedor que lo ejecutó (una vez por ese pedido). La recompra que
+abre el sistema no cuenta como gestión mientras siga Cotizada y sin precio, y se dan 14 días desde que se abrió para que
+la trabajen antes de avisar: así no llegan el mismo día el aviso de recompra y el de dormido.
+
+**#11 Prioridades en US$ (Borja, 7:00).** Primer bloque del resumen: sus cotizaciones abiertas en US$ (pendientes o
+aprobadas) y sus pedidos cotizados, de mayor a menor; las recompras ya abiertas sin precio se estiman con el precio del
+pedido anterior (≈). En WhatsApp van en la misma variable que los seguimientos (la plantilla de Meta no cambia).
+
+**#12 Viernes sin teclear.** El reporte semanal llega con lo hecho en el CRM esa semana: visitas registradas, cotizaciones
+preparadas y pedidos confirmados (con la fecha en que se confirmaron), ya con estado y comentario ("Del CRM"). Se
+entregan sin crear tareas, y el servidor comprueba que son de esa persona y de esa semana.
+
+**#15 Calculadora agronómica** dentro del pedido: cultivo, superficie (tareas o hectáreas según el país), densidad y % extra
+editables, bandeja → plantas, semillas (miles), bandejas y US$ (con el precio por mil del pedido). También al revés, de
+semillas a superficie. "Pasar al pedido" rellena las semillas, el cultivo y la bandeja.
+
+**Pedidos editables.** Los pedidos tienen botón **Editar** (para confirmar uno cotizado, trabajar la recompra o marcar la
+plantulación). Al editar se respeta su casa comercial aunque el cliente sea de otra.
 

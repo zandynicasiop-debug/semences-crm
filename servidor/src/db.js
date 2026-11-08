@@ -12,6 +12,7 @@ import { ESQUEMA_EVENTOS } from './eventos.js';
 import { ESQUEMA_CAMPANA } from './campana.js';
 import { ESQUEMA_METAS } from './metas.js';
 import { ESQUEMA_AUDITORIA, auditarRegistro } from './auditoria.js';
+import { ESQUEMA_AJUSTES } from './campo.js';
 
 export const MODULOS_CRM = ['clientes', 'visitas', 'agronomia', 'rendimiento', 'germinador', 'envios', 'pedidos', 'cotizaciones', 'sitios', 'mensajes', 'tareas', 'reuniones'];
 
@@ -143,7 +144,7 @@ export async function conectar(configMysql) {
     // La hora de la base en UTC en cada conexión: en un hosting compartido el servidor puede estar en
     // otra zona, y CURRENT_TIMESTAMP tiene que cuadrar con UTC_TIMESTAMP() (sesiones, cola de avisos)
     pool.pool.on('connection', (conexion) => conexion.query("SET time_zone = '+00:00'"));
-    const sentencias = [...ESQUEMA, ...ESQUEMA_INSTAGRAM, ...ESQUEMA_REPORTES, ...ESQUEMA_EVENTOS, ...ESQUEMA_CAMPANA, ...ESQUEMA_METAS, ...ESQUEMA_AUDITORIA];
+    const sentencias = [...ESQUEMA, ...ESQUEMA_INSTAGRAM, ...ESQUEMA_REPORTES, ...ESQUEMA_EVENTOS, ...ESQUEMA_CAMPANA, ...ESQUEMA_METAS, ...ESQUEMA_AUDITORIA, ...ESQUEMA_AJUSTES];
     for (const sql of sentencias) await pool.query(sql);
     await ponerAlDia(pool, sentencias);
     return pool;

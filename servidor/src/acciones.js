@@ -26,6 +26,7 @@ import { accionReporte } from './reportes.js';
 import { registrarAviso, accionAvisos, avisosSinLeer } from './campana.js';
 import { accionReunion } from './reuniones.js';
 import { accionMetas } from './metas.js';
+import { accionAjustes } from './campo.js';
 import { auditar, diferencias, quienDe, accionAuditoria } from './auditoria.js';
 
 export { errorApp, conGoogle }; // (en llamadasGoogle.js; se reexportan aquí como antes)
@@ -380,6 +381,11 @@ export const ACCIONES = {
     },
 
     // Metas mensuales por persona y su avance (metas.js)
+    // Parámetros agronómicos (Lote A): leer, todo el equipo; guardar, el Master y el equipo técnico
+    async ajustes(datos, contexto) {
+        return accionAjustes(datos, contexto, { errorApp });
+    },
+
     async metas(datos, contexto) {
         return accionMetas(datos, contexto, { errorApp });
     },

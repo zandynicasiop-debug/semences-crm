@@ -306,3 +306,19 @@ test('cotizaciones: líneas libres, total del servidor y solo administración ap
     assert.equal(puedeEscribir(admin, 'cotizaciones', aprobada, 'eliminar'), true);
     assert.equal(puedeEscribir(vendedor, 'cotizaciones', cambiada, 'eliminar'), true);
 });
+
+test('resumen de Borja (Lote A #11): las prioridades en US$ van primero y, en WhatsApp, con los seguimientos', async () => {
+    const { componerResumen, textosResumen } = await import('../src/resumen.js');
+    const persona = { nombre: 'Luis Pérez', email: 'luis@semillasdata.com' };
+    const ambito = { cargo: 'vendedor', modulos: ['clientes', 'pedidos', 'cotizaciones', 'tareas'], paises: ['RD'], casas: ['Fitó'] };
+    const datos = {
+        clientes: [{ id: 'a', nombre: 'Finca A', seguimiento: '2026-11-03', asignado: 'luis@semillasdata.com' }],
+        cotizaciones: [{ id: 'c', numero: 'COT-9', clienteId: 'a', estado: 'Aprobada', moneda: 'US$', total: 1200, vendedor: 'luis@semillasdata.com' }]
+    };
+    const secciones = componerResumen({ persona, ambito, datos, hoy: '2026-11-03', zona: 'America/Santo_Domingo' });
+    assert.deepEqual(secciones[0], { clave: 'prioridades', titulo: '💵 Prioridades en US$', lineas: ['US$ 1,200 · Cotización COT-9 · Finca A (aprobada: ciérrala con el cliente)'] });
+    const textos = textosResumen(secciones, persona, '2026-11-03', ambito);
+    assert.equal(textos.parametros[3], 'US$ 1,200 · Cotización COT-9 · Finca A (aprobada: ciérrala con el cliente); Finca A (hoy)');
+    // Un técnico (sin pedidos ni cotizaciones) no recibe ese bloque
+    assert.ok(!componerResumen({ persona, ambito: { cargo: 'tecnico', modulos: ['agronomia'], paises: ['RD'], casas: ['Fitó'] }, datos, hoy: '2026-11-03', zona: 'America/Santo_Domingo' }).some(s => s.clave === 'prioridades'));
+});

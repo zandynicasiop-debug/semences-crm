@@ -15,6 +15,7 @@ import { destinosDe } from './cuentas.js';
 import { encolar } from './cola.js';
 import { registrarAviso } from './campana.js';
 import { quienDe } from './auditoria.js';
+import { alCambiarEnvio } from './campo.js';
 
 export const ESTADOS_ENVIO = ['Registrado', 'En tránsito', 'Retenido en aduana', 'En reparto', 'Entregado', 'Incidencia'];
 export const TRANSPORTISTAS = ['DHL', 'FedEx'];
@@ -120,6 +121,8 @@ const fechaCorta = (iso) => { const [, m, d] = String(iso || '').split('-'); ret
  */
 export async function avisarEnvio({ pool, config, avisos }, registro, anterior, autorId = null) {
     if (anterior && anterior.estado === registro.estado) return 0;
+    // Lote A: al pasar a Entregado, la visita técnica de seguimiento a los 7 días (campo.js), una vez por envío
+    await alCambiarEnvio(pool, registro, anterior, autorId);
     const cliente = registro.clienteId ? await db.leerRegistro(pool, 'clientes', registro.clienteId) : null;
     const [personas] = await pool.query(`SELECT * FROM usuarios WHERE id <> ? AND (estado = 'aprobado' OR email IN (?))`,
         [autorId || 0, config.google.admins.length ? config.google.admins : ['']]);

@@ -43,7 +43,50 @@ function enlaceRastreo(r) {
 }
 
 // Germinador: estados de un lote de plantulación
-const ESTADOS_LOTE = ['En cámara', 'Listo para trasplante', 'Despachado', 'Descartado'];
+// Programado: lo crea el servidor al confirmarse un pedido con plantulación (la siembra aún no se hizo)
+const ESTADOS_LOTE = ['Programado', 'En cámara', 'Listo para trasplante', 'Despachado', 'Descartado'];
+
+/**
+ * Parámetros agronómicos por defecto (los mismos que servidor/src/campo.js). Con el backend se cargan los que fijó el
+ * equipo técnico (acción "ajustes"); el Master y los técnicos los cambian en el menú › Parámetros agronómicos.
+ */
+const AGRONOMIA_POR_DEFECTO = {
+    alveolos: [128, 162, 200], alveolosPorDefecto: 128, extraPct: 10,
+    cultivos: {
+        Tomate: { vivero: 28, densidad: 25000 }, Pimiento: { vivero: 40, densidad: 30000 }, 'Ají': { vivero: 35, densidad: 30000 },
+        Cebolla: { vivero: 35, densidad: 250000 }, 'Melón': { vivero: 18, densidad: 12000 }, 'Sandía': { vivero: 18, densidad: 5000 },
+        Pepino: { vivero: 18, densidad: 22000 }, 'Calabacín': { vivero: 18, densidad: 10000 }
+    }
+};
+// La tarea dominicana oficial (628,86 m²) en RD; la hectárea en Venezuela
+const SUPERFICIE = { RD: { unidad: 'tareas', m2: 628.86 }, VE: { unidad: 'hectáreas', m2: 10000 } };
+const agronomiaCRM = () => (window.crm && window.crm.agronomia) || AGRONOMIA_POR_DEFECTO;
+
+/**
+ * Calculadora agronómica (#15), con la misma regla que el servidor: plantas = superficie × densidad; semillas =
+ * plantas × (1 + % extra); bandejas = semillas ÷ alvéolos (hacia arriba); US$ = miles × precio por mil. Si se dan los
+ * miles de semillas en vez de la superficie, al revés (plantas = semillas ÷ (1 + extra)).
+ */
+function calculoAgronomico({ superficie, miles, m2, densidad, extraPct, alveolos, precioMil }) {
+    const factor = 1 + (Number(extraPct) || 0) / 100;
+    const porHa = Number(densidad) || 0;
+    let plantas, semillas, area;
+    if (miles !== undefined && miles !== null && miles !== '') {
+        semillas = Math.round(Number(miles) * 1000);
+        plantas = Math.floor(semillas / factor);
+        area = porHa > 0 ? Math.round(((plantas / porHa) * 10000 / m2) * 100) / 100 : null;
+    } else {
+        area = Number(superficie) || 0;
+        plantas = Math.round((area * m2 / 10000) * porHa);
+        semillas = Math.ceil(plantas * factor);
+    }
+    const milesSemillas = Math.round(semillas / 10) / 100;
+    return {
+        superficie: area, plantas, semillas, miles: milesSemillas,
+        bandejas: Number(alveolos) > 0 ? Math.ceil(semillas / Number(alveolos)) : 0,
+        usd: Number(precioMil) > 0 ? Math.round(milesSemillas * Number(precioMil) * 100) / 100 : null
+    };
+}
 const UMBRAL_GERMINACION = 85; // Por debajo, el lote se marca (y el backend avisa al equipo técnico del lote)
 
 const ESTADOS_CULTIVO = [
@@ -234,6 +277,7 @@ const MODULOS_CRM = {
         titulo: 'Pedidos de semilla',
         subtitulo: 'Lo que compra cada cliente por casa comercial y variedad. Para confirmarlo hacen falta las semillas (miles) y el precio en US$; los confirmados y entregados cuentan como venta del vendedor que lo ejecuta, y en la próxima temporada se abre solo el pedido de recompra.',
         nuevo: 'Registrar pedido',
+        editar: 'Editar pedido',
         vacio: 'Todavía no hay pedidos. Registra el primero desde aquí o desde el expediente del cliente.',
         campos: [
             { id: 'clienteId', etiqueta: 'Cliente', tipo: 'cliente', requerido: true },
@@ -246,6 +290,11 @@ const MODULOS_CRM = {
             { id: 'temporada', etiqueta: 'Temporada', tipo: 'text', ejemplo: 'Ej.: Invierno 2026' },
             // Ciclo de recompra: al confirmarlo, a los X días de su fecha se abre el pedido de la nueva temporada
             { id: 'recompraDias', etiqueta: 'Recompra en (días)', tipo: 'number', min: 1, max: 730, paso: 1, ejemplo: '90' },
+            // Lote A: con plantulación, al confirmarlo el servidor programa el lote del germinador y la siembra
+            { id: 'conPlantulacion', etiqueta: 'Con plantulación (lo siembra nuestro vivero)', tipo: 'checkbox' },
+            { id: 'alveolos', etiqueta: 'Bandeja (alvéolos)', tipo: 'select', opciones: () => agronomiaCRM().alveolos.map(a => [String(a), `${a} alvéolos`]), porDefecto: () => String(agronomiaCRM().alveolosPorDefecto), soloSi: (f) => f.conPlantulacion.checked },
+            { id: 'cultivo', etiqueta: 'Cultivo', tipo: 'select', opciones: () => Object.keys(agronomiaCRM().cultivos), vacia: 'Elige el cultivo', requerido: true, falta: 'Elige el cultivo: de él salen los días de vivero.', soloSi: (f) => f.conPlantulacion.checked },
+            { id: 'entregaPlantulas', etiqueta: 'Entrega de las plántulas', tipo: 'date', soloSi: (f) => f.conPlantulacion.checked },
             { id: 'notas', etiqueta: 'Notas', tipo: 'textarea' }
         ],
         columnas: [
@@ -255,6 +304,7 @@ const MODULOS_CRM = {
             { titulo: 'Semillas (miles)', valor: r => numero(r.semillasMiles), dato: true },
             { titulo: 'Estado', valor: r => r.estado, etiqueta: true },
             { titulo: 'Temporada', valor: r => r.temporada },
+            { titulo: 'Plantulación', valor: r => r.conPlantulacion ? `Sí${r.cultivo ? ` · ${r.cultivo}` : ''}${r.alveolos ? ` · ${r.alveolos}` : ''}` : '' },
             { titulo: 'Total (US$)', valor: r => (Number(r.precioMil) && Number(r.semillasMiles)) ? numero(Math.round(Number(r.precioMil) * Number(r.semillasMiles) * 100) / 100) : '', dato: true },
             ...COLUMNAS_AMBITO,
             // Quien lo vende (lo pone el servidor): un vendedor solo ve los suyos; administración y el Master, todos
@@ -544,6 +594,7 @@ class CRM {
     // Oculta las pestañas de los módulos que el cargo no incluye; si la abierta queda oculta, vuelve al simulador
     aplicarAmbito() {
         const ambito = ambitoCRM();
+        if (ambito) this.cargarAgronomia();
         Object.keys(MODULOS_CRM).forEach(modulo => {
             const pestana = document.getElementById(`tab-${modulo}`);
             if (pestana) pestana.hidden = Boolean(ambito && !ambito.modulos.includes(modulo) && !(ambito.lectura || []).includes(modulo));
@@ -823,6 +874,16 @@ class CRM {
                     abrir.setAttribute('aria-label', `Abrir la cotización ${registro.numero || ''}`);
                     abrir.addEventListener('click', () => window.cotizador.abrir({ id: registro.id }));
                     acciones.appendChild(abrir);
+                }
+                // Pedidos: se editan (confirmar uno Cotizado, la recompra de la nueva temporada, la plantulación…)
+                if (modulo === 'pedidos') {
+                    const editar = document.createElement('button');
+                    editar.type = 'button';
+                    editar.className = 'btn-texto';
+                    editar.textContent = 'Editar';
+                    editar.setAttribute('aria-label', `Editar el pedido de ${registro.cliente || ''} · ${registro.variedad || ''}`);
+                    editar.addEventListener('click', () => this.abrirFormulario('pedidos', registro, null, { editar: registro }));
+                    acciones.appendChild(editar);
                 }
                 // Ficha compartida (cliente de otra casa de su país): se ve para no duplicarlo, pero no es suya
                 if (modulo === 'clientes' && registro.compartida) {
@@ -1483,7 +1544,7 @@ class CRM {
      * valores: datos con los que empieza el formulario (p. ej. { clienteId } desde un expediente).
      * alTerminar: qué hacer al guardar o cancelar (volver al expediente); si no, se cierra el diálogo.
      */
-    abrirFormulario(modulo, valores = {}, alTerminar = null) {
+    abrirFormulario(modulo, valores = {}, alTerminar = null, { editar = null } = {}) {
         const def = MODULOS_CRM[modulo];
         const terminar = () => (alTerminar ? alTerminar() : this.dialogo.close());
         this.dialogo.classList.remove('dialogo-ancho');
@@ -1493,7 +1554,7 @@ class CRM {
 
         const titulo = document.createElement('h3');
         titulo.id = 'dialogo-titulo';
-        titulo.textContent = def.nuevo;
+        titulo.textContent = editar ? (def.editar || 'Editar') : def.nuevo;
         form.appendChild(titulo);
 
         // Sin clientes registrados no se puede unir el registro a nadie: se invita a registrar uno
@@ -1531,7 +1592,7 @@ class CRM {
             const id = `campo-${modulo}-${campo.id}`;
             const label = document.createElement('label');
             label.htmlFor = id;
-            label.textContent = campo.etiqueta + (campo.requerido ? '' : ' (opcional)');
+            label.textContent = campo.etiqueta + (campo.requerido || campo.tipo === 'checkbox' ? '' : ' (opcional)');
 
             let control;
             if (campo.tipo === 'textarea') {
@@ -1577,7 +1638,9 @@ class CRM {
             if (campo.requerido) control.required = true;
             if (campo.ejemplo) control.placeholder = campo.ejemplo;
             if (campo.hoy) control.value = hoyISO();
-            if (valores[campo.id] !== undefined) control.value = valores[campo.id];
+            if (campo.porDefecto) control.value = campo.porDefecto();
+            if (campo.tipo === 'checkbox') control.checked = valores[campo.id] === true;
+            else if (valores[campo.id] !== undefined && valores[campo.id] !== null) control.value = valores[campo.id];
 
             const error = document.createElement('p');
             error.className = 'form-error';
@@ -1586,7 +1649,12 @@ class CRM {
             control.setAttribute('aria-describedby', error.id);
             control.addEventListener('input', () => this.limpiarError(control));
 
-            grupo.append(label, control, error);
+            if (campo.tipo === 'checkbox') {
+                grupo.classList.add('form-casilla');
+                grupo.append(control, label, error);
+            } else {
+                grupo.append(label, control, error);
+            }
             if (campo.soloSi) grupo.dataset.condicional = campo.id;
             form.appendChild(grupo);
         });
@@ -1612,7 +1680,7 @@ class CRM {
                 });
             };
             form.elements.clienteId.addEventListener('change', heredar);
-            heredar();
+            if (!editar) heredar(); // Al editar se respeta la casa del registro (un cliente puede comprar a varias)
         }
 
         // Al elegir el cliente se completa la ubicación de la visita con la de su ficha
@@ -1624,6 +1692,8 @@ class CRM {
             form.elements.clienteId.addEventListener('change', rellenar);
             rellenar();
         }
+
+        if (modulo === 'pedidos') this.montarCalculadora(form);
 
         const acciones = document.createElement('div');
         acciones.className = 'modal-actions';
@@ -1642,7 +1712,7 @@ class CRM {
         form.addEventListener('submit', (e) => {
             e.preventDefault();
             if (!this.validar(modulo, form)) return;
-            this.guardar(modulo, form);
+            this.guardar(modulo, form, editar);
             terminar();
         });
 
@@ -1650,6 +1720,250 @@ class CRM {
         // El foco va al primer campo por rellenar (si el cliente ya viene puesto, al siguiente)
         const primero = [...form.querySelectorAll('input, select, textarea')].find(c => !c.value) || form.querySelector('input, select, textarea');
         primero.focus();
+    }
+
+    // ----- Lote A: parámetros agronómicos y calculadora -----
+    // Con el backend, los parámetros que fijó el equipo técnico (si no, los de por defecto)
+    async cargarAgronomia() {
+        if (this.cargandoAgronomia || !(this.google && this.google.conBackend)) return;
+        this.cargandoAgronomia = true;
+        try {
+            const r = await this.google.enviar('ajustes', {}, true);
+            if (r && r.ok && r.agronomia) {
+                this.agronomia = r.agronomia;
+                this.puedeEditarAgronomia = Boolean(r.puedeEditar);
+                this.crearOpcionParametros();
+            }
+        } catch (e) {
+            // Sin conexión: se quedan los de por defecto
+        } finally {
+            this.cargandoAgronomia = false;
+        }
+    }
+
+    // Menú › Parámetros agronómicos: solo para el Master y el equipo técnico
+    crearOpcionParametros() {
+        const lista = document.getElementById('lista-app');
+        if (!lista || !this.puedeEditarAgronomia || document.getElementById('menu-parametros')) return;
+        const opcion = document.createElement('button');
+        opcion.type = 'button';
+        opcion.id = 'menu-parametros';
+        opcion.className = 'menu-extra';
+        opcion.textContent = 'Parámetros agronómicos';
+        opcion.addEventListener('click', () => {
+            lista.hidden = true;
+            document.getElementById('btn-app').setAttribute('aria-expanded', 'false');
+            this.abrirParametros();
+        });
+        const referencia = document.getElementById('menu-tema');
+        if (referencia) referencia.before(opcion);
+        else lista.appendChild(opcion);
+    }
+
+    abrirParametros() {
+        const agro = agronomiaCRM();
+        const form = document.createElement('form');
+        form.className = 'dialogo-form parametros-agronomicos';
+        form.noValidate = true;
+        const titulo = document.createElement('h3');
+        titulo.id = 'dialogo-titulo';
+        titulo.textContent = 'Parámetros agronómicos';
+        const nota = document.createElement('p');
+        nota.className = 'dialogo-nota';
+        nota.textContent = 'Los usa la calculadora de pedidos y la plantulación automática. Densidad en plantas por hectárea; vivero en días.';
+        const generales = document.createElement('div');
+        generales.className = 'parametros-generales';
+        const campo = (etiqueta, nombre, valor, extra = {}) => {
+            const label = document.createElement('label');
+            label.textContent = etiqueta;
+            const input = document.createElement('input');
+            input.name = nombre;
+            input.value = valor;
+            Object.assign(input, extra);
+            label.appendChild(input);
+            return label;
+        };
+        generales.append(
+            campo('Bandejas (alvéolos, separados por comas)', 'alveolos', agro.alveolos.join(', '), { type: 'text', inputMode: 'numeric' }),
+            campo('Bandeja por defecto', 'alveolosPorDefecto', agro.alveolosPorDefecto, { type: 'number', min: 10, step: 1 }),
+            campo('Siembra extra (%)', 'extraPct', agro.extraPct, { type: 'number', min: 0, max: 100, step: 'any' })
+        );
+        const tabla = document.createElement('table');
+        tabla.className = 'tabla-parametros';
+        const cab = document.createElement('tr');
+        ['Cultivo', 'Vivero (días)', 'Plantas por hectárea', ''].forEach(t => { const th = document.createElement('th'); th.scope = 'col'; th.textContent = t; cab.appendChild(th); });
+        tabla.appendChild(cab);
+        const fila = (nombre = '', v = { vivero: '', densidad: '' }) => {
+            const tr = document.createElement('tr');
+            const celda = (input) => { const td = document.createElement('td'); td.appendChild(input); tr.appendChild(td); return input; };
+            const nuevoInput = (tipo, valor, etiqueta) => {
+                const i = document.createElement('input');
+                i.type = tipo;
+                i.value = valor ?? '';
+                i.setAttribute('aria-label', etiqueta);
+                if (tipo === 'number') { i.min = 1; i.step = 1; i.inputMode = 'numeric'; }
+                return i;
+            };
+            celda(nuevoInput('text', nombre, 'Cultivo')).dataset.campo = 'nombre';
+            celda(nuevoInput('number', v.vivero, `Días de vivero de ${nombre || 'cultivo nuevo'}`)).dataset.campo = 'vivero';
+            celda(nuevoInput('number', v.densidad, `Plantas por hectárea de ${nombre || 'cultivo nuevo'}`)).dataset.campo = 'densidad';
+            const quitar = document.createElement('button');
+            quitar.type = 'button';
+            quitar.className = 'btn-texto btn-peligro';
+            quitar.textContent = 'Quitar';
+            quitar.addEventListener('click', () => tr.remove());
+            const td = document.createElement('td');
+            td.appendChild(quitar);
+            tr.appendChild(td);
+            tabla.appendChild(tr);
+        };
+        Object.entries(agro.cultivos).forEach(([n, v]) => fila(n, v));
+        const otro = document.createElement('button');
+        otro.type = 'button';
+        otro.className = 'btn-secondary';
+        otro.textContent = 'Añadir cultivo';
+        otro.addEventListener('click', () => fila());
+        const error = document.createElement('p');
+        error.className = 'form-error';
+        error.setAttribute('role', 'alert');
+        error.hidden = true;
+        const acciones = document.createElement('div');
+        acciones.className = 'modal-actions';
+        const cancelar = document.createElement('button');
+        cancelar.type = 'button';
+        cancelar.className = 'btn-secondary';
+        cancelar.textContent = 'Cancelar';
+        cancelar.addEventListener('click', () => this.dialogo.close());
+        const guardar = document.createElement('button');
+        guardar.type = 'submit';
+        guardar.className = 'btn-primary';
+        guardar.textContent = 'Guardar';
+        acciones.append(cancelar, guardar);
+        form.append(titulo, nota, generales, tabla, otro, error, acciones);
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const cultivos = {};
+            tabla.querySelectorAll('tr').forEach(tr => {
+                const nombre = tr.querySelector('[data-campo="nombre"]');
+                if (!nombre || !nombre.value.trim()) return;
+                const num = (c) => { const v = tr.querySelector(`[data-campo="${c}"]`).value.trim(); return v === '' ? null : Number(v); };
+                cultivos[nombre.value.trim()] = { vivero: num('vivero'), densidad: num('densidad') };
+            });
+            const agronomia = {
+                alveolos: form.elements.alveolos.value.split(/[,;\s]+/).filter(Boolean).map(Number),
+                alveolosPorDefecto: Number(form.elements.alveolosPorDefecto.value),
+                extraPct: Number(form.elements.extraPct.value),
+                cultivos
+            };
+            guardar.disabled = true;
+            const r = await this.google.enviar('ajustes', { operacion: 'guardar', agronomia }, true).catch(() => null);
+            guardar.disabled = false;
+            if (!r || !r.ok) {
+                error.textContent = (r && r.error) || 'No se pudo guardar. Revisa la conexión.';
+                error.hidden = false;
+                return;
+            }
+            this.agronomia = r.agronomia;
+            this.dialogo.close();
+        });
+        this.mostrarEnDialogo(form);
+    }
+
+    // #15 Calculadora dentro del pedido: superficie (tareas en RD, hectáreas en VE) ↔ semillas (miles) ↔ bandejas ↔ US$
+    montarCalculadora(form) {
+        const agro = agronomiaCRM();
+        const caja = document.createElement('details');
+        caja.className = 'calculadora';
+        const resumen = document.createElement('summary');
+        resumen.textContent = 'Calculadora agronómica';
+        const campos = document.createElement('div');
+        campos.className = 'calculadora-campos';
+        const control = (etiqueta, el) => {
+            const label = document.createElement('label');
+            const texto = document.createElement('span');
+            texto.textContent = etiqueta;
+            label.append(texto, el);
+            campos.appendChild(label);
+            return { el, texto };
+        };
+        const entradaNumero = (min, paso) => { const i = document.createElement('input'); i.type = 'number'; i.min = min; i.step = paso; i.inputMode = paso === 1 ? 'numeric' : 'decimal'; return i; };
+        const cultivo = control('Cultivo', document.createElement('select')).el;
+        Object.keys(agro.cultivos).forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; cultivo.appendChild(o); });
+        const superficie = control('Superficie', entradaNumero(0, 'any'));
+        const densidad = control('Plantas por hectárea', entradaNumero(0, 1)).el;
+        const extra = control('Siembra extra (%)', entradaNumero(0, 'any')).el;
+        const alveolos = control('Bandeja (alvéolos)', document.createElement('select')).el;
+        agro.alveolos.forEach(a => { const o = document.createElement('option'); o.value = String(a); o.textContent = `${a} alvéolos`; alveolos.appendChild(o); });
+        const miles = control('Semillas (miles)', entradaNumero(0, 'any')).el;
+        const resultado = document.createElement('p');
+        resultado.className = 'calculadora-resultado';
+        resultado.setAttribute('aria-live', 'polite');
+        const pasar = document.createElement('button');
+        pasar.type = 'button';
+        pasar.className = 'btn-secondary';
+        pasar.textContent = 'Pasar al pedido';
+
+        const pais = () => (form.elements.pais && SUPERFICIE[form.elements.pais.value]) ? form.elements.pais.value : 'RD';
+        const ponerUnidad = () => { superficie.texto.textContent = `Superficie (${SUPERFICIE[pais()].unidad})`; };
+        const ponerDensidad = () => { const d = agro.cultivos[cultivo.value] && agro.cultivos[cultivo.value].densidad; densidad.value = d || ''; };
+        // Lo que ya dice el pedido: su cultivo (o el que nombra la variedad), su bandeja y sus semillas
+        const variedad = String((form.elements.variedad && form.elements.variedad.value) || '').toLowerCase();
+        const elegido = (form.elements.cultivo && form.elements.cultivo.value) || Object.keys(agro.cultivos).find(c => variedad.includes(c.toLowerCase())) || Object.keys(agro.cultivos)[0];
+        if (elegido) cultivo.value = elegido;
+        alveolos.value = String((form.elements.alveolos && form.elements.alveolos.value) || agro.alveolosPorDefecto);
+        extra.value = agro.extraPct;
+        ponerDensidad();
+        ponerUnidad();
+        let ultimo = null;
+        const recalcular = (desde) => {
+            if (desde) ultimo = desde;
+            const precioMil = form.elements.precioMil ? form.elements.precioMil.value : '';
+            const base = { m2: SUPERFICIE[pais()].m2, densidad: densidad.value, extraPct: extra.value, alveolos: alveolos.value, precioMil };
+            if (!ultimo || (ultimo === 'superficie' && superficie.el.value === '') || (ultimo === 'miles' && miles.value === '')) {
+                resultado.textContent = `Escribe la superficie (${SUPERFICIE[pais()].unidad}) o las semillas (miles).`;
+                return;
+            }
+            if (!(Number(densidad.value) > 0) && ultimo === 'superficie') {
+                resultado.textContent = 'Escribe las plantas por hectárea de este cultivo.';
+                return;
+            }
+            const r = ultimo === 'miles' ? calculoAgronomico({ ...base, miles: miles.value }) : calculoAgronomico({ ...base, superficie: superficie.el.value });
+            if (ultimo === 'superficie') miles.value = r.miles;
+            else if (r.superficie !== null) superficie.el.value = r.superficie;
+            // Cada dato en su propio texto: así el modo en inglés (idioma.js) también los traduce
+            resultado.replaceChildren();
+            [
+                `${r.plantas.toLocaleString(LOCALE)} plantas`,
+                `${r.miles.toLocaleString(LOCALE)} mil semillas (con ${Number(extra.value) || 0} % extra)`,
+                `${r.bandejas.toLocaleString(LOCALE)} bandejas de ${alveolos.value}`,
+                r.usd !== null ? `US$ ${r.usd.toLocaleString(LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'pon el precio por mil para ver los US$'
+            ].forEach((texto, i) => {
+                if (i) resultado.append(' · ');
+                const parte = document.createElement('span');
+                parte.textContent = texto;
+                resultado.appendChild(parte);
+            });
+            pasar.dataset.miles = String(r.miles);
+        };
+        superficie.el.addEventListener('input', () => recalcular('superficie'));
+        miles.addEventListener('input', () => recalcular('miles'));
+        cultivo.addEventListener('change', () => { ponerDensidad(); recalcular(); });
+        [densidad, extra, alveolos].forEach(c => c.addEventListener('input', () => recalcular()));
+        alveolos.addEventListener('change', () => recalcular());
+        if (form.elements.pais) form.elements.pais.addEventListener('change', () => { ponerUnidad(); recalcular(); });
+        if (form.elements.precioMil) form.elements.precioMil.addEventListener('input', () => recalcular());
+        pasar.addEventListener('click', () => {
+            if (!pasar.dataset.miles) return recalcular();
+            form.elements.semillasMiles.value = pasar.dataset.miles;
+            if (form.elements.cultivo && [...form.elements.cultivo.options].some(o => o.value === cultivo.value)) form.elements.cultivo.value = cultivo.value;
+            if (form.elements.alveolos && [...form.elements.alveolos.options].some(o => o.value === alveolos.value)) form.elements.alveolos.value = alveolos.value;
+            this.limpiarError(form.elements.semillasMiles);
+            caja.open = false;
+            form.elements.semillasMiles.focus();
+        });
+        caja.append(resumen, campos, resultado, pasar);
+        recalcular();
+        form.appendChild(caja);
     }
 
     mostrarEnDialogo(contenido) {
@@ -1722,11 +2036,15 @@ class CRM {
         return !primero;
     }
 
-    guardar(modulo, form) {
-        // Quién lo registró: el responsable de este navegador (usuario.js)
-        const registro = { id: nuevoId(), creado: new Date().toISOString(), responsable: window.responsable ? window.responsable.nombre : '' };
+    guardar(modulo, form, base = null) {
+        // Quién lo registró: el responsable de este navegador (usuario.js). Al editar, el registro de antes (mismo id)
+        const registro = base ? { ...base } : { id: nuevoId(), creado: new Date().toISOString(), responsable: window.responsable ? window.responsable.nombre : '' };
         camposDe(modulo).forEach(campo => {
             const visible = !campo.soloSi || campo.soloSi(form.elements);
+            if (campo.tipo === 'checkbox') {
+                registro[campo.id] = visible && form.elements[campo.id].checked;
+                return;
+            }
             const v = visible ? form.elements[campo.id].value.trim() : '';
             registro[campo.id] = campo.tipo === 'number' && v !== '' ? Number(v) : v;
         });

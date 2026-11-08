@@ -32,6 +32,7 @@ import { esPasajero } from './reintentos.js';
 import { enZona, inicioDelDia, sumarDias } from './fechas.js';
 import { errorDefinitivo } from './eventos.js';
 import { REGLA_RECOMPRA, ESTADOS_VENTA, idRecompra, pedidoDeRecompra, ejecutorDe } from './pedidos.js';
+import { REGLA_PLANTULACION, alPlantular, alEntregarEnvio, alDormirCliente } from './campo.js';
 
 export const ETAPAS_CLIENTE = ['Prospecto', 'Contactado', 'Reunión', 'Propuesta', 'Cliente', 'Perdido'];
 
@@ -50,7 +51,9 @@ export const REGLAS = [
         })
     },
     // Ciclo de recompra: pedido Confirmado o Entregado → en la próxima temporada, pedido Cotizado nuevo (pedidos.js)
-    REGLA_RECOMPRA
+    REGLA_RECOMPRA,
+    // Lote A: pedido con plantulación confirmado → lote del germinador y siembra en la agenda (campo.js)
+    REGLA_PLANTULACION
 ];
 
 /**
@@ -319,5 +322,9 @@ export async function alLlegarLaRecompra(evento, { paso, contexto }) {
 /** @type {Record<string, import('./eventos.js').Manejador>} */
 export const MANEJADORES = {
     CLIENTE_EN_REUNION: alPasarAReunion,
-    PEDIDO_RECOMPRA: alLlegarLaRecompra
+    PEDIDO_RECOMPRA: alLlegarLaRecompra,
+    // Lote A (campo.js)
+    PEDIDO_PLANTULACION: alPlantular,
+    ENVIO_ENTREGADO: alEntregarEnvio,
+    CLIENTE_DORMIDO: alDormirCliente
 };

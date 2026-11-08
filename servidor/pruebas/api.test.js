@@ -22,6 +22,7 @@ import { crearIA } from '../src/ia.js';
 import { actualizarToken } from '../src/cuentas.js';
 import { verificarServidor } from '../herramientas/verificar.js';
 import { asignarEjecutores, idRecompra } from '../src/pedidos.js';
+import { AGRONOMIA_POR_DEFECTO, idLoteDe, idTareaSiembra, idVisita, revisarDormidos } from '../src/campo.js';
 
 const BASES = (process.env.PRUEBA_BASES || '127.0.0.1:33061,127.0.0.1:33062').split(',');
 
@@ -1828,6 +1829,137 @@ for (const base of BASES) {
             assert.equal((await leer('pedidos', 'f2-pg')).vendedor, 'marta@semillasdata.com', 'lo que ya tenía vendedor no cambia');
             assert.equal(await asignarEjecutores(pool), 0, 'la segunda vez no hay nada que completar');
             assert.ok((await datosDe(fase2.sesiones.nora)).cotizaciones.some(c => c.id === 'f2-cviejo'));
+        });
+
+        // ----- Lote A: parámetros agronómicos, plantulación, visita técnica, dormidos y viernes sin teclear -----
+        const personaNueva = async (nombre, cargo, casas) => {
+            const email = `${nombre}@semillasdata.com`;
+            google.identidades[`codigo-${nombre}`] = { email, verificado: true, dominio: 'semillasdata.com', nombre: nombre[0].toUpperCase() + nombre.slice(1), foto: '', tokenRefresco: `r-${nombre}`, permisos: '' };
+            const sesion = (await entrarComo(`codigo-${nombre}`)).json.sesion;
+            assert.equal((await accion(sesiones.jefa, { accion: 'accesos', operacion: 'aprobar', email, cargo, paises: ['RD'], casas })).estado, 200);
+            return sesion;
+        };
+        const procesar = () => procesarEventos({ pool, config, google, avisos }, MANEJADORES, { registrar: { error: () => {} } });
+        const avisosDe = async (sesion) => (await accion(sesion, { accion: 'avisos' })).json.avisos;
+
+        test('lote A: parámetros agronómicos — los lee todo el equipo; los cambian el Master y los técnicos, validados', async () => {
+            const leidos = (await accion(fase2.sesiones.marta, { accion: 'ajustes' })).json;
+            assert.deepEqual([leidos.agronomia.alveolosPorDefecto, leidos.agronomia.extraPct, leidos.agronomia.cultivos.Tomate, leidos.superficie.RD.m2, leidos.puedeEditar],
+                [128, 10, { vivero: 28, densidad: 25000 }, 628.86, false]);
+            const cambio = { ...AGRONOMIA_POR_DEFECTO, cultivos: { ...AGRONOMIA_POR_DEFECTO.cultivos, Tomate: { vivero: 30, densidad: 24000 } } };
+            assert.equal((await accion(fase2.sesiones.marta, { accion: 'ajustes', operacion: 'guardar', agronomia: cambio })).estado, 403);
+            fase2.sesiones.tomas = await personaNueva('tomas', 'tecnico', ['Gautier Semences']);
+            const malo = await accion(fase2.sesiones.tomas, { accion: 'ajustes', operacion: 'guardar', agronomia: { ...cambio, alveolosPorDefecto: 99 } });
+            assert.deepEqual([malo.estado, malo.json.error], [400, 'La bandeja por defecto tiene que estar en la lista']);
+            const bien = await accion(fase2.sesiones.tomas, { accion: 'ajustes', operacion: 'guardar', agronomia: cambio });
+            assert.deepEqual([bien.estado, bien.json.agronomia.cultivos.Tomate], [200, { vivero: 30, densidad: 24000 }]);
+            assert.deepEqual((await accion(fase2.sesiones.marta, { accion: 'ajustes' })).json.agronomia.cultivos.Tomate, { vivero: 30, densidad: 24000 });
+            const [[auditado]] = await pool.query("SELECT accion, modulo, objeto FROM auditoria WHERE modulo = 'ajustes' ORDER BY id DESC LIMIT 1");
+            assert.deepEqual({ ...auditado }, { accion: 'modificar', modulo: 'ajustes', objeto: 'agronomia' });
+            // De vuelta a los valores por defecto para lo que sigue
+            assert.equal((await accion(sesiones.jefa, { accion: 'ajustes', operacion: 'guardar', agronomia: AGRONOMIA_POR_DEFECTO })).estado, 200);
+        });
+
+        test('lote A #2: pedido con plantulación confirmado → lote Programado con bandejas y fechas, y la siembra en la agenda del plantulador', async () => {
+            const { sesiones: s } = fase2;
+            s.paula = await personaNueva('paula', 'plantulador', ['Gautier Semences']);
+            const hoy = enZona(new Date(), config.zonaHoraria).fecha;
+            const dia = (n) => { const [a, m, d] = hoy.split('-').map(Number); return new Date(Date.UTC(a, m - 1, d + n)).toISOString().slice(0, 10); };
+            const base = { clienteId: 'f2-finca', pais: 'RD', casa: 'Gautier Semences', fecha: hoy, semillasMiles: 22, precioMil: 5 };
+            const contar = async (clave) => Number((await pool.query('SELECT COUNT(*) n FROM eventos WHERE clave = ?', [clave]))[0][0].n);
+            // Sin la casilla, o aún Cotizado: no se programa nada
+            assert.equal((await accion(s.marta, { accion: 'sincronizar', guardar: [
+                { modulo: 'pedidos', registro: { ...base, id: 'la-sin', variedad: 'Tomate X', estado: 'Confirmado' } },
+                { modulo: 'pedidos', registro: { ...base, id: 'la-p1', variedad: 'Tomate Hexagon', estado: 'Cotizado', conPlantulacion: true, alveolos: 128, cultivo: 'Tomate', entregaPlantulas: dia(40) } }
+            ] })).estado, 200);
+            assert.deepEqual([await contar('plantulacion:la-sin'), await contar('plantulacion:la-p1')], [0, 0]);
+            // Al confirmarlo: un evento, una sola vez
+            const p1 = { ...base, id: 'la-p1', variedad: 'Tomate Hexagon', estado: 'Confirmado', conPlantulacion: true, alveolos: 128, cultivo: 'Tomate', entregaPlantulas: dia(40) };
+            for (let i = 0; i < 2; i++) assert.equal((await accion(s.marta, { accion: 'sincronizar', guardar: [{ modulo: 'pedidos', registro: p1 }] })).estado, 200);
+            assert.equal(await contar('plantulacion:la-p1'), 1);
+            // Pimiento para dentro de 5 días: con 40 de vivero ya va tarde → siembra hoy, prioridad alta
+            assert.equal((await accion(s.marta, { accion: 'sincronizar', guardar: [{ modulo: 'pedidos', registro: { ...base, id: 'la-p2', variedad: 'Pimiento Fitó', semillasMiles: 10, estado: 'Confirmado', conPlantulacion: 'on', alveolos: 200, cultivo: 'Pimiento', entregaPlantulas: dia(5) } }] })).estado, 200);
+            await procesar();
+
+            const lote = await leer('germinador', idLoteDe('la-p1'));
+            assert.deepEqual([lote.estado, lote.bandejas, lote.alveolos, lote.siembra, lote.trasplante, lote.semillasMiles, lote.pais, lote.casa, lote.pedidoId],
+                ['Programado', 172, 128, dia(12), dia(40), 22, 'RD', 'Gautier Semences', 'la-p1']);
+            assert.match(lote.comentarios, /22,000 semillas en 172 bandejas de 128 alvéolos; se esperan unas 20,000 plantas \(10 % de siembra extra\)\. Tomate: 28 días de vivero/);
+            const tarea = await leer('tareas', idTareaSiembra('la-p1'));
+            assert.deepEqual([tarea.vence, tarea.para, tarea.prioridad, tarea.hecha], [dia(12), 'Paula', 'Media', '']);
+            assert.match(tarea.titulo, /^Sembrar lote P-\d{6}-\w{4}: Finca Dos Casas · Tomate Hexagon · 172 bandejas de 128$/);
+            const tarde = await leer('germinador', idLoteDe('la-p2'));
+            assert.deepEqual([tarde.siembra, tarde.trasplante, tarde.bandejas], [hoy, dia(40), 50]);
+            assert.match(tarde.comentarios, new RegExp(`había que sembrar el ${dia(-35)}`));
+            assert.equal((await leer('tareas', idTareaSiembra('la-p2'))).prioridad, 'Alta');
+            // Avisos: al plantulador del país y casa, y a la vendedora; el lote lo ve el germinador de su casa
+            assert.ok((await avisosDe(s.paula)).some(a => /Siembra programada: Finca Dos Casas · Tomate Hexagon · 172 bandejas de 128/.test(a.texto)));
+            assert.ok((await avisosDe(s.marta)).some(a => /Siembra programada/.test(a.texto)));
+            assert.ok((await datosDe(s.paula)).germinador.some(l => l.id === idLoteDe('la-p1')));
+            // Reintentar el evento no duplica nada
+            await pool.query("UPDATE eventos SET estado = 'pendiente', proximo = UTC_TIMESTAMP(), pasos = NULL WHERE clave = 'plantulacion:la-p1'");
+            await procesar();
+            assert.equal(Number((await pool.query("SELECT COUNT(*) n FROM registros WHERE modulo = 'germinador' AND JSON_UNQUOTE(JSON_EXTRACT(datos, '$.pedidoId')) = 'la-p1'"))[0][0].n), 1);
+        });
+
+        test('lote A #3: envío Entregado → visita técnica a los 7 días para el técnico de su país y casa, una sola vez', async () => {
+            const { sesiones: s } = fase2;
+            const hoy = enZona(new Date(), config.zonaHoraria).fecha;
+            // Hay dos técnicos de RD · Gautier: la visita va al que ya trabaja con el cliente (Tomas visitó la finca)
+            assert.equal((await accion(s.tomas, { accion: 'sincronizar', guardar: [{ modulo: 'visitas', registro: { id: 'la-vt', clienteId: 'f2-finca', cliente: 'Finca Dos Casas', pais: 'RD', casa: 'Gautier Semences', fecha: hoy, estado: 'Bueno' } }] })).estado, 200);
+            const envio = { id: 'la-e1', clienteId: 'f2-finca', cliente: 'Finca Dos Casas', pais: 'RD', casa: 'Gautier Semences', transportista: 'DHL', guia: '1234567890', estado: 'En tránsito', fecha: hoy };
+            assert.equal((await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'envios', registro: envio }] })).estado, 200);
+            assert.equal(Number((await pool.query("SELECT COUNT(*) n FROM eventos WHERE clave = 'visita:la-e1'"))[0][0].n), 0);
+            for (let i = 0; i < 2; i++) {
+                assert.equal((await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'envios', registro: { ...envio, estado: 'Entregado' } }] })).estado, 200);
+            }
+            assert.equal(Number((await pool.query("SELECT COUNT(*) n FROM eventos WHERE clave = 'visita:la-e1'"))[0][0].n), 1);
+            await procesar();
+            const visita = await leer('tareas', idVisita('la-e1'));
+            const [a, m, d] = hoy.split('-').map(Number);
+            assert.deepEqual([visita.para, visita.vence, visita.envioId, visita.creadaPor], ['Tomas', new Date(Date.UTC(a, m - 1, d + 7)).toISOString().slice(0, 10), 'la-e1', 'Seguimiento automático']);
+            assert.match(visita.titulo, /^Visita técnica de seguimiento: Finca Dos Casas \(envío DHL 1234567890 entregado el /);
+            assert.ok((await avisosDe(s.tomas)).some(x => /Visita técnica el .*: Finca Dos Casas recibió su envío 1234567890/.test(x.texto)));
+        });
+
+        test('lote A #5: cliente dormido — pasado su ciclo sin gestión nueva, aviso al vendedor que lo ejecutó, una sola vez', async () => {
+            const { sesiones: s } = fase2;
+            const hoy = enZona(new Date(), config.zonaHoraria).fecha;
+            const [a, m, d] = hoy.split('-').map(Number);
+            const hace = (n) => new Date(Date.UTC(a, m - 1, d - n)).toISOString().slice(0, 10);
+            // Pedro: Fitó a un cliente nuevo, confirmado hace 100 días (antes de la recompra automática, sin ella)
+            await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: { id: 'la-dormida', nombre: 'Finca Dormida', pais: 'RD', casa: 'Fitó' } }] });
+            await pool.query("INSERT INTO registros (modulo, id, datos) VALUES ('pedidos', 'la-viejo', ?)", [JSON.stringify({
+                id: 'la-viejo', clienteId: 'la-dormida', pais: 'RD', casa: 'Fitó', fecha: hace(100), variedad: 'Melón Fitó', semillasMiles: 4, precioMil: 30, estado: 'Entregado', vendedor: 'pedro@semillasdata.com' })]);
+            // Otro con una cotización nueva después: no está dormido
+            await pool.query("INSERT INTO registros (modulo, id, datos) VALUES ('pedidos', 'la-activo', ?)", [JSON.stringify({
+                id: 'la-activo', clienteId: 'f2-finca', pais: 'RD', casa: 'Fitó', fecha: hace(120), variedad: 'Sandía', semillasMiles: 2, precioMil: 20, estado: 'Confirmado', vendedor: 'pedro@semillasdata.com' })]);
+            await pool.query("INSERT INTO registros (modulo, id, datos) VALUES ('cotizaciones', 'la-cot', ?)", [JSON.stringify({
+                id: 'la-cot', clienteId: 'f2-finca', pais: 'RD', casa: 'Fitó', fecha: hace(10), estado: 'Pendiente', total: 100, vendedor: 'pedro@semillasdata.com' })]);
+            assert.equal(await revisarDormidos({ pool, config }), 1);
+            assert.equal(await revisarDormidos({ pool, config }), 0, 'una sola vez por su último pedido');
+            await procesar();
+            const avisos = (await avisosDe(s.pedro)).filter(x => /Cliente dormido/.test(x.texto));
+            assert.equal(avisos.length, 1);
+            assert.match(avisos[0].texto, /Cliente dormido: Finca Dormida · Fitó\. Pasaron sus 90 días de ciclo desde el último pedido confirmado \(Melón Fitó, /);
+        });
+
+        test('lote A #12: el reporte del viernes trae ya lo hecho en el CRM; se entrega sin crear tareas y no se puede colar lo ajeno', async () => {
+            const { sesiones: s } = fase2;
+            const estado = (await accion(s.marta, { accion: 'reporteSemanal' })).json;
+            const delCrm = estado.actividades.filter(x => String(x.id).startsWith('auto:'));
+            const pedidoP1 = delCrm.find(x => x.id === 'auto:pedido:la-p1');
+            assert.deepEqual([pedidoP1.titulo, pedidoP1.estado, pedidoP1.comentario], ['Pedido confirmado: Finca Dos Casas · Gautier Semences · Tomate Hexagon', 'Completada', '22 mil semillas · US$ 110.']);
+            assert.ok(delCrm.some(x => x.id === 'auto:cotizacion:f2-co' && x.estado === 'En progreso'));
+            assert.ok(!delCrm.some(x => x.id === 'auto:pedido:f2-pf'), 'lo de Pedro no es suyo');
+            const tareasAntes = Number((await pool.query("SELECT COUNT(*) n FROM registros WHERE modulo = 'tareas'"))[0][0].n);
+            const entregar = (actividades) => accion(s.marta, { accion: 'reporteSemanal', operacion: 'entregar', semana: estado.semana, resumen: 'Semana de pedidos', actividades });
+            const colado = await entregar([{ id: 'auto:pedido:f2-pf', titulo: 'x', estado: 'Completada', comentario: 'Lo vendí yo' }]);
+            assert.deepEqual([colado.estado, colado.json.codigo], [403, 'permiso']);
+            assert.equal((await entregar(delCrm.map(({ id, titulo, estado: e, comentario }) => ({ id, titulo, estado: e, comentario })))).estado, 200);
+            assert.equal(Number((await pool.query("SELECT COUNT(*) n FROM registros WHERE modulo = 'tareas'"))[0][0].n), tareasAntes, 'no crea tareas');
+            const [[fila]] = await pool.query('SELECT actividades FROM reportes_semanales WHERE usuario_id = (SELECT id FROM usuarios WHERE email = ?) AND semana = ?', ['marta@semillasdata.com', estado.semana]);
+            assert.ok(JSON.parse(fila.actividades).some(x => x.id === 'auto:pedido:la-p1' && x.estado === 'Completada'));
         });
 
         test('salir cierra la sesión', async () => {
