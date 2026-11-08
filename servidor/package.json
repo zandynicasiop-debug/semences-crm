@@ -15,7 +15,8 @@
     "clave": "node herramientas/clave.js",
     "rotar-clave": "node herramientas/rotar-clave.js",
     "vapid": "node herramientas/vapid.js",
-    "verificar": "node herramientas/verificar.js"
+    "verificar": "node herramientas/verificar.js",
+    "comprobar-respaldo": "node herramientas/comprobar-respaldo.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",

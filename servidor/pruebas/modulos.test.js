@@ -270,6 +270,29 @@ describe('esquema de las variables de entorno (.env.example)', () => {
     });
 });
 
+describe('simulacro de restauración (herramientas/comprobar-respaldo.js)', () => {
+    test('un respaldo cortado, retocado o de otro programa no vale', async () => {
+        const { validarRespaldo } = await import('../herramientas/comprobar-respaldo.js');
+        const bueno = { formato: 'semences-crm-respaldo', version: 1, registros: { clientes: 2, visitas: 0 }, datos: { clientes: [{ id: 'a' }, { id: 'b' }], visitas: [] } };
+        assert.deepEqual(validarRespaldo(bueno), { ok: true, registros: { clientes: 2, visitas: 0 } });
+        assert.match(validarRespaldo({ ...bueno, formato: 'otro' }).motivo, /formato/);
+        assert.match(validarRespaldo({ ...bueno, datos: { clientes: [{ id: 'a' }] } }).motivo, /dice 2 registros y trae 1/);
+        assert.match(validarRespaldo({ ...bueno, datos: { ...bueno.datos, piratas: [] } }).motivo, /Módulo desconocido/);
+        assert.match(validarRespaldo({ ...bueno, registros: undefined, datos: { clientes: [{ nombre: 'sin id' }] } }).motivo, /sin id/);
+    });
+
+    test('restaurar: solo en una base vacía, todo o nada, y queda en la auditoría', async () => {
+        const { restaurarRespaldo } = await import('../herramientas/comprobar-respaldo.js');
+        const respaldo = { formato: 'semences-crm-respaldo', version: 1, generado: '2026-11-08T06:00:00Z', datos: { clientes: [{ id: 'a', nombre: 'A' }], pedidos: [{ id: 'p1' }] } };
+        const pool = poolFalso([[/SELECT COUNT\(\*\) n FROM registros/, () => [{ n: 0 }]], [/FROM auditoria_ancla/, () => [{ id: 1, ultimo: 0, huella: '', firma: '' }]]]);
+        assert.equal(await restaurarRespaldo({ pool, config: { claveCifrado: CLAVE }, respaldo, nombre: 'r.json' }), 2);
+        assert.equal(pool.consultas.filter(c => /INSERT INTO registros/.test(c.sql)).length, 2);
+        assert.ok(pool.consultas.some(c => /INSERT INTO auditoria/.test(c.sql) && c.parametros.some(p => /Restauró 2 registros/.test(String(p)))));
+        const llena = poolFalso([[/SELECT COUNT\(\*\) n FROM registros/, () => [{ n: 5 }]]]);
+        await assert.rejects(restaurarRespaldo({ pool: llena, config: { claveCifrado: CLAVE }, respaldo }), /ya tiene 5 registros/);
+    });
+});
+
 describe('consentimiento de WhatsApp (bajas.js)', () => {
     test('reconoce BAJA, STOP y frases de baja (con o sin tilde); ALTA; lo demás no', async () => {
         const { pideBajaOAlta } = await import('../src/bajas.js');

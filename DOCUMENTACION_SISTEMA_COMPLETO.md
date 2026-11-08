@@ -811,6 +811,7 @@ la pestaña) entra en la lista de cada Master, una sola vez por cotización, con
 | **Alerta de flujos fallidos** | Un evento `fallido` definitivo avisa a cada Master en la campana (tipo `sistema`, abre la Torre de control) y por correo, una vez por evento (`eventos.avisado`). | `src/latido.js` |
 | **Arranque directo en el CRM** | three.js (~650 KB) ya no se carga al abrir: se descarga con su huella SRI solo al entrar en el Simulador 3D. El service worker ya no lo descarga al instalarse. En las apps nativas va dentro (`lib/`). | `app.js › iniciarSimulador` |
 | **Privacidad y condiciones** | Google Workspace (`drive.file`, Calendar, Gmail, Sheets), WhatsApp Business, Instagram, consentimiento y baja (Ley 172-13), instrucciones de borrado (`privacidad.html#borrar-datos`, URL para Meta). | `privacidad.html`, `condiciones.html` |
+| **Respaldos que se pueden recuperar** | `npm run comprobar-respaldo`: simulacro en seco (la clave abre todos los tokens, auditoría entera, respaldo de Drive válido y cuadrado); `--restaurar` lo vuelca en una base nueva y vacía. `CLAVE_CIFRADO` se guarda también fuera de FastComet. | `herramientas/comprobar-respaldo.js` |
 | **Baja de WhatsApp de los clientes** | El cliente escribe **BAJA** (o STOP) y deja de recibir WhatsApp de la empresa al momento (lista en `ajustes › whatsappBajas` + casilla en su ficha, auditado); **ALTA** lo reactiva. El equipo también puede marcarla. | `src/bajas.js` |
 
 **Meta (revisión de la app):** *Privacy Policy URL* = `https://semillasdata.com/privacidad.html`, *Terms of Service URL* =

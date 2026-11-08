@@ -99,6 +99,16 @@ curl -fsS --max-time 120 https://api.semillasdata.com/api/latido > /dev/null 2>&
 
 `/api/latido` (`src/latido.js`) despierta el proceso y hace ahí mismo una vuelta de lo pendiente: flujos (eventos), avisos encolados (WhatsApp y push), el resumen de Borja, los clientes dormidos y el recordatorio del viernes. Todo es idempotente (repetirlo no duplica nada) y como mucho hace una vuelta por minuto y proceso. Si un flujo queda **fallido** (definitivo, ya no se reintenta), cada Master recibe al momento un aviso en la campana y un correo desde la cuenta del sistema, una sola vez por evento. `npm run verificar` comprueba también el latido.
 
+### Simulacro de restauración (una vez al mes, y antes de cambiar de servidor)
+
+`CLAVE_CIFRADO` abre los tokens de Google de todo el equipo y firma la auditoría: **guárdala también fuera de FastComet** (gestor de contraseñas del Master). Sin ella, una copia de la base no recupera esos tokens (cada persona tendría que volver a conectar Google) y la auditoría no se puede comprobar. Para probar que todo se puede recuperar, en la terminal de cPanel, dentro de `~/semences-servidor`:
+
+```bash
+npm run comprobar-respaldo -- --archivo=semences-crm-respaldo-AAAA-MM-DD-HHMM.json
+```
+
+Comprueba en seco (solo lee) que la clave abre todos los tokens, que la cadena de la auditoría está entera y que el respaldo descargado de Drive (*Semences del Caribe · CRM › Respaldos*) es válido y cuadra con la base. En un servidor nuevo, con la base recién creada y vacía, `--restaurar` vuelca ese respaldo (todo o nada, y queda en la auditoría); sobre una base con datos se niega.
+
 ### 5. Conectar la app
 
 En GitHub › Settings › Secrets and variables › Actions, crea el secreto `SEMENCES_API` = `https://api.semillasdata.com` y vuelve a ejecutar el flujo "Compilar APK y publicar la app". La web y el APK nuevos salen conectados. Desde la carpeta del proyecto:

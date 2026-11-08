@@ -1552,6 +1552,19 @@ for (const base of BASES) {
                 assert.equal(json.formato, 'semences-crm-respaldo');
                 assert.ok(json.datos.clientes.some(c => c.id === 'cli-docs'));
 
+                // Rojo #7, simulacro de restauración: con CLAVE_CIFRADO se abren todos los tokens, la auditoría está
+                // entera y el respaldo cuadra; restaurar encima de una base con datos no se permite
+                const { comprobarRespaldo, restaurarRespaldo } = await import('../herramientas/comprobar-respaldo.js');
+                const simulacro = await comprobarRespaldo({ pool, config, respaldo: json });
+                assert.equal(simulacro.ok, true, JSON.stringify(simulacro.tokens));
+                assert.ok(simulacro.tokens.total >= 2 && simulacro.tokens.ilegibles.length === 0);
+                assert.equal(simulacro.respaldo.registros.clientes, json.datos.clientes.length);
+                assert.equal(simulacro.registros.clientes, json.datos.clientes.length);
+                const otraClave = await comprobarRespaldo({ pool, config: { ...config, claveCifrado: 'f'.repeat(64), claveCifradoAnterior: '' } });
+                assert.equal(otraClave.ok, false, 'con otra clave nada se puede abrir: por eso se guarda fuera de FastComet');
+                assert.equal(otraClave.tokens.ilegibles.length, simulacro.tokens.total);
+                await assert.rejects(restaurarRespaldo({ pool, config, respaldo: json }), /solo se hace en una base nueva/);
+
                 // Correos de aviso: una solicitud de acceso nueva avisa a los Master desde la cuenta del sistema
                 google.identidades['codigo-nueva'] = { email: 'nueva@semillasdata.com', verificado: true, dominio: 'semillasdata.com', nombre: 'Nueva', foto: '', tokenRefresco: '', permisos: '' };
                 const nueva = await entrarComo('codigo-nueva');
