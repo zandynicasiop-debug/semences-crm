@@ -30,6 +30,7 @@
 16. [Subir a semillasdata.com (FastComet): el día del despliegue](#16-subir-a-semillasdatacom-fastcomet-el-día-del-despliegue)
 17. [Fase 2: pedidos por casa y variedad, privacidad y recompra](#17-fase-2-pedidos-por-casa-y-variedad-privacidad-y-recompra)
 18. [Lote A: del pedido al campo](#18-lote-a-del-pedido-al-campo)
+19. [Lote B: Torre de control del Master](#19-lote-b-torre-de-control-del-master)
 
 ---
 
@@ -565,7 +566,7 @@ la cola se vacía, como el resto de la copia local.
 ### Tipos (TypeScript, sin compilar)
 
 `npx tsc --noEmit` (desde la raíz; o `npm run tipos`) comprueba en modo estricto los archivos con `// @ts-check`:
-`eventos.js`, `flujos.js`, `cuotas.js`, `lotes.js`, `pedidos.js` y `campo.js` del servidor y `colaEtapas.js` de la web. El proyecto sigue
+`eventos.js`, `flujos.js`, `cuotas.js`, `lotes.js`, `pedidos.js`, `campo.js`, `mensajes.js` y `panelCeo.js` del servidor y `colaEtapas.js` de la web. El proyecto sigue
 siendo JavaScript, sin paso de compilación en FastComet. GitHub Actions lo ejecuta en cada subida a `main` y, si
 falla, no publica.
 ## 16. Subir a semillasdata.com (FastComet): el día del despliegue
@@ -706,4 +707,37 @@ semillas a superficie. "Pasar al pedido" rellena las semillas, el cultivo y la b
 
 **Pedidos editables.** Los pedidos tienen botón **Editar** (para confirmar uno cotizado, trabajar la recompra o marcar la
 plantulación). Al editar se respeta su casa comercial aunque el cliente sea de otra.
+
+## 19. Lote B: Torre de control del Master
+
+Menú del logo › **Torre de control** (`panelCeo.js` en la web; acción `panelCeo` en `servidor/src/panelCeo.js`). Solo la
+ven y la usan los Master (ADMINS): el servidor rechaza a cualquier otro con 403. Cuatro tarjetas:
+
+**Pendientes del equipo.** Cada persona aprobada (sin los Master), de más a menos pendientes: cotizaciones abiertas
+(Pendientes o Aprobadas) y pedidos por cerrar (Cotizados) con sus US$, clientes en Reunión asignados, tareas vencidas y
+si el reporte semanal la tiene bloqueada (el 423). **Revisión por Meet** en 1 clic: busca el primer hueco libre (FreeBusy)
+del calendario del Master en los próximos 5 días laborables, crea el evento con Meet e invita a la persona (Google le
+manda la invitación), con su lista de pendientes en la descripción, y le avisa en la campana.
+
+**Briefings.** El resumen de hoy de cada persona: si salió, a qué hora y por qué canal (WhatsApp, push o correo). En
+WhatsApp se ve además si **se entregó y si se leyó**: la cola guarda el id que devuelve Meta (`cola_avisos.remoto_id`) y el
+webhook de WhatsApp recoge los estados `delivered`, `read` y `failed` (`statuses`, dentro del mismo campo `messages` al que
+ya está suscrito). El push y el correo no informan de la lectura. **Volver a enviar ahora** a RD, VE o todos lo genera de
+nuevo con los datos del momento.
+
+**Borja.** Qué secciones lleva el resumen de la mañana (prioridades en US$, agenda, seguimientos, tareas, procesos,
+germinador, envíos, mensajes y el consolidado de administración); cada persona sigue viendo solo lo de su ámbito.
+**Generar resumen global ahora**: el consolidado de RD, Venezuela y el total (ventas del mes en US$ y miles,
+cotizaciones abiertas y pedidos por cerrar con sus US$, recompras vencidas, clientes en Reunión, dormidos y reportes
+bloqueados), en pantalla y en la campana, el push y el correo del Master.
+
+**Mensajes.** Texto (campana, push y correo), asunto (el del correo del briefing) y hora (briefing de Borja y
+recordatorio del viernes; vacía = la del servidor) de los mensajes automáticos: briefing, recordatorio del reporte,
+recompra, cliente dormido y visita técnica. Variables por mensaje: `{{vendedor}}`, `{{cliente}}`, `{{casa}}`,
+`{{variedad}}`, `{{fecha}}`, `{{dias}}`, `{{guia}}`, `{{lista_pendientes}}` y `{{agenda_dia}}` (el servidor rechaza las que no
+valen en ese mensaje). Vista previa con datos de ejemplo y "Restaurar el de siempre". **WhatsApp:** Meta no deja que la
+empresa inicie conversaciones con texto libre, así que solo se elige entre las **plantillas aprobadas**: con
+`WHATSAPP_CUENTA_ID` (la cuenta de WhatsApp Business) se leen de Meta con sus variables; sin ella, se ofrecen las
+configuradas en el servidor. El briefing admite una plantilla de 7 variables (varias líneas) o de 1 (una línea); el
+recordatorio, de 1. Mientras nadie cambie nada, todo sale con los textos de siempre. Los cambios quedan en la auditoría.
 

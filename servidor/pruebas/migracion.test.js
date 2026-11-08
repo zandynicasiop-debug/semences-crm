@@ -138,7 +138,7 @@ for (const base of BASES) {
             await pool.end();
             pool = await conectar(config.mysql);
             const [columnas] = await pool.query("SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'usuarios'");
-            assert.equal(Number(columnas[0].n), 24);
+            assert.equal(Number(columnas[0].n), 26);
         });
     });
 }

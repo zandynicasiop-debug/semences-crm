@@ -25,6 +25,7 @@ import { enZona, inicioDelDia, sumarDias } from './fechas.js';
 import * as db from './db.js';
 import { quienDe } from './auditoria.js';
 import { actividadesDelCrm } from './pedidos.js';
+import { leerMensajes, renderizar } from './mensajes.js';
 
 export const ESTADOS_ACTIVIDAD = ['En progreso', 'Retrasada', 'Completada', 'Terminada sin éxito'];
 const CIERRAN = ['Completada', 'Terminada sin éxito'];
@@ -423,7 +424,10 @@ export async function resumenDelLunes(contexto, ahora = new Date()) {
 export async function recordarReportes({ pool, config, avisos }, ahora = new Date()) {
     if (!config.reporteSemanal || !(avisos.pushActivo || avisos.whatsappActivo)) return 0;
     const local = enZona(ahora, config.zonaHoraria);
-    if (diaSemana(local.fecha) !== 4 || local.hora < config.reporteHora) return 0;
+    // Texto, hora y plantilla de WhatsApp: los que fijó el Master en la Torre de control (por defecto, los de siempre)
+    const mensaje = (await leerMensajes(pool)).recordatorio;
+    const hora = mensaje.hora !== null && mensaje.hora !== undefined ? mensaje.hora : config.reporteHora;
+    if (diaSemana(local.fecha) !== 4 || local.hora < hora) return 0;
     const semana = semanaDe(local.fecha);
     const [personas] = await pool.query(
         `SELECT u.* FROM usuarios u LEFT JOIN reportes_semanales r ON r.usuario_id = u.id AND r.semana = ?
@@ -433,10 +437,11 @@ export async function recordarReportes({ pool, config, avisos }, ahora = new Dat
         const [r] = await pool.query('INSERT IGNORE INTO reportes_recordatorios (usuario_id, semana) VALUES (?, ?)', [p.id, semana]);
         if (!r.affectedRows) continue; // Ya se le recordó esta semana
         const { huellas, telefonos } = await destinosDe(pool, [p.id]);
-        const texto = `📋 Hola, ${(p.nombre || '').split(' ')[0] || 'equipo'}: entrega hoy tu reporte semanal (menú › Reporte semanal). Desde el lunes la app lo pide antes de seguir.`;
-        await registrarAviso(pool, [p.id], 'reporte', 'Entrega hoy tu reporte semanal: desde el lunes la app lo pide antes de seguir.');
-        if (avisos.pushActivo) n += await encolar(pool, 'push', huellas, texto);
-        if (avisos.whatsappActivo) n += await encolar(pool, 'whatsapp', telefonos, texto);
+        const texto = renderizar(mensaje.texto, { vendedor: (p.nombre || '').split(' ')[0] || 'equipo' });
+        await registrarAviso(pool, [p.id], 'reporte', texto.replace(/^\p{Extended_Pictographic}\uFE0F?\s*/u, ''));
+        const seguimiento = { origen: 'recordatorio', usuarioId: p.id };
+        if (avisos.pushActivo) n += await encolar(pool, 'push', huellas, texto, null, null, seguimiento);
+        if (avisos.whatsappActivo) n += await encolar(pool, 'whatsapp', telefonos, texto, mensaje.plantillaWhatsapp || null, null, seguimiento);
     }
     return n;
 }

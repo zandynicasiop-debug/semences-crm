@@ -41,11 +41,26 @@ export async function darBienvenida({ pool, config, avisos }, persona) {
  */
 export async function recibirWhatsapp({ pool, config, avisos, diferir = (tarea) => tarea() }, cuerpo) {
     const mensajes = [];
+    const estados = [];
     for (const entrada of (cuerpo && Array.isArray(cuerpo.entry) ? cuerpo.entry : [])) {
         for (const cambio of (Array.isArray(entrada.changes) ? entrada.changes : [])) {
             const valor = cambio && cambio.value;
-            if (cambio.field !== 'messages' || !valor || !Array.isArray(valor.messages)) continue;
-            mensajes.push(...valor.messages);
+            if (!cambio || cambio.field !== 'messages' || !valor) continue;
+            if (Array.isArray(valor.messages)) mensajes.push(...valor.messages);
+            if (Array.isArray(valor.statuses)) estados.push(...valor.statuses);
+        }
+    }
+    // Lote B: entregado y leído de lo que envió la cola (por el id de Meta), para el monitor de briefings
+    for (const e of estados) {
+        const id = String((e && e.id) || '').slice(0, 120);
+        const segundos = Number(e && e.timestamp);
+        const cuando = Number.isFinite(segundos) && segundos > 0 ? new Date(segundos * 1000) : new Date();
+        if (!id) continue;
+        if (e.status === 'delivered') await pool.query('UPDATE cola_avisos SET entregado = COALESCE(entregado, ?) WHERE remoto_id = ?', [cuando, id]);
+        else if (e.status === 'read') await pool.query('UPDATE cola_avisos SET entregado = COALESCE(entregado, ?), leido = COALESCE(leido, ?) WHERE remoto_id = ?', [cuando, cuando, id]);
+        else if (e.status === 'failed') {
+            const motivo = (Array.isArray(e.errors) && e.errors[0] && (e.errors[0].title || e.errors[0].message)) || 'Meta no pudo entregarlo';
+            await pool.query("UPDATE cola_avisos SET estado = 'fallido', error = ? WHERE remoto_id = ?", [String(motivo).slice(0, 500), id]);
         }
     }
     let confirmadas = 0;

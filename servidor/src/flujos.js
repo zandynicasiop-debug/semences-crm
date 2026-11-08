@@ -33,6 +33,7 @@ import { enZona, inicioDelDia, sumarDias } from './fechas.js';
 import { errorDefinitivo } from './eventos.js';
 import { REGLA_RECOMPRA, ESTADOS_VENTA, idRecompra, pedidoDeRecompra, ejecutorDe } from './pedidos.js';
 import { REGLA_PLANTULACION, alPlantular, alEntregarEnvio, alDormirCliente } from './campo.js';
+import { leerMensajes, renderizar } from './mensajes.js';
 
 export const ETAPAS_CLIENTE = ['Prospecto', 'Contactado', 'Reunión', 'Propuesta', 'Cliente', 'Perdido'];
 
@@ -304,13 +305,16 @@ export async function alLlegarLaRecompra(evento, { paso, contexto }) {
         return { id, creado: !ya };
     });
     await paso('aviso', async () => {
-        const [filas] = await pool.query("SELECT id, email FROM usuarios WHERE email = ? AND estado = 'aprobado'", [ejecutorDe(origen)]);
+        const [filas] = await pool.query("SELECT id, email, nombre FROM usuarios WHERE email = ? AND estado = 'aprobado'", [ejecutorDe(origen)]);
         const persona = filas[0];
         if (!persona) return { omitido: 'El vendedor ya no está en el equipo: el pedido queda para administración' };
         const cliente = await db.leerRegistro(pool, 'clientes', String(origen.clienteId || ''));
-        const texto = `🔁 Recompra: ${(cliente && cliente.nombre) || origen.cliente || 'tu cliente'} · ${origen.casa || ''} · ${origen.variedad || ''}. `
-            + 'Se abrió el pedido de la nueva temporada (Cotizado): confirma la cantidad y el precio.';
-        await registrarAviso(pool, [persona.id], 'cliente', texto.replace(/^🔁\s*/, ''));
+        // Texto editable en la Torre de control (mensajes.js)
+        const texto = renderizar((await leerMensajes(pool)).recompra.texto, {
+            vendedor: String(persona.nombre || persona.email).split(' ')[0], cliente: (cliente && cliente.nombre) || origen.cliente || 'tu cliente',
+            casa: origen.casa || '', variedad: origen.variedad || ''
+        });
+        await registrarAviso(pool, [persona.id], 'cliente', texto.replace(/^\p{Extended_Pictographic}\uFE0F?\s*/u, ''));
         if (avisos && avisos.pushActivo) {
             const { huellas } = await destinosDe(pool, [persona.id]);
             await encolar(pool, 'push', huellas, texto);

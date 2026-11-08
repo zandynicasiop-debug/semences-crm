@@ -75,6 +75,7 @@ cPanel › **Dominios** › crea `api.semillasdata.com` (con su carpeta, p. ej. 
    - `CLAVE_CIFRADO`: genérala en tu ordenador con `npm run clave` y **guárdala aparte**. Si se pierde, cada persona tiene que volver a conectar Google.
 4. **Run NPM Install** y después **Restart**.
 5. Abre `https://api.semillasdata.com/api/salud`: debe decir `"ok":true` y `"base":"ok"`.
+   Torre de control (solo Master): menú del logo › Torre de control. Para elegir plantillas de WhatsApp verificadas con Meta, añade `WHATSAPP_CUENTA_ID` (id de la cuenta de WhatsApp Business); sin ella se ofrecen las configuradas. El estado entregado/leído de los briefings llega por el mismo webhook de WhatsApp (campo `messages`).
    Para la verificación completa (webhooks de Meta sin firma, API cerrada sin sesión, CORS de la web, cabeceras de seguridad): en GitHub, **Actions › "Verificar el servidor publicado" › Run workflow**. Verde = todo bien; rojo = abre el paso "Prueba de humo" y mira las líneas con ✘. Lo mismo desde cualquier equipo con Node: `npm run verificar -- https://api.semillasdata.com`. Solo lee: no entra con ninguna cuenta ni escribe en la base.
 
 Si la app no arranca, el motivo está en el archivo de registro de la aplicación (cPanel › Setup Node.js App, o `stderr.log` en la carpeta). Si falta algo de la configuración, el servidor lo dice al arrancar.

@@ -322,3 +322,16 @@ test('resumen de Borja (Lote A #11): las prioridades en US$ van primero y, en Wh
     // Un técnico (sin pedidos ni cotizaciones) no recibe ese bloque
     assert.ok(!componerResumen({ persona, ambito: { cargo: 'tecnico', modulos: ['agronomia'], paises: ['RD'], casas: ['Fitó'] }, datos, hoy: '2026-11-03', zona: 'America/Santo_Domingo' }).some(s => s.clave === 'prioridades'));
 });
+
+test('resumen de Borja (Lote B): saludo y asunto editables, con la lista donde diga {{lista_pendientes}}', async () => {
+    const { textosResumen } = await import('../src/resumen.js');
+    const persona = { nombre: 'Luis Pérez', email: 'luis@semillasdata.com' };
+    const secciones = [{ clave: 'agenda', titulo: '📅 Tu agenda de hoy', lineas: ['10:00 · Comité'] }, { clave: 'tareas', titulo: '📋 Tus tareas', lineas: ['Llevar muestras'] }];
+    const mensaje = { texto: 'Hola {{vendedor}} ({{fecha}}). Agenda: {{agenda_dia}}\n\n{{lista_pendientes}}', asunto: 'Briefing de {{vendedor}} · {{fecha}}' };
+    const t = textosResumen(secciones, persona, '2026-11-03', null, mensaje);
+    assert.equal(t.correo.asunto, 'Briefing de Luis · 3/11');
+    assert.equal(t.correo.texto, 'Hola Luis (3/11). Agenda: 10:00 · Comité\n\n📅 Tu agenda de hoy\n• 10:00 · Comité\n\n📋 Tus tareas\n• Llevar muestras\n\nBorja · Semences del Caribe');
+    assert.match(t.push, /^Hola Luis \(3\/11\)\. Agenda: 10:00 · Comité\n📅 Tu agenda de hoy: 1 · 10:00 · Comité/);
+    // Sin mensaje: los textos de siempre
+    assert.match(textosResumen(secciones, persona, '2026-11-03', null).correo.asunto, /^☀️ Tu resumen de hoy \(3\/11\) · Semences del Caribe$/);
+});

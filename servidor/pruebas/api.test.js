@@ -23,6 +23,7 @@ import { actualizarToken } from '../src/cuentas.js';
 import { verificarServidor } from '../herramientas/verificar.js';
 import { asignarEjecutores, idRecompra } from '../src/pedidos.js';
 import { AGRONOMIA_POR_DEFECTO, idLoteDe, idTareaSiembra, idVisita, revisarDormidos } from '../src/campo.js';
+import { MENSAJES_POR_DEFECTO } from '../src/mensajes.js';
 
 const BASES = (process.env.PRUEBA_BASES || '127.0.0.1:33061,127.0.0.1:33062').split(',');
 
@@ -171,7 +172,9 @@ for (const base of BASES) {
             const fetchFalso = async (destino, opciones) => {
                 peticionesMeta.push({ destino, cuerpo: JSON.parse(opciones.body), cabeceras: opciones.headers });
                 const estado = destino.startsWith('https://graph.facebook.com') ? respuestaMeta(JSON.parse(opciones.body)) : 200;
-                return new Response(estado === 200 ? '{}' : '{"error":{"message":"rechazado"}}', { status: estado });
+                // Como la API real: al enviar un mensaje, Meta devuelve su id (wamid…)
+                const id = `wamid.prueba-${peticionesMeta.length}`;
+                return new Response(estado === 200 ? JSON.stringify({ messages: [{ id }] }) : '{"error":{"message":"rechazado"}}', { status: estado });
             };
             pushEnviados = [];
             respuestaPush = () => null;
@@ -1960,6 +1963,126 @@ for (const base of BASES) {
             assert.equal(Number((await pool.query("SELECT COUNT(*) n FROM registros WHERE modulo = 'tareas'"))[0][0].n), tareasAntes, 'no crea tareas');
             const [[fila]] = await pool.query('SELECT actividades FROM reportes_semanales WHERE usuario_id = (SELECT id FROM usuarios WHERE email = ?) AND semana = ?', ['marta@semillasdata.com', estado.semana]);
             assert.ok(JSON.parse(fila.actividades).some(x => x.id === 'auto:pedido:la-p1' && x.estado === 'Completada'));
+        });
+
+        // ----- Lote B: Torre de control del Master -----
+        const panel = (sesion, datos) => accion(sesion, { accion: 'panelCeo', ...datos });
+
+        test('lote B: la Torre de control es solo del Master', async () => {
+            assert.deepEqual([(await panel(sesiones.ana, { operacion: 'radar' })).estado, (await panel(fase2.sesiones.marta, { operacion: 'radar' })).estado], [403, 403]);
+            assert.equal((await panel(sesiones.jefa, { operacion: 'radar' })).estado, 200);
+            assert.equal((await panel(sesiones.jefa, { operacion: 'otra' })).estado, 400);
+        });
+
+        test('lote B: radar de pendientes por persona (US$, Reunión, tareas vencidas y bloqueo 423)', async () => {
+            const hoy = enZona(new Date(), config.zonaHoraria).fecha;
+            const [a, m, d] = hoy.split('-').map(Number);
+            const ayer = new Date(Date.UTC(a, m - 1, d - 1)).toISOString().slice(0, 10);
+            assert.equal((await accion(sesiones.ana, { accion: 'sincronizar', guardar: [
+                { modulo: 'clientes', registro: { id: 'lb-reu', nombre: 'Finca en Reunión', pais: 'RD', casa: 'Gautier Semences', etapa: 'Reunión', asignado: 'marta@semillasdata.com' } },
+                { modulo: 'tareas', registro: { id: 'lb-t', titulo: 'Llamar a la cooperativa', para: 'Marta', vence: ayer, prioridad: 'Alta' } }
+            ] })).estado, 200);
+            const r = (await panel(sesiones.jefa, { operacion: 'radar' })).json;
+            const marta = r.personas.find(p => p.email === 'marta@semillasdata.com');
+            assert.deepEqual([marta.cotizaciones, marta.reuniones, marta.tareasVencidas, marta.cargo], [{ n: 1, usd: 90 }, 1, 1, 'vendedor']);
+            assert.ok(marta.detalle.includes('Cotización COT-F2 · Finca Dos Casas (Pendiente)'));
+            assert.deepEqual(r.personas.find(p => p.email === 'nora@semillasdata.com').pedidos, { n: 1, usd: 10 });
+            assert.ok(r.personas.find(p => p.email === 'luis@semillasdata.com').reporteBloqueado, 'Luis no entregó el reporte de la semana pasada');
+            assert.ok(!r.personas.some(p => p.email === 'jefa@gmail.com'), 'los Master no salen en el radar');
+            assert.ok(r.personas[0].total >= r.personas.at(-1).total, 'de más a menos pendientes');
+        });
+
+        test('lote B: revisión por Meet en 1 clic, en el primer hueco libre del Master, con la invitación y la campana', async () => {
+            const antes = google.llamadas.length;
+            const r = await panel(sesiones.jefa, { operacion: 'revision', email: 'marta@semillasdata.com' });
+            assert.equal(r.estado, 200, JSON.stringify(r.json));
+            const evento = google.llamadas.slice(antes).find(l => l.tipo === 'evento');
+            assert.ok(google.llamadas.slice(antes).some(l => l.tipo === 'ocupado'), 'mira el calendario del Master');
+            assert.deepEqual([evento.conMeet, evento.evento.attendees, evento.evento.conferenceData.createRequest.conferenceSolutionKey.type], [true, [{ email: 'marta@semillasdata.com' }], 'hangoutsMeet']);
+            assert.match(evento.evento.summary, /^Revisión de pendientes · Marta$/);
+            assert.match(evento.evento.description, /• Cotización COT-F2 · Finca Dos Casas \(Pendiente\)/);
+            assert.ok(Date.parse(r.json.inicio) > Date.now() && Date.parse(r.json.fin) - Date.parse(r.json.inicio) === (config.minutosReunion || 30) * 60000);
+            assert.ok((await avisosDe(fase2.sesiones.marta)).some(x => x.tipo === 'reunion' && /agendó una revisión de tus pendientes por Meet/.test(x.texto)));
+            assert.equal((await panel(sesiones.jefa, { operacion: 'revision', email: 'marta@semillasdata.com', inicio: '2020-01-01T10:00:00Z' })).estado, 400);
+            assert.equal((await panel(sesiones.jefa, { operacion: 'revision', email: 'nadie@semillasdata.com' })).estado, 404);
+        });
+
+        test('lote B: monitor de briefings — por dónde salió, entregado y leído en WhatsApp; reenvío por país', async () => {
+            await pool.query("UPDATE usuarios SET telefono = '18095557777' WHERE email = 'marta@semillasdata.com'");
+            assert.equal((await panel(sesiones.jefa, { operacion: 'reenviar', pais: 'XX' })).estado, 400);
+            const rd = (await panel(sesiones.jefa, { operacion: 'reenviar', pais: 'RD' })).json;
+            assert.equal(rd.personas.find(p => p.email === 'marta@semillasdata.com').canal, 'whatsapp');
+            const ve = (await panel(sesiones.jefa, { operacion: 'reenviar', pais: 'VE' })).json;
+            assert.ok(!ve.personas.some(p => p.email === 'marta@semillasdata.com'), 'Marta es solo de RD');
+            let monitor = (await panel(sesiones.jefa, { operacion: 'briefings' })).json;
+            let marta = monitor.personas.find(p => p.email === 'marta@semillasdata.com');
+            assert.deepEqual([marta.hoyEnviado, marta.canal, marta.entregas.map(e => [e.canal, e.estado])], [true, 'whatsapp', [['whatsapp', 'pendiente']]]);
+            // La cola lo envía; Meta avisa por el webhook: entregado y luego leído
+            await repasar(pool, avisos);
+            const [[fila]] = await pool.query("SELECT remoto_id FROM cola_avisos WHERE origen = 'resumen' AND destino = '18095557777' ORDER BY id DESC LIMIT 1");
+            assert.match(fila.remoto_id, /^wamid\.prueba-/);
+            const ahoraS = Math.floor(Date.now() / 1000);
+            const cuerpo = { object: 'whatsapp_business_account', entry: [{ changes: [{ field: 'messages', value: { statuses: [
+                { id: fila.remoto_id, status: 'delivered', timestamp: String(ahoraS) }, { id: fila.remoto_id, status: 'read', timestamp: String(ahoraS + 60) }] } }] }] };
+            const texto = JSON.stringify(cuerpo);
+            const r = await fetch(`${url}/api/whatsapp/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Hub-Signature-256': `sha256=${crypto.createHmac('sha256', 'secreto-meta').update(texto).digest('hex')}` }, body: texto });
+            assert.equal(r.status, 200);
+            await esperarSegundoPlano();
+            monitor = (await panel(sesiones.jefa, { operacion: 'briefings' })).json;
+            marta = monitor.personas.find(p => p.email === 'marta@semillasdata.com');
+            assert.deepEqual([marta.entregas[0].estado, Boolean(marta.entregas[0].entregado), marta.entregas[0].leido], ['enviado', true, new Date((ahoraS + 60) * 1000).toISOString()]);
+        });
+
+        test('lote B: centro de Borja — secciones del resumen y resumen global de RD y VE', async () => {
+            const leer = (await panel(sesiones.jefa, { operacion: 'borja' })).json;
+            assert.ok(Object.values(leer.activas).every(Boolean) && leer.secciones.prioridades);
+            const ultimoResumen = async () => (await pool.query("SELECT texto FROM cola_avisos WHERE origen = 'resumen' AND destino = '18095557777' ORDER BY id DESC LIMIT 1"))[0][0].texto;
+            assert.match(await ultimoResumen(), /Prioridades en US\$/);
+            assert.equal((await panel(sesiones.jefa, { operacion: 'borja', activas: Object.fromEntries(Object.keys(leer.secciones).map(s => [s, false])) })).estado, 400);
+            assert.equal((await panel(sesiones.jefa, { operacion: 'borja', activas: { prioridades: false } })).json.activas.prioridades, false);
+            await panel(sesiones.jefa, { operacion: 'reenviar', pais: 'RD' });
+            assert.doesNotMatch(await ultimoResumen(), /Prioridades en US\$/);
+            await panel(sesiones.jefa, { operacion: 'borja', activas: {} });
+
+            const g = (await panel(sesiones.jefa, { operacion: 'resumenGlobal', enviar: true })).json;
+            assert.ok(g.paises.RD.ventasUsd > 0 && g.paises.RD.cotizacionesAbiertas >= 1 && g.paises.RD.clientesEnReunion >= 1 && g.paises.RD.dormidos >= 1);
+            assert.equal(g.total.ventasUsd, Math.round((g.paises.RD.ventasUsd + g.paises.VE.ventasUsd) * 100) / 100);
+            assert.ok(g.total.reportesBloqueados >= 1);
+            assert.match(g.texto, /^📊 Resumen global de Borja \(\d{4}-\d{2}\)\n🇩🇴 RD: ventas US\$ [\d,]+ /);
+            assert.ok(g.enviadoPor.includes('campana') && g.enviadoPor.includes('correo'));
+            assert.ok((await avisosDe(sesiones.jefa)).some(x => /Resumen global de Borja/.test(x.texto)));
+        });
+
+        test('lote B: editor de mensajes — texto, asunto y hora con sus variables; WhatsApp solo con plantillas aprobadas', async () => {
+            const leer = (await panel(sesiones.jefa, { operacion: 'mensajes' })).json;
+            assert.deepEqual(Object.keys(leer.catalogo), ['resumen', 'recordatorio', 'recompra', 'dormido', 'visita']);
+            assert.deepEqual(leer.plantillas.map(p => [p.nombre, p.variables, p.verificada]), [['aviso_equipo', 1, false]]);
+            assert.match(leer.aviso, /WHATSAPP_CUENTA_ID/);
+            const guardar = (cambios) => panel(sesiones.jefa, { operacion: 'mensajes', mensajes: { ...leer.mensajes, ...cambios } });
+            const malo = await guardar({ recompra: { texto: 'Hola {{precio}}' } });
+            assert.deepEqual([malo.estado, malo.json.error], [400, 'Recompra de temporada: {{precio}} no existe aquí. Se puede usar: {{vendedor}}, {{cliente}}, {{casa}}, {{variedad}}']);
+            assert.equal((await guardar({ recordatorio: { ...leer.mensajes.recordatorio, plantillaWhatsapp: 'no_aprobada' } })).estado, 400);
+            assert.equal((await guardar({ resumen: { ...leer.mensajes.resumen, hora: 25 } })).estado, 400);
+            const bien = await guardar({
+                recompra: { texto: '🔁 {{vendedor}}, toca la recompra de {{cliente}} ({{casa}} · {{variedad}})' },
+                resumen: { ...leer.mensajes.resumen, asunto: 'Buenos días {{vendedor}} · {{fecha}}', hora: 6, plantillaWhatsapp: 'aviso_equipo' }
+            });
+            assert.equal(bien.estado, 200, JSON.stringify(bien.json));
+            assert.deepEqual([bien.json.mensajes.resumen.hora, bien.json.mensajes.resumen.plantillaWhatsapp, bien.json.mensajes.resumen.variablesWhatsapp], [6, 'aviso_equipo', 1]);
+            assert.equal((await panel(sesiones.jefa, { operacion: 'briefings' })).json.hora, 6);
+            // La recompra usa el texto nuevo
+            const hoy = enZona(new Date(), config.zonaHoraria).fecha;
+            const [a, m, d] = hoy.split('-').map(Number);
+            const hace = new Date(Date.UTC(a, m - 1, d - 5)).toISOString().slice(0, 10);
+            assert.equal((await accion(fase2.sesiones.marta, { accion: 'sincronizar', guardar: [{ modulo: 'pedidos', registro: { id: 'lb-p', clienteId: 'f2-finca', pais: 'RD', casa: 'Gautier Semences', fecha: hace, variedad: 'Pepino', semillasMiles: 2, precioMil: 8, estado: 'Confirmado', recompraDias: 1 } }] })).estado, 200);
+            await procesar();
+            assert.ok((await avisosDe(fase2.sesiones.marta)).some(x => x.texto === 'Marta, toca la recompra de Finca Dos Casas (Gautier Semences · Pepino)'));
+            // El briefing por WhatsApp sale con la plantilla elegida (una variable: el texto en una línea)
+            await panel(sesiones.jefa, { operacion: 'reenviar', pais: 'RD' });
+            const [[wa]] = await pool.query("SELECT plantilla, parametros FROM cola_avisos WHERE origen = 'resumen' AND destino = '18095557777' ORDER BY id DESC LIMIT 1");
+            assert.deepEqual([wa.plantilla, wa.parametros], ['aviso_equipo', null]);
+            // Vuelta a los mensajes de siempre
+            assert.equal((await panel(sesiones.jefa, { operacion: 'mensajes', mensajes: MENSAJES_POR_DEFECTO })).estado, 200);
         });
 
         test('salir cierra la sesión', async () => {

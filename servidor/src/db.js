@@ -40,6 +40,8 @@ const ESQUEMA = [
         idioma VARCHAR(2) NOT NULL DEFAULT 'es',
         resumen_activo TINYINT(1) NOT NULL DEFAULT 1,
         resumen_fecha DATE NULL,
+        resumen_canal VARCHAR(30) NOT NULL DEFAULT '',
+        resumen_enviado DATETIME NULL,
         creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         ultimo_acceso DATETIME NULL
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
@@ -110,6 +112,11 @@ const ESQUEMA = [
         enviado DATETIME NULL,
         error VARCHAR(500) NOT NULL DEFAULT '',
         creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        origen VARCHAR(30) NULL,
+        usuario_id INT UNSIGNED NULL,
+        remoto_id VARCHAR(120) NULL,
+        entregado DATETIME NULL,
+        leido DATETIME NULL,
         INDEX (estado, proximo)
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
     // Operaciones del lote sin conexión ya recibidas (lotes.js): cada operacionId se aplica una sola vez

@@ -140,6 +140,8 @@ export function leerConfig(entorno = process.env) {
             plantillaBienvenida: entorno.WHATSAPP_PLANTILLA_BIENVENIDA || '',
             // Opcional: plantilla del resumen de la mañana, de varias líneas, con 7 variables (ver LEEME.md)
             plantillaResumen: entorno.WHATSAPP_PLANTILLA_RESUMEN || '',
+            // Opcional: id de la cuenta de WhatsApp Business (WABA): la Torre de control lista las plantillas aprobadas
+            cuentaId: entorno.WHATSAPP_CUENTA_ID || '',
             idioma: entorno.WHATSAPP_IDIOMA || 'es',
             version: entorno.WHATSAPP_VERSION || 'v21.0'
         }
@@ -211,6 +213,7 @@ export function validarEntorno(e = {}) {
     if (whatsapp.length && whatsapp.length < 3) avisos.push('WhatsApp necesita WHATSAPP_TOKEN, WHATSAPP_TELEFONO_ID y WHATSAPP_PLANTILLA: sin las tres está apagado');
     if (valor('WHATSAPP_TELEFONO_ID') && !/^\d{5,20}$/.test(valor('WHATSAPP_TELEFONO_ID'))) avisos.push('WHATSAPP_TELEFONO_ID es el número de id que da Meta (solo cifras), no el teléfono');
     if (valor('WHATSAPP_VERSION') && !/^v\d+\.\d+$/.test(valor('WHATSAPP_VERSION'))) avisos.push('WHATSAPP_VERSION tiene la forma v21.0');
+    if (valor('WHATSAPP_CUENTA_ID') && !/^\d{5,20}$/.test(valor('WHATSAPP_CUENTA_ID'))) avisos.push('WHATSAPP_CUENTA_ID es el id de la cuenta de WhatsApp Business (solo cifras)');
     if (valor('META_VERSION') && !/^v\d+\.\d+$/.test(valor('META_VERSION'))) avisos.push('META_VERSION tiene la forma v21.0');
     if (Boolean(valor('FEDEX_CLIENT_ID')) !== Boolean(valor('FEDEX_CLIENT_SECRET'))) avisos.push('FEDEX_CLIENT_ID y FEDEX_CLIENT_SECRET van juntas: sin las dos, el rastreo de FedEx está apagado');
     if (valor('FEDEX_URL') && !/^https:\/\/[^\s]+$/.test(valor('FEDEX_URL'))) errores.push('FEDEX_URL debe empezar por https:// (las credenciales de FedEx viajan a esa dirección)');

@@ -27,6 +27,7 @@ import { registrarAviso, accionAvisos, avisosSinLeer } from './campana.js';
 import { accionReunion } from './reuniones.js';
 import { accionMetas } from './metas.js';
 import { accionAjustes } from './campo.js';
+import { accionPanelCeo } from './panelCeo.js';
 import { auditar, diferencias, quienDe, accionAuditoria } from './auditoria.js';
 
 export { errorApp, conGoogle }; // (en llamadasGoogle.js; se reexportan aquí como antes)
@@ -381,6 +382,11 @@ export const ACCIONES = {
     },
 
     // Metas mensuales por persona y su avance (metas.js)
+    // Torre de control (Lote B): solo el Master
+    async panelCeo(datos, contexto) {
+        return accionPanelCeo(datos, contexto, { errorApp });
+    },
+
     // Parámetros agronómicos (Lote A): leer, todo el equipo; guardar, el Master y el equipo técnico
     async ajustes(datos, contexto) {
         return accionAjustes(datos, contexto, { errorApp });

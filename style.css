@@ -4009,6 +4009,114 @@ body.ventana-flotante {
     grid-column: 1 / -1;
 }
 
+/* Lote B: Torre de control del Master */
+.dialogo-torre {
+    width: min(1100px, calc(100vw - 2rem));
+}
+
+.torre-pestanas,
+.torre-botones,
+.torre-variables {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sdc-espacio-2);
+}
+
+.torre-pestanas {
+    margin: var(--sdc-espacio-3) 0;
+}
+
+.torre-pestanas [aria-pressed="true"] {
+    background: var(--sdc-primario);
+    color: var(--sdc-tinta, #fff);
+    border-color: var(--sdc-primario);
+}
+
+.torre-contenido {
+    display: grid;
+    gap: var(--sdc-espacio-3);
+}
+
+.torre-tabla {
+    overflow-x: auto;
+    border: 1px solid var(--ui-borde);
+    border-radius: var(--sdc-radio-sm);
+}
+
+.torre-tabla table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--sdc-texto-sm);
+    color: var(--ui-texto);
+}
+
+.torre-tabla th,
+.torre-tabla td {
+    padding: var(--sdc-espacio-2);
+    border-bottom: 1px solid var(--ui-borde);
+    text-align: left;
+    vertical-align: top;
+}
+
+.torre-tabla th {
+    color: var(--ui-titulo);
+    white-space: nowrap;
+}
+
+.torre-accion {
+    display: grid;
+    gap: var(--sdc-espacio-1);
+    min-width: 9rem;
+}
+
+.torre-secciones {
+    display: grid;
+    gap: var(--sdc-espacio-2);
+}
+
+.torre-secciones > button,
+.torre-global > button {
+    justify-self: start;
+}
+
+.torre-casilla {
+    display: flex;
+    align-items: center;
+    gap: var(--sdc-espacio-2);
+    color: var(--ui-texto);
+}
+
+.torre-casilla input {
+    width: 1.15rem;
+    height: 1.15rem;
+    accent-color: var(--sdc-primario);
+}
+
+.torre-global {
+    display: grid;
+    gap: var(--sdc-espacio-2);
+    padding-top: var(--sdc-espacio-3);
+    border-top: 1px solid var(--ui-borde);
+}
+
+.torre-global h4 {
+    color: var(--ui-titulo);
+}
+
+.torre-mensaje {
+    display: grid;
+    gap: var(--sdc-espacio-2);
+}
+
+.torre-previa {
+    padding: var(--sdc-espacio-2) var(--sdc-espacio-3);
+    border-left: 3px solid var(--sdc-primario);
+    background: var(--ui-apagado);
+    color: var(--ui-texto);
+    font-size: var(--sdc-texto-sm);
+    white-space: pre-wrap;
+}
+
 /* Calculadora agronómica dentro del pedido */
 .calculadora {
     border: 1px solid var(--ui-borde);
