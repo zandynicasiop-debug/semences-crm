@@ -55,7 +55,7 @@ const AGRONOMIA_POR_DEFECTO = {
     cultivos: {
         Tomate: { vivero: 28, densidad: 25000 }, Pimiento: { vivero: 40, densidad: 30000 }, 'Ají': { vivero: 35, densidad: 30000 },
         Cebolla: { vivero: 35, densidad: 250000 }, 'Melón': { vivero: 18, densidad: 12000 }, 'Sandía': { vivero: 18, densidad: 5000 },
-        Pepino: { vivero: 18, densidad: 22000 }, 'Calabacín': { vivero: 18, densidad: null }
+        Pepino: { vivero: 18, densidad: 22000 }, 'Calabacín': { vivero: 18, densidad: 10000 }
     }
 };
 // La tarea dominicana oficial (628,86 m²) en RD; la hectárea en Venezuela

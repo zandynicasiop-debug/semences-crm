@@ -1246,8 +1246,8 @@ describe('Lote A: plantulación, dormidos, prioridades en US$ y viernes sin tecl
         assert.deepEqual([agro.alveolos, agro.alveolosPorDefecto, agro.extraPct], [[128, 162, 200], 128, 10]);
         assert.deepEqual(Object.fromEntries(Object.entries(agro.cultivos).map(([c, v]) => [c, v.vivero])),
             { Tomate: 28, Pimiento: 40, 'Ají': 35, Cebolla: 35, 'Melón': 18, 'Sandía': 18, Pepino: 18, 'Calabacín': 18 });
-        assert.deepEqual([agro.cultivos.Tomate.densidad, agro.cultivos.Pimiento.densidad, agro.cultivos['Ají'].densidad, agro.cultivos.Pepino.densidad, agro.cultivos['Melón'].densidad, agro.cultivos['Sandía'].densidad, agro.cultivos.Cebolla.densidad],
-            [25000, 30000, 30000, 22000, 12000, 5000, 250000]);
+        assert.deepEqual([agro.cultivos.Tomate.densidad, agro.cultivos.Pimiento.densidad, agro.cultivos['Ají'].densidad, agro.cultivos.Pepino.densidad, agro.cultivos['Melón'].densidad, agro.cultivos['Sandía'].densidad, agro.cultivos.Cebolla.densidad, agro.cultivos['Calabacín'].densidad],
+            [25000, 30000, 30000, 22000, 12000, 5000, 250000, 10000]);
         assert.deepEqual(validarAgronomia(agro), { agronomia: agro });
         assert.match(validarAgronomia({ ...agro, extraPct: 120 }).error, /de 0 a 100/);
         assert.match(validarAgronomia({ ...agro, cultivos: { Tomate: { vivero: 0, densidad: 1 } } }).error, /Días de vivero de Tomate/);

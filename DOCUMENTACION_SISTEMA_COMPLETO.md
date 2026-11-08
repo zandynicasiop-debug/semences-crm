@@ -668,8 +668,8 @@ Todo en `servidor/src/campo.js` (y `pedidos.js`), con el motor de eventos: cada 
 **Parámetros agronómicos** (tabla `ajustes`, clave `agronomia`; acción `ajustes`). Por defecto: bandejas de 128, 162 y
 200 alvéolos (128 la de partida), 10 % de siembra extra, y por cultivo los días de vivero (tomate 28, pimiento 40, ají y
 cebolla 35, melón, sandía, pepino y calabacín 18) y la densidad en plantas por hectárea (tomate 25.000, pimiento y ají
-30.000, pepino 22.000, melón 12.000, sandía 5.000, cebolla 250.000; calabacín sin valor hasta que lo fije el equipo
-técnico). Los lee todo el equipo; los cambian el Master y los técnicos en menú › **Parámetros agronómicos** (validados
+30.000, pepino 22.000, melón 12.000, sandía 5.000, cebolla 250.000, calabacín 10.000). Si a un cultivo le falta la
+densidad (uno nuevo), la calculadora la pide a mano. Los lee todo el equipo; los cambian el Master y los técnicos en menú › **Parámetros agronómicos** (validados
 y en la auditoría). Superficie: la tarea dominicana de 628,86 m² en RD y la hectárea en Venezuela.
 
 **La regla de la siembra** (servidor y calculadora): el % extra se aplica una vez, al pasar de plantas a semillas.

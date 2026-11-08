@@ -56,8 +56,7 @@ export const AGRONOMIA_POR_DEFECTO = {
         'Melón': { vivero: 18, densidad: 12000 },
         'Sandía': { vivero: 18, densidad: 5000 },
         Pepino: { vivero: 18, densidad: 22000 },
-        // Sin densidad de referencia: la calculadora la pide a mano hasta que el equipo técnico la fije
-        'Calabacín': { vivero: 18, densidad: null }
+        'Calabacín': { vivero: 18, densidad: 10000 }
     }
 };
 
