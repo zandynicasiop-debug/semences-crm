@@ -2387,6 +2387,35 @@ function unirVehiculo(grupo, conservar = [], { transparentes = false } = {}) {
  * Dashboard y Controlador Principal: finca cercada con calles, invernaderos, campo abierto,
  * almacén-laboratorio y almacén de agroquímicos
  */
+// three.js y sus controles se descargan solo al entrar en el Simulador 3D (unos 650 KB): la app arranca directa en
+// el CRM, también en teléfonos con poca señal. Mismas direcciones e integridad (SRI) que antes en index.html
+const LIBRERIAS_3D = [
+    { src: 'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js', integrity: 'sha384-CI3ELBVUz9XQO+97x6nwMDPosPR5XvsxW2ua7N1Xeygeh1IxtgqtCkGfQY9WWdHu' },
+    { src: 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js', integrity: 'sha384-wagZhIFgY4hD+7awjQjR4e2E294y6J2HSnd8eTNc15ZubTeQeVRZwhQJ+W6hnBsf' }
+];
+
+function cargarScript({ src, integrity }) {
+    return new Promise((resolver, rechazar) => {
+        const script = document.createElement('script');
+        script.src = src;
+        // Del CDN, con su huella; dentro de las apps nativas va una copia local (lib/…), firmada con la app
+        if (/^https:/.test(src)) {
+            script.integrity = integrity;
+            script.crossOrigin = 'anonymous';
+        }
+        script.onload = resolver;
+        script.onerror = () => { script.remove(); rechazar(new Error(`No se pudo descargar ${src}`)); };
+        document.head.appendChild(script);
+    });
+}
+
+// Las parcelas de la finca (nombre y tipo) se conocen sin cargar el 3D: el aviso al equipo y el CRM las ofrecen
+const PARCELAS_FINCA = [
+    ['Pimiento', 'invernadero'], ['Tomate saladette', 'invernadero'], ['Tomate beef', 'invernadero'], ['Tomate cherry', 'invernadero'],
+    ['Lechuga', 'invernadero'], ['Berenjena y calabaza', 'invernadero'], ['Melón', 'campo'], ['Calabacín', 'campo'], ['Coliflor', 'campo'],
+    ['Lechuga', 'campo'], ['Tomate', 'campo']
+].map(([nombre, tipo]) => ({ nombre, tipo }));
+
 class Dashboard {
     static PLAZO_ALERTA = 20; // Segundos para atender una alerta de cosecha
 
@@ -2401,17 +2430,53 @@ class Dashboard {
             : null;
         this.ultimaSincronizacion = 0;
         this.hitoAvisado = false;
+        // Hasta que se abre el Simulador 3D: la lista de parcelas (sin escena) y nada en movimiento
+        this.cultivos = PARCELAS_FINCA.map(p => ({ ...p }));
+        this.tractores = [];
+        this.simuladorVisible = false;
+        this.simulador = null; // La carga del 3D (una sola vez): iniciarSimulador()
+    }
 
-        this.initThreeJS();
-        this.initEntorno();
-        this.optimizarEscena();
-        this.crearPanelParcelas();
-        this.initListeners();
-        // El panel de parcelas se crea después del canvas y le quita alto: reencuadrar ya
-        window.dispatchEvent(new Event('resize'));
-
-        this.reloj = new THREE.Clock();
-        this.animar();
+    /**
+     * Descarga three.js y monta la finca 3D la primera vez que se entra en el simulador (o en la ventana flotante).
+     * Devuelve siempre la misma promesa; si la descarga falla (sin señal), se puede reintentar.
+     */
+    iniciarSimulador() {
+        if (this.simulador) return this.simulador;
+        const container = document.getElementById('canvas-container');
+        const estado = document.createElement('p');
+        estado.className = 'simulador-cargando';
+        estado.setAttribute('role', 'status');
+        estado.textContent = traducir('Cargando la finca 3D…');
+        container.appendChild(estado);
+        this.simulador = (async () => {
+            if (!window.THREE) for (const libreria of LIBRERIAS_3D) await cargarScript(libreria);
+            estado.remove();
+            this.initThreeJS();
+            this.initEntorno();
+            this.optimizarEscena();
+            this.crearPanelParcelas();
+            this.initListeners();
+            // El panel de parcelas se crea después del canvas y le quita alto: reencuadrar ya
+            window.dispatchEvent(new Event('resize'));
+            this.reloj = new THREE.Clock();
+            this.animar();
+            // El mapa interactivo (mapa.js) y lo demás que necesita la escena se montan ahora
+            window.dispatchEvent(new Event('sdc-simulador-listo'));
+            return this;
+        })().catch((error) => {
+            console.warn('Simulador 3D:', error);
+            this.simulador = null;
+            estado.textContent = traducir('No se pudo cargar la finca 3D. Revisa la conexión.');
+            const reintentar = document.createElement('button');
+            reintentar.type = 'button';
+            reintentar.className = 'btn-secondary';
+            reintentar.textContent = traducir('Reintentar');
+            reintentar.addEventListener('click', () => { estado.remove(); this.iniciarSimulador(); });
+            estado.append(' ', reintentar);
+            return null;
+        });
+        return this.simulador;
     }
 
     initThreeJS() {

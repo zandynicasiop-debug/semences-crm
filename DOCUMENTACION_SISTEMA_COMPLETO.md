@@ -796,3 +796,21 @@ conectar, permiso retirado), el ítem queda como "Falló" con el motivo y le lle
 **Supervisión Comercial se llena sola**: cada cotización en US$ que supera el umbral (US$ 5,000 por defecto, editable en
 la pestaña) entra en la lista de cada Master, una sola vez por cotización, con prioridad alta.
 
+
+---
+
+## 20. Salida a producción (8 puntos rojos y 2 mejoras rápidas)
+
+| Punto | Qué se hizo | Dónde |
+|---|---|---|
+| **Drive con `drive.file`** | Google solo da acceso a los archivos que crea la app (sin el permiso restringido `drive` ni `documents`: no hay auditoría anual de seguridad). Todo el Drive del CRM lo crea y guarda la cuenta del Master (`CUENTA_GOOGLE_SISTEMA`) al arrancar: *Semences del Caribe · CRM › Clientes / Reportes / Respaldos / Plantillas* + plantilla base. Lectura de la carpeta de cada cliente para quien lo puede ver. Lo borrado se rehace solo. | `src/drive.js`, 7.5 |
+| **Editar en todos los módulos** | Botón *Editar* en clientes, visitas, procesos, rendimientos, germinador, envíos y pedidos, y *Editar ficha* en el expediente. Guarda sobre el mismo registro; cada corrección queda como `modificar` (campo, antes y después) en la cadena HMAC-SHA256. Calendar solo se vuelve a agendar si cambió la fecha. | `crm.js` |
+| **Despertador (Cron de cPanel)** | `GET /api/latido` cada 5 min: despierta Node y hace una vuelta de eventos, avisos, Borja, clientes dormidos y recordatorio del viernes (idempotente, una vuelta por minuto). | `src/latido.js`, *Despertador* en `servidor/LEEME.md` |
+| **Alerta de flujos fallidos** | Un evento `fallido` definitivo avisa a cada Master en la campana (tipo `sistema`, abre la Torre de control) y por correo, una vez por evento (`eventos.avisado`). | `src/latido.js` |
+| **Arranque directo en el CRM** | three.js (~650 KB) ya no se carga al abrir: se descarga con su huella SRI solo al entrar en el Simulador 3D. El service worker ya no lo descarga al instalarse. En las apps nativas va dentro (`lib/`). | `app.js › iniciarSimulador` |
+| **Privacidad y condiciones** | Google Workspace (`drive.file`, Calendar, Gmail, Sheets), WhatsApp Business, Instagram, consentimiento y baja (Ley 172-13), instrucciones de borrado (`privacidad.html#borrar-datos`, URL para Meta). | `privacidad.html`, `condiciones.html` |
+| **Baja de WhatsApp de los clientes** | El cliente escribe **BAJA** (o STOP) y deja de recibir WhatsApp de la empresa al momento (lista en `ajustes › whatsappBajas` + casilla en su ficha, auditado); **ALTA** lo reactiva. El equipo también puede marcarla. | `src/bajas.js` |
+
+**Meta (revisión de la app):** *Privacy Policy URL* = `https://semillasdata.com/privacidad.html`, *Terms of Service URL* =
+`https://semillasdata.com/condiciones.html`, *User Data Deletion* → *Data deletion instructions URL* =
+`https://semillasdata.com/privacidad.html#borrar-datos`.

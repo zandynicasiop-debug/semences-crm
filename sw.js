@@ -6,7 +6,7 @@
  * - Lo demás (el Apps Script de Google, Chat…) no pasa por aquí: siempre va a la red.
  * Al publicar cambios grandes, sube VERSION para descartar las copias viejas.
  */
-const VERSION = 'semences-v31'; // Sube en cada publicación con cambios: descarta las copias viejas
+const VERSION = 'semences-v32'; // Sube en cada publicación con cambios: descarta las copias viejas
 const APP = [
     './', './index.html', './style.css', './manifest.webmanifest',
     './googleSync.js', './app.js', './colaEtapas.js', './datos.js', './usuario.js', './mapa.js', './cotizador.js',
@@ -15,10 +15,10 @@ const APP = [
     './marcas/gautier.png', './marcas/hexagon.png', './marcas/genome.png', './marcas/fito.png'
 ];
 // Las mismas direcciones que index.html. Se piden en modo CORS (como las pide la página con integrity):
-// una copia "opaca" no serviría a un <script crossorigin> y el navegador la rechazaría
+// una copia "opaca" no serviría a un <script crossorigin> y el navegador la rechazaría.
+// three.js NO se descarga al instalar (unos 650 KB de datos móviles): se guarda la primera vez que alguien abre el
+// Simulador 3D (app.js lo pide con su huella) y desde entonces también funciona sin conexión
 const CDN = [
-    'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js',
-    'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js',
     'https://cdn.jsdelivr.net/npm/jspdf@4.2.1/dist/jspdf.umd.min.js'
 ];
 const ORIGENES_CDN = ['https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net', 'https://fonts.googleapis.com', 'https://fonts.gstatic.com'];

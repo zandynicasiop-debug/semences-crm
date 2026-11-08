@@ -4657,3 +4657,18 @@ body.ventana-flotante {
         justify-content: center;
     }
 }
+
+/* Simulador 3D: mientras se descarga three.js (solo la primera vez que se abre) */
+.simulador-cargando {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sdc-espacio-2);
+    margin: 0;
+    padding: var(--sdc-espacio-4);
+    text-align: center;
+    color: var(--ui-texto-suave);
+}

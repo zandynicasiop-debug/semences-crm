@@ -78,7 +78,7 @@ h1 { font-size: clamp(1.8rem, 5vw, 2.3rem); margin: 4px 0 4px; }
 h2 { font-size: 1.3rem; margin: 36px 0 8px; }
 h3 { font-size: 1.05rem; margin: 20px 0 6px; }
 p, li { max-width: 68ch; }
-ul { padding-left: 22px; }
+ul, ol { padding-left: 22px; }
 li { margin-bottom: 6px; }
 
 .etiqueta {

@@ -20,6 +20,7 @@ import { REGLAS } from './flujos.js';
 import { enZona } from './fechas.js';
 import { darBienvenida } from './bienvenida.js';
 import { sincronizarAgenda, respaldar, documentoValido, avisarPorCorreo, enSegundoPlano } from './workspace.js';
+import { whatsappDadoDeBaja } from './bajas.js';
 import { carpetaDe, carpetaDelCliente, compartirCon, conDriveDelCrm, crearReporteDelCrm, driveActivo, plantillaDeCasa } from './drive.js';
 import { avisarEnvio, actualizarEnvio } from './envios.js';
 import { accionInstagram } from './instagram.js';
@@ -49,6 +50,8 @@ async function avisarCliente({ pool, avisos, config }, telefono, texto) {
     if (!telefono || !avisos.whatsappClientesActivo) return false;
     const numero = normalizarTelefono(telefono);
     if (!numero) return false;
+    // Pidió la baja (escribió BAJA o el equipo marcó su ficha): no se le envía nada por WhatsApp (bajas.js)
+    if (await whatsappDadoDeBaja(pool, numero)) return false;
     return (await encolar(pool, 'whatsapp', [numero], texto, config.whatsapp.plantillaClientes)) > 0;
 }
 

@@ -459,6 +459,8 @@ class MapaInteractivo {
     }
 }
 
-window.addEventListener('load', () => {
-    if (window.appDashboard) window.appDashboard.mapa = new MapaInteractivo(window.appDashboard);
+// La escena 3D se monta al entrar en el simulador (app.js › iniciarSimulador): el mapa, justo después
+window.addEventListener('sdc-simulador-listo', () => {
+    const tablero = window.appDashboard;
+    if (tablero && !tablero.mapa) tablero.mapa = new MapaInteractivo(tablero);
 });

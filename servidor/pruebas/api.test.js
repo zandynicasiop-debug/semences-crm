@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { leerConfig } from '../src/config.js';
 import { conectar } from '../src/db.js';
+import * as db from '../src/db.js';
 import { crearAvisos } from '../src/avisos.js';
 import { crearApp } from '../src/aplicacion.js';
 import { repasar, INTENTOS } from '../src/cola.js';
@@ -2254,6 +2255,40 @@ for (const base of BASES) {
             await procesar();
             assert.ok((await panel(sesiones.jefa, { operacion: 'agenda' })).json.listas['Supervisión Comercial'].some(i => /COT-B/.test(i.titulo)));
             await panel(sesiones.jefa, { operacion: 'agendaUmbral', umbral: 5000 });
+        });
+
+        test('consentimiento (Ley 172-13): el cliente escribe BAJA y no recibe más WhatsApp de la empresa; con ALTA vuelve', async () => {
+            const cliente = { id: 'cli-baja', nombre: 'Finca La Baja', pais: 'VE', casa: 'Fitó', whatsapp: '829 555 2020' };
+            assert.equal((await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: cliente }] })).estado, 200);
+            const correo = () => accion(sesiones.ana, { accion: 'correo', para: 'finca@labaja.do', asunto: 'Cotización', texto: 'Adjunta', whatsapp: '8295552020' });
+            await pool.query('DELETE FROM cola_avisos');
+            assert.equal((await correo()).json.avisoWhatsapp, true, 'antes de la baja sí');
+            const escribe = async (texto) => {
+                const cuerpo = JSON.stringify({ object: 'whatsapp_business_account', entry: [{ changes: [{ field: 'messages', value: { messages: [{ from: '18295552020', type: 'text', text: { body: texto } }] } }] }] });
+                const r = await fetch(`${url}/api/whatsapp/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Hub-Signature-256': `sha256=${crypto.createHmac('sha256', 'secreto-meta').update(cuerpo).digest('hex')}` }, body: cuerpo });
+                assert.equal(r.status, 200);
+                await esperarSegundoPlano();
+            };
+            await escribe('Baja');
+            const ficha = await db.leerRegistro(pool, 'clientes', 'cli-baja');
+            assert.equal(ficha.sinWhatsapp, true);
+            assert.match(ficha.bajaWhatsapp, /^\d{4}-\d{2}-\d{2}T/);
+            const [[lista]] = await pool.query("SELECT valor FROM ajustes WHERE clave = 'whatsappBajas'");
+            assert.ok(JSON.parse(lista.valor)['18295552020']);
+            const [audit] = await pool.query("SELECT accion, nombre, cambios FROM auditoria WHERE (modulo = 'clientes' AND objeto = 'cli-baja') OR accion = 'whatsapp_baja' ORDER BY id DESC LIMIT 2");
+            assert.deepEqual(audit.map(a => a.accion).sort(), ['modificar', 'whatsapp_baja']);
+            assert.ok(audit.some(a => a.accion === 'modificar' && a.nombre === 'WhatsApp: el cliente pidió la baja'), 'el cambio de la ficha queda en la auditoría');
+
+            await pool.query('DELETE FROM cola_avisos');
+            assert.equal((await correo()).json.avisoWhatsapp, false, 'después de la baja, nada por WhatsApp');
+            assert.equal(Number((await pool.query("SELECT COUNT(*) n FROM cola_avisos WHERE destino = '18295552020'"))[0][0].n), 0);
+            // Un texto cualquiera no cambia nada; ALTA lo vuelve a activar
+            await escribe('Hola, ¿tienen semilla de tomate?');
+            assert.equal((await db.leerRegistro(pool, 'clientes', 'cli-baja')).sinWhatsapp, true);
+            await escribe('ALTA');
+            assert.equal((await db.leerRegistro(pool, 'clientes', 'cli-baja')).sinWhatsapp, false);
+            assert.equal((await correo()).json.avisoWhatsapp, true);
+            await pool.query('DELETE FROM cola_avisos');
         });
 
         test('latido del Cron de cPanel: despierta, hace la vuelta pendiente y avisa UNA vez a los Master de cada flujo fallido', async () => {

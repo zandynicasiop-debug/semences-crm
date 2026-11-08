@@ -270,6 +270,15 @@ describe('esquema de las variables de entorno (.env.example)', () => {
     });
 });
 
+describe('consentimiento de WhatsApp (bajas.js)', () => {
+    test('reconoce BAJA, STOP y frases de baja (con o sin tilde); ALTA; lo demás no', async () => {
+        const { pideBajaOAlta } = await import('../src/bajas.js');
+        for (const t of ['BAJA', 'baja.', ' Stop ', 'cancelar', 'No quiero recibir más mensajes', 'no mas mensajes!', 'Darme de baja']) assert.equal(pideBajaOAlta(t), 'baja', t);
+        for (const t of ['ALTA', 'alta', 'Start']) assert.equal(pideBajaOAlta(t), 'alta', t);
+        for (const t of ['Hola', '¿Tienen baja germinación?', 'la semilla bajó de precio', '', null, 'baja'.repeat(30)]) assert.equal(pideBajaOAlta(t), null, String(t));
+    });
+});
+
 describe('seguridad de la entrada de datos', () => {
     test('rechaza claves que contaminan prototipos a cualquier profundidad', () => {
         assert.equal(problemaEnDatos({ a: 1, b: [{ c: 'x' }] }), '');

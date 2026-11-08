@@ -134,6 +134,8 @@ const MODULOS_CRM = {
             ...CAMPOS_AMBITO,
             { id: 'telefono', etiqueta: 'Teléfono', tipo: 'tel', ejemplo: '809 555 1234' },
             { id: 'whatsapp', etiqueta: 'WhatsApp', tipo: 'tel', ejemplo: '829 555 1234' },
+            // Consentimiento (Ley 172-13): si escribe BAJA al WhatsApp de la empresa se marca sola (bajas.js del servidor)
+            { id: 'sinWhatsapp', etiqueta: 'No quiere mensajes de WhatsApp de la empresa (pidió la baja)', tipo: 'checkbox' },
             { id: 'correo', etiqueta: 'Correo', tipo: 'email', ejemplo: 'cliente@ejemplo.com', autocomplete: 'email' },
             { id: 'ubicacion', etiqueta: 'Ubicación', tipo: 'text', ejemplo: 'Constanza, La Vega' },
             { id: 'marca', etiqueta: 'Marca que compra', tipo: 'select', opciones: MARCAS, vacia: 'Sin indicar' },
@@ -145,7 +147,7 @@ const MODULOS_CRM = {
         columnas: [
             { titulo: 'Nombre', valor: r => r.nombre, expediente: true },
             { titulo: 'Teléfono', valor: r => r.telefono, enlace: r => r.telefono && `tel:${soloDigitos(r.telefono)}` },
-            { titulo: 'WhatsApp', valor: r => r.whatsapp, enlace: r => r.whatsapp && enlaceWhatsApp(r.whatsapp) },
+            { titulo: 'WhatsApp', valor: r => r.whatsapp ? `${r.whatsapp}${r.sinWhatsapp ? ' (baja)' : ''}` : '', enlace: r => r.whatsapp && !r.sinWhatsapp && enlaceWhatsApp(r.whatsapp) },
             { titulo: 'Correo', valor: r => r.correo, enlace: r => r.correo && `mailto:${r.correo}` },
             { titulo: 'Ubicación', valor: r => r.ubicacion },
             { titulo: 'Marca', valor: r => r.marca },
@@ -597,7 +599,12 @@ class CRM {
         });
     }
 
-    // Oculta las pestañas de los módulos que el cargo no incluye; si la abierta queda oculta, vuelve al simulador
+    // Primera pestaña del CRM que el cargo ve (la app arranca ahí, sin cargar el 3D); sin ninguna, el simulador
+    primeraPestana() {
+        return [...this.tablist.querySelectorAll('.nav-tab')].find(p => p.id !== 'tab-simulador' && !p.hidden) || document.getElementById('tab-simulador');
+    }
+
+    // Oculta las pestañas de los módulos que el cargo no incluye; si la abierta queda oculta, va a la primera que ve
     aplicarAmbito() {
         const ambito = ambitoCRM();
         if (ambito) this.cargarAgronomia();
@@ -609,7 +616,7 @@ class CRM {
             if (nuevo) nuevo.hidden = soloLectura(modulo);
         });
         const abierta = this.tablist.querySelector('[aria-current="true"]');
-        if (abierta && abierta.hidden && this.activarPestana) this.activarPestana(document.getElementById('tab-simulador'));
+        if (abierta && abierta.hidden && this.activarPestana) this.activarPestana(this.primeraPestana());
         this.renderTodo();
     }
 
@@ -741,8 +748,12 @@ class CRM {
             const enSimulador = pestana.id === 'tab-simulador';
             if (this.dashboard) {
                 this.dashboard.simuladorVisible = enSimulador;
-                // Al volver, el canvas recupera su tamaño (oculto medía 0 x 0)
-                if (enSimulador) window.dispatchEvent(new Event('resize'));
+                // La finca 3D (y three.js) se carga la primera vez que se entra; al volver, el canvas recupera su
+                // tamaño (oculto medía 0 x 0)
+                if (enSimulador) {
+                    if (this.dashboard.iniciarSimulador) this.dashboard.iniciarSimulador();
+                    window.dispatchEvent(new Event('resize'));
+                }
             }
         };
         boton.addEventListener('click', () => abrirMenu(this.tablist.hidden));
@@ -781,7 +792,8 @@ class CRM {
         this.tablist.addEventListener('focusout', (e) => {
             if (e.relatedTarget && !e.relatedTarget.closest('.menu-modulos')) abrirMenu(false);
         });
-        this.activarPestana(document.getElementById('tab-simulador'));
+        // Arranque directo en el CRM (el Simulador 3D se carga solo si se abre)
+        this.activarPestana(this.primeraPestana());
     }
 
     // ----- Tablas -----

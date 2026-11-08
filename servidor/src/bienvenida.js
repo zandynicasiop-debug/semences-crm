@@ -15,6 +15,7 @@ import { encolar } from './cola.js';
 import { normalizarTelefono } from './avisos.js';
 import { auditar } from './auditoria.js';
 import { traducir } from './idioma.js';
+import { pideBajaOAlta, aplicarBaja, TEXTO_BAJA, TEXTO_ALTA } from './bajas.js';
 
 const primerNombre = (persona) => String(persona.nombre || persona.email || '').trim().split(/\s+/)[0] || 'equipo';
 
@@ -76,6 +77,13 @@ export async function recibirWhatsapp({ pool, config, avisos, diferir = (tarea) 
             // Borja contesta (mensaje normal: la persona acaba de escribir). Si falla, la confirmación ya quedó.
             // Va después de responder a Meta (diferir, desde aplicacion.js): enviar un WhatsApp puede tardar
             if (avisos.whatsappTexto) await diferir(() => avisos.whatsappTexto(telefono, traducir(textoConfirmado(persona), persona.idioma)).catch(() => {}));
+        }
+        // Consentimiento (Ley 172-13): BAJA / STOP deja de enviarle WhatsApp de la empresa; ALTA lo vuelve a activar (bajas.js)
+        const que = pideBajaOAlta(m.type === 'button' ? (m.button && m.button.text) : (m.text && m.text.body));
+        if (que) {
+            await aplicarBaja({ pool, config }, telefono, que);
+            await auditar(pool, config, { nombre: 'WhatsApp', accion: que === 'baja' ? 'whatsapp_baja' : 'whatsapp_alta', objeto: telefono, resumen: que === 'baja' ? 'Pidió no recibir más WhatsApp de la empresa' : 'Pidió volver a recibir WhatsApp de la empresa' });
+            if (avisos.whatsappTexto) await diferir(() => avisos.whatsappTexto(telefono, que === 'baja' ? TEXTO_BAJA : TEXTO_ALTA).catch(() => {}));
         }
     }
     return confirmadas;
