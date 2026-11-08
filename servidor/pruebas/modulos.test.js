@@ -23,6 +23,9 @@ import { germinacionDe, avisarGerminacionBaja, conGoogle, errorApp, ACCIONES } f
 import { cifrar } from '../src/cifrado.js';
 import { ajustarPedido, conVendedor, REGLA_RECOMPRA, pedidoDeRecompra, idRecompra, ejecutorDe, prioridadesUsd, actividadesDelCrm } from '../src/pedidos.js';
 import { validarAgronomia, planDeSiembra, cultivoDe, clientesDormidos, REGLA_PLANTULACION, AGRONOMIA_POR_DEFECTO } from '../src/campo.js';
+import { renderizar, validarMensajes, MENSAJES_POR_DEFECTO, CATALOGO } from '../src/mensajes.js';
+import { consolidado, pendientesDe, textoConsolidado } from '../src/panelCeo.js';
+import { interpretarOrden, interpretarCuando, idEventoCalendar, LISTAS_CEO } from '../src/agendaCeo.js';
 
 const { ambitoDe, dentroDelAmbito, puedeLeer, puedeEscribir, filtrarDatos, asignacionValida, PAISES, CASAS } = permisos;
 const CLAVE = 'a'.repeat(64);
@@ -1341,5 +1344,120 @@ describe('Lote A: plantulación, dormidos, prioridades en US$ y viernes sin tecl
             ['auto:pedido:p1', 'Completada', '20 mil semillas · US$ 600.']
         ]);
         assert.ok(lista.every(a => a.comentario.length >= 5 && a.auto === true));
+    });
+});
+
+// ---------------------------------------------------------------------------------------------------
+describe('Lote B: mensajes editables y Torre de control', () => {
+    test('renderizar: pone los datos en {{…}}; lo desconocido queda vacío', () => {
+        assert.equal(renderizar('Hola {{vendedor}}: {{ cliente }} · {{casa}}{{nada}}', { vendedor: 'Marta', cliente: 'Finca A', casa: 'Fitó' }), 'Hola Marta: Finca A · Fitó');
+    });
+
+    test('validar: los de por defecto valen y son los textos de siempre; variables, vacíos y horas se comprueban', () => {
+        const r = validarMensajes(MENSAJES_POR_DEFECTO);
+        assert.deepEqual(Object.keys(r.mensajes), Object.keys(CATALOGO));
+        assert.equal(r.mensajes.resumen.texto, '☀️ Buenos días, {{vendedor}}. Soy Borja, tu resumen de hoy');
+        assert.match(validarMensajes({ dormido: { texto: '{{guia}}' } }).error, /Cliente dormido: \{\{guia\}\} no existe aquí/);
+        assert.match(validarMensajes({ visita: { texto: '   ' } }).error, /el texto no puede quedar vacío/);
+        assert.match(validarMensajes({ resumen: { texto: 'x', asunto: '' } }).error, /el asunto no puede quedar vacío/);
+        assert.match(validarMensajes({ recordatorio: { texto: 'x', hora: 7.5 } }).error, /la hora va de 0 a 23/);
+        assert.equal(validarMensajes({ recordatorio: { texto: 'x', hora: '' } }).mensajes.recordatorio.hora, null, 'vacío = la del servidor');
+    });
+
+    test('validar: WhatsApp solo con plantillas aprobadas y con las variables que hacen falta', () => {
+        const plantillas = [{ nombre: 'aviso_equipo', variables: 1 }, { nombre: 'resumen_diario', variables: 7 }, { nombre: 'oferta', variables: 3 }];
+        const con = (clave, nombre) => validarMensajes({ [clave]: { ...MENSAJES_POR_DEFECTO[clave], plantillaWhatsapp: nombre } }, plantillas);
+        assert.equal(con('resumen', 'resumen_diario').mensajes.resumen.variablesWhatsapp, 7);
+        assert.equal(con('resumen', 'aviso_equipo').mensajes.resumen.variablesWhatsapp, 1);
+        assert.match(con('recordatorio', 'resumen_diario').error, /tiene 7 variable\(s\) y aquí hace falta 1/);
+        assert.match(con('resumen', 'oferta').error, /hace falta 1 o 7/);
+        assert.match(con('resumen', 'inventada').error, /no está entre las plantillas aprobadas/);
+        // Lo ya guardado se relee sin consultar a Meta, con sus variables
+        assert.equal(validarMensajes({ resumen: { ...MENSAJES_POR_DEFECTO.resumen, plantillaWhatsapp: 'resumen_diario', variablesWhatsapp: 7 } }).mensajes.resumen.variablesWhatsapp, 7);
+    });
+
+    test('plantillas aprobadas de Meta: solo con WHATSAPP_CUENTA_ID; cuenta las variables del cuerpo', async () => {
+        const pedidas = [];
+        const fetchFalso = async (url) => {
+            pedidas.push(url);
+            return new Response(JSON.stringify({ data: [
+                { name: 'resumen_diario', language: 'es', status: 'APPROVED', components: [{ type: 'HEADER', text: '{{1}}' }, { type: 'BODY', text: '{{1}} {{2}} {{3}} {{4}} {{5}} {{6}} {{7}}' }] },
+                { name: 'aviso_equipo', language: 'es', status: 'APPROVED', components: [{ type: 'BODY', text: 'Aviso: {{1}}' }] },
+                { name: 'borrador', language: 'es', status: 'PENDING', components: [] }
+            ] }), { status: 200 });
+        };
+        const whatsapp = { token: 't', telefonoId: '123', plantilla: 'aviso_equipo', idioma: 'es', version: 'v21.0' };
+        const sin = crearAvisos({ ...leerConfig({}), whatsapp: { ...whatsapp, cuentaId: '' } }, fetchFalso);
+        assert.equal(await sin.plantillasAprobadas(), null);
+        const con = crearAvisos({ ...leerConfig({}), whatsapp: { ...whatsapp, cuentaId: '987654321' } }, fetchFalso);
+        assert.deepEqual(await con.plantillasAprobadas(), [{ nombre: 'resumen_diario', idioma: 'es', variables: 7 }, { nombre: 'aviso_equipo', idioma: 'es', variables: 1 }]);
+        assert.match(pedidas.at(-1), /\/987654321\/message_templates\?status=APPROVED/);
+    });
+
+    test('radar y resumen global: pendientes por persona y consolidado por país', () => {
+        const datos = {
+            clientes: [{ id: 'a', nombre: 'Finca A', pais: 'RD', etapa: 'Reunión', asignado: 'yo@x.com' }, { id: 'b', nombre: 'Finca B', pais: 'VE' }],
+            cotizaciones: [{ id: 'c', numero: 'COT-1', clienteId: 'a', pais: 'RD', estado: 'Aprobada', moneda: 'US$', total: 300, vendedor: 'yo@x.com' },
+                { id: 'c2', clienteId: 'b', pais: 'VE', estado: 'Pendiente', moneda: 'Bs', total: 900, vendedor: 'otro@x.com' }],
+            pedidos: [{ id: 'p', clienteId: 'a', pais: 'RD', estado: 'Confirmado', fecha: '2026-11-03', semillasMiles: 10, precioMil: 20, vendedor: 'yo@x.com' },
+                { id: 'q', clienteId: 'b', pais: 'VE', estado: 'Cotizado', fecha: '2026-11-01', semillasMiles: 5, precioMil: 10, recompraDe: 'z', vendedor: 'otro@x.com' }],
+            tareas: [{ id: 't', titulo: 'Llamar', para: 'Yo Mismo', vence: '2026-11-01' }]
+        };
+        const p = pendientesDe({ email: 'yo@x.com', nombre: 'Yo Mismo' }, datos, '2026-11-07');
+        assert.deepEqual([p.cotizaciones, p.pedidos, p.reuniones, p.tareasVencidas], [{ n: 1, usd: 300 }, { n: 0, usd: 0 }, 1, 1]);
+        const g = consolidado(datos, '2026-11-07', { RD: 2 });
+        assert.deepEqual([g.paises.RD.ventasUsd, g.paises.RD.ventasMiles, g.paises.RD.cotizacionesUsd, g.paises.RD.clientesEnReunion, g.paises.RD.reportesBloqueados], [200, 10, 300, 1, 2]);
+        assert.deepEqual([g.paises.VE.cotizacionesAbiertas, g.paises.VE.cotizacionesUsd, g.paises.VE.pedidosPorCerrarUsd, g.paises.VE.recomprasVencidas], [1, 0, 50, 1]);
+        assert.deepEqual([g.total.ventasUsd, g.total.pedidosPorCerrar, g.total.cotizacionesAbiertas], [200, 1, 2]);
+        assert.match(textoConsolidado(g), /🇩🇴 RD: ventas US\$ 200 \(10 mil semillas\) · 1 cotizaciones abiertas \(US\$ 300\)/);
+    });
+});
+
+// ---------------------------------------------------------------------------------------------------
+describe('Lote B: agenda del CEO con Borja (intérprete de órdenes, sin IA)', () => {
+    const hoy = '2026-11-08'; // domingo
+    test('fechas en español: hoy, mañana, pasado mañana, días de la semana, 15/11, "30 de noviembre", ISO; y las horas', () => {
+        assert.deepEqual(interpretarCuando('llamar mañana a las 3', hoy), { fecha: '2026-11-09', hora: '15:00', minutos: 0, resto: 'llamar' });
+        assert.deepEqual(interpretarCuando('pasado mañana 10:30 am', hoy).fecha, '2026-11-10');
+        assert.deepEqual(interpretarCuando('el viernes', hoy).fecha, '2026-11-13');
+        assert.equal(interpretarCuando('el domingo', hoy).fecha, '2026-11-15', 'hoy es domingo: el próximo');
+        assert.equal(interpretarCuando('el 15/11', hoy).fecha, '2026-11-15');
+        assert.equal(interpretarCuando('el 2/1', hoy).fecha, '2027-01-02', 'ya pasó este año: el que viene');
+        assert.equal(interpretarCuando('el 30 de noviembre', hoy).fecha, '2026-11-30');
+        assert.equal(interpretarCuando('2026-12-24', hoy).fecha, '2026-12-24');
+        assert.equal(interpretarCuando('a las 10', hoy).hora, '10:00');
+        assert.equal(interpretarCuando('4pm', hoy).hora, '16:00');
+        assert.deepEqual([interpretarCuando('a las 10 de la mañana', hoy).hora, interpretarCuando('a las 10 de la mañana', hoy).fecha], ['10:00', null], '"de la mañana" es la hora, no el día siguiente');
+        assert.deepEqual([interpretarCuando('mañana a las 10 de la mañana', hoy).fecha, interpretarCuando('mañana a las 10 de la mañana', hoy).hora], ['2026-11-09', '10:00']);
+        assert.equal(interpretarCuando('mañana por la mañana', hoy).hora, '09:00');
+        assert.deepEqual([interpretarCuando('cita mañana en la tarde', hoy).fecha, interpretarCuando('cita mañana en la tarde', hoy).hora], ['2026-11-09', '15:00']);
+        assert.equal(interpretarCuando('revisión por 1 hora', hoy).minutos, 60);
+        assert.equal(interpretarCuando('15 bandejas de tomate', hoy).hora, null, 'un número suelto no es una hora');
+    });
+
+    test('órdenes: anotar en su lista, agendar con invitado y Meet, correo y seguimiento, completar y consultar', () => {
+        assert.deepEqual(interpretarOrden('finanzas: pagar el ITBIS el viernes (urgente)', hoy), { accion: 'anotar', lista: 'Finanzas', titulo: 'pagar el ITBIS', prioridad: 'Alta', fecha: '2026-11-13', hora: null });
+        assert.equal(interpretarOrden('supervisión: revisar cartera de Fitó', hoy).lista, 'Supervisión Comercial');
+        assert.equal(interpretarOrden('Borja, anota en correos: responder a Fitó', hoy).lista, 'Seguimiento de Correos');
+        assert.deepEqual(interpretarOrden('recuérdame llamar a Pedro', hoy), { accion: 'anotar', lista: 'Mis Cosas', titulo: 'llamar a Pedro', prioridad: 'Media', fecha: null, hora: null });
+        const agenda = interpretarOrden('agenda reunión con Hexagon mañana a las 3 con compras@hexagon.com', hoy);
+        assert.deepEqual([agenda.accion, agenda.titulo, agenda.fecha, agenda.hora, agenda.invitado, agenda.meet], ['agendar', 'reunión con Hexagon', '2026-11-09', '15:00', 'compras@hexagon.com', true]);
+        assert.equal(interpretarOrden('reunión con Ana el lunes a las 10', hoy).titulo, 'Reunión con Ana');
+        assert.equal(interpretarOrden('cita mañana con el banco', hoy).titulo, 'Cita con el banco');
+        assert.match(interpretarOrden('agenda algo', hoy).error, /Para cuándo/);
+        const correo = interpretarOrden('correo a Ana@Semillasdata.com: Precios | ¿me pasas la lista?', hoy);
+        assert.deepEqual([correo.accion, correo.para, correo.asunto, correo.cuerpo, correo.seguimiento], ['correo', 'ana@semillasdata.com', 'Precios', '¿me pasas la lista?', false]);
+        assert.equal(interpretarOrden('seguimiento a ana@semillasdata.com: ¿novedades?', hoy).seguimiento, true);
+        assert.match(interpretarOrden('correo a Ana: hola', hoy).error, /Dime a qué correo/);
+        assert.deepEqual(interpretarOrden('listo: pagar el ITBIS', hoy), { accion: 'completar', titulo: 'pagar el ITBIS' });
+        assert.equal(interpretarOrden('¿qué tengo hoy?', hoy).accion, 'consultar');
+        assert.equal(interpretarOrden('ayuda', hoy).accion, 'ayuda');
+    });
+
+    test('listas fijas e id de Calendar válido (base32hex) y siempre el mismo para un ítem', () => {
+        assert.deepEqual(LISTAS_CEO, ['Mis Cosas', 'Finanzas', 'Supervisión Comercial', 'Seguimiento de Correos']);
+        assert.match(idEventoCalendar(7), /^[a-v0-9]{5,1024}$/);
+        assert.equal(idEventoCalendar(7), idEventoCalendar(7));
+        assert.notEqual(idEventoCalendar(7), idEventoCalendar(8));
     });
 });

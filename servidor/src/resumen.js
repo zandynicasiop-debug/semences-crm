@@ -20,6 +20,7 @@ import { construirCorreo } from './correo.js';
 import { germinacionDe } from './acciones.js';
 import { traducir } from './idioma.js';
 import { prioridadesUsd } from './pedidos.js';
+import { renderizar, leerMensajes, leerBorja, MENSAJES_POR_DEFECTO } from './mensajes.js';
 
 const MAX_LINEAS = 6;
 const VENTANA_HORAS = 5;
@@ -147,26 +148,34 @@ export function textoAlcance(ambito) {
  * procesos y "equipo y mensajes". Meta no deja saltos de línea dentro de una variable: los saltos los pone
  * la plantilla y cada variable es una línea. Sin esa plantilla, todo en una línea con la del equipo.
  */
-export function textosResumen(secciones, persona, hoy, ambito) {
+export function textosResumen(secciones, persona, hoy, ambito, mensaje = MENSAJES_POR_DEFECTO.resumen) {
     const nombre = String(persona.nombre || '').split(' ')[0] || persona.email;
-    const saludo = `☀️ Buenos días, ${nombre}. Soy Borja, tu resumen de hoy`;
     const alcance = ambito ? textoAlcance(ambito) : '';
     const completo = secciones.map(s => `${s.titulo}\n${s.lineas.map(l => `• ${l}`).join('\n')}`).join('\n\n');
+    // Saludo y asunto editables en la Torre de control (mensajes.js); por defecto, los de siempre
+    const variables = { vendedor: nombre, fecha: fechaCorta(hoy), agenda_dia: secciones.filter(s => s.clave === 'agenda').flatMap(s => s.lineas).join('; ') || 'Sin eventos', lista_pendientes: '' };
+    const saludo = renderizar(mensaje.texto, variables).trim();
+    const conLista = /\{\{\s*lista_pendientes\s*\}\}/.test(mensaje.texto);
     const de = (...claves) => secciones.filter(s => claves.includes(s.clave)).flatMap(s => s.lineas).join('; ').slice(0, 900) || 'Sin pendientes';
     return {
         whatsapp: `${saludo}${alcance ? ` (${alcance})` : ''}: ${secciones.map(s => `${s.titulo}: ${s.lineas.join('; ')}`).join(' · ')}`.slice(0, 1000),
         parametros: [nombre, alcance || '—', de('agenda'), de('prioridades', 'seguimientos'), de('tareas'), de('procesos', 'germinador'), de('envios', 'equipo', 'mensajes')],
         push: `${saludo}\n${secciones.map(s => `${s.titulo}: ${s.lineas.length} · ${s.lineas[0]}`).join('\n')}`,
         correo: {
-            asunto: `☀️ Tu resumen de hoy (${fechaCorta(hoy)}) · Semences del Caribe`,
-            texto: `${saludo}.${alcance ? `\nTu alcance: ${alcance}.` : ''}\n\n${completo}\n\nBorja · Semences del Caribe`
+            asunto: renderizar(mensaje.asunto || MENSAJES_POR_DEFECTO.resumen.asunto || '', variables),
+            texto: conLista
+                ? `${renderizar(mensaje.texto, { ...variables, lista_pendientes: completo }).trim()}\n\nBorja · Semences del Caribe`
+                : `${saludo}.${alcance ? `\nTu alcance: ${alcance}.` : ''}\n\n${completo}\n\nBorja · Semences del Caribe`
         }
     };
 }
 
-// Resumen de una persona (ya reclamado su día): arma, decide canales y encola. Devuelve el canal usado o null
-async function resumirPersona(contexto, persona, datosTodos, hoy) {
+// Resumen de una persona (ya reclamado su día): arma, decide canales y encola. Devuelve el canal usado o null.
+// ajustes: los mensajes y las secciones de Borja (si no vienen, se leen); la Torre de control lo usa para reenviar
+/** @param {any} contexto @param {any} persona @param {any} datosTodos @param {string} hoy @param {any} [ajustes] @returns {Promise<string | null>} */
+export async function resumirPersona(contexto, persona, datosTodos, hoy, ajustes = null) {
     const { pool, config, google, avisos } = contexto;
+    const { mensajes, borja } = ajustes || { mensajes: await leerMensajes(pool), borja: await leerBorja(pool) };
     const ambito = ambitoDe(persona, config);
     if (ambito.estado !== 'aprobado') return null;
     let eventos = [];
@@ -177,24 +186,34 @@ async function resumirPersona(contexto, persona, datosTodos, hoy) {
             .catch(() => []); // Sin agenda (permiso retirado, Google caído…) el resumen sale igual
     }
     const [[sinLeer]] = await pool.query('SELECT COUNT(*) n FROM directos WHERE para_id = ? AND leido = 0', [persona.id]);
-    const secciones = componerResumen({ persona, ambito, datos: filtrarDatos(datosTodos, ambito), eventos, sinLeer: Number(sinLeer.n), hoy, zona: config.zonaHoraria, umbral: config.umbralGerminacion });
+    // Solo las secciones que el Master dejó activas en el centro de Borja
+    const secciones = componerResumen({ persona, ambito, datos: filtrarDatos(datosTodos, ambito), eventos, sinLeer: Number(sinLeer.n), hoy, zona: config.zonaHoraria, umbral: config.umbralGerminacion })
+        .filter(s => borja[s.clave] !== false);
     if (!secciones.length) return null;
 
-    const textos = textosResumen(secciones, persona, hoy, ambito);
+    const mensaje = mensajes.resumen || MENSAJES_POR_DEFECTO.resumen;
+    const textos = textosResumen(secciones, persona, hoy, ambito, mensaje);
     const { huellas, telefonos } = await destinosDe(pool, [persona.id]);
     const canales = [];
+    const seguimiento = { origen: 'resumen', usuarioId: persona.id };
     if (avisos.whatsappActivo && telefonos.length) {
-        // Con plantilla de resumen: varias líneas (7 variables); si no, una línea con la plantilla del equipo
-        const plantilla = config.whatsapp.plantillaResumen;
-        canales.push(encolar(pool, 'whatsapp', telefonos, textos.whatsapp, plantilla || null, plantilla ? textos.parametros : null).then(() => 'whatsapp'));
+        // La plantilla elegida en la Torre de control o la del servidor: con 7 variables, varias líneas; con una,
+        // todo en una línea (sin ninguna, la plantilla del equipo)
+        const elegida = mensaje.plantillaWhatsapp || '';
+        const plantilla = elegida || config.whatsapp.plantillaResumen;
+        const sieteVariables = elegida ? mensaje.variablesWhatsapp === 7 : Boolean(plantilla);
+        canales.push(encolar(pool, 'whatsapp', telefonos, textos.whatsapp, plantilla || null, sieteVariables ? textos.parametros : null, seguimiento).then(() => 'whatsapp'));
     }
-    if (avisos.pushActivo && huellas.length) canales.push(encolar(pool, 'push', huellas, textos.push).then(() => 'push'));
+    if (avisos.pushActivo && huellas.length) canales.push(encolar(pool, 'push', huellas, textos.push, null, null, seguimiento).then(() => 'push'));
     if (!canales.length && token) {
         // Ni WhatsApp ni push: por correo, de sí misma a sí misma
         const crudo = construirCorreo({ para: persona.email, asunto: traducir(textos.correo.asunto, persona.idioma), texto: traducir(textos.correo.texto, persona.idioma) });
         canales.push(google.enviarCorreo(token, () => {}, crudo).then(() => 'correo'));
     }
-    return (await Promise.all(canales)).join('+') || null;
+    const canal = (await Promise.all(canales)).join('+') || null;
+    // Para el monitor de briefings: por dónde salió y cuándo
+    if (canal) await pool.query('UPDATE usuarios SET resumen_canal = ?, resumen_enviado = UTC_TIMESTAMP() WHERE id = ?', [canal, persona.id]);
+    return canal;
 }
 
 /**
@@ -204,9 +223,12 @@ async function resumirPersona(contexto, persona, datosTodos, hoy) {
 export async function enviarResumenes(contexto, ahora = new Date()) {
     const { pool, config, registrar = console } = contexto;
     const resultado = { enviados: 0, personas: [] };
-    if (config.resumenHora === null) return resultado;
+    // La hora: la que fijó el Master en la Torre de control o, si no, la del servidor (HORA_RESUMEN)
+    const mensajes = await leerMensajes(pool);
+    const horaResumen = mensajes.resumen && mensajes.resumen.hora !== null && mensajes.resumen.hora !== undefined ? mensajes.resumen.hora : config.resumenHora;
+    if (horaResumen === null) return resultado;
     const { fecha: hoy, hora } = enZona(ahora, config.zonaHoraria);
-    if (hora < config.resumenHora || hora >= config.resumenHora + VENTANA_HORAS) return resultado;
+    if (hora < horaResumen || hora >= horaResumen + VENTANA_HORAS) return resultado;
 
     const admins = config.google.admins.length ? config.google.admins : [''];
     const [candidatos] = await pool.query(
@@ -214,12 +236,13 @@ export async function enviarResumenes(contexto, ahora = new Date()) {
          AND (resumen_fecha IS NULL OR resumen_fecha < ?)`, [admins, hoy]);
     if (!candidatos.length) return resultado;
     const datosTodos = await listarTodo(pool);
+    const ajustes = { mensajes, borja: await leerBorja(pool) };
     for (const persona of candidatos) {
         // Reclamar el día: si otro proceso ya lo hizo, no se repite
         const [r] = await pool.query('UPDATE usuarios SET resumen_fecha = ? WHERE id = ? AND (resumen_fecha IS NULL OR resumen_fecha < ?)', [hoy, persona.id, hoy]);
         if (!r.affectedRows) continue;
         try {
-            const canal = await resumirPersona(contexto, persona, datosTodos, hoy);
+            const canal = await resumirPersona(contexto, persona, datosTodos, hoy, ajustes);
             if (canal) {
                 resultado.enviados++;
                 resultado.personas.push({ email: persona.email, canal });

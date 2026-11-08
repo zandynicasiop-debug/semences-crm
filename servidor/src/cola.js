@@ -21,12 +21,16 @@ const LOTE = 10;              // Mensajes por repaso (Meta admite muchos más; a
 const ESPERA_BASE_S = 30;
 const BLOQUEO_MIN = 5;        // Lo que lleva tanto "enviando" se da por perdido (el proceso se cayó) y se repite
 
-// parametros: variables de una plantilla de varias (p. ej. la del resumen); sin ellas, el texto es la única
-export async function encolar(pool, canal, destinos, mensaje, plantilla = null, parametros = null) {
+// parametros: variables de una plantilla de varias (p. ej. la del resumen); sin ellas, el texto es la única.
+// origen y usuarioId (opcionales): qué mensaje es ('resumen', 'recordatorio'…) y para quién, para seguir su entrega
+// en la Torre de control (panelCeo.js)
+/** @param {any} pool @param {string} canal @param {string[]} destinos @param {string} mensaje @param {string | null} [plantilla] @param {any[] | null} [parametros] @param {{ origen?: string | null, usuarioId?: number | null }} [opciones] */
+export async function encolar(pool, canal, destinos, mensaje, plantilla = null, parametros = null, { origen = null, usuarioId = null } = {}) {
     const texto = String(mensaje || '').trim().slice(0, 1000);
     if (!texto || !destinos.length) return 0;
     const variables = parametros ? JSON.stringify(parametros) : null;
-    await pool.query('INSERT INTO cola_avisos (canal, destino, texto, plantilla, parametros) VALUES ?', [destinos.map(d => [canal, d, texto, plantilla, variables])]);
+    await pool.query('INSERT INTO cola_avisos (canal, destino, texto, plantilla, parametros, origen, usuario_id) VALUES ?',
+        [destinos.map(d => [canal, d, texto, plantilla, variables, origen, usuarioId])]);
     return destinos.length;
 }
 
@@ -77,8 +81,10 @@ export async function repasar(pool, avisos) {
     for (const fila of filas) {
         const intentos = fila.intentos + 1;
         try {
-            await enviarUno(pool, avisos, fila);
-            await pool.query("UPDATE cola_avisos SET estado = 'enviado', intentos = ?, error = '', enviado = UTC_TIMESTAMP() WHERE id = ?", [intentos, fila.id]);
+            // WhatsApp devuelve el id del mensaje: con él, Meta avisa luego si se entregó y si se leyó (bienvenida.js)
+            const remoto = await enviarUno(pool, avisos, fila);
+            await pool.query("UPDATE cola_avisos SET estado = 'enviado', intentos = ?, error = '', enviado = UTC_TIMESTAMP(), remoto_id = ? WHERE id = ?",
+                [intentos, typeof remoto === 'string' && remoto ? remoto.slice(0, 120) : null, fila.id]);
             resultado.enviados++;
         } catch (error) {
             const motivo = `${error.message}${error.detalle ? ` · ${String(error.detalle).slice(0, 300)}` : ''}`.slice(0, 500);

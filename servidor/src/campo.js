@@ -25,6 +25,7 @@ import { ambitoDe, dentroDelAmbito } from './permisos.js';
 import { ESTADOS_VENTA, DIAS_RECOMPRA, ejecutorDe, correo } from './pedidos.js';
 import { enZona, sumarDias } from './fechas.js';
 import { auditar } from './auditoria.js';
+import { leerMensajes, renderizar } from './mensajes.js';
 
 export const ESQUEMA_AJUSTES = [
     `CREATE TABLE IF NOT EXISTS ajustes (
@@ -350,7 +351,8 @@ export async function alEntregarEnvio(evento, { paso, contexto }) {
     });
     await paso('aviso', async () => {
         if (!persona) return { omitido: 'Sin técnico ni vendedor asignado: la tarea queda para el equipo' };
-        await avisar(contexto, [persona.id], 'tarea', `🔎 Visita técnica el ${vence}: ${nombreCliente} recibió su envío ${envio.guia || ''}. Revisa cómo va la siembra.`.replace(/\s+/g, ' '));
+        const plantilla = (await leerMensajes(pool)).visita.texto;
+        await avisar(contexto, [persona.id], 'tarea', renderizar(plantilla, { vendedor: nombreCorto(persona), cliente: nombreCliente, fecha: vence, guia: envio.guia || '' }).replace(/[ \t]+/g, ' '));
         return { para: persona.email };
     });
 }
@@ -420,10 +422,13 @@ export async function alDormirCliente(evento, { paso, contexto }) {
     const { pool } = contexto;
     const d = evento.carga;
     await paso('aviso', async () => {
-        const [filas] = await pool.query("SELECT id, email FROM usuarios WHERE email = ? AND estado = 'aprobado'", [correo(d.vendedor)]);
+        const [filas] = await pool.query("SELECT id, email, nombre FROM usuarios WHERE email = ? AND estado = 'aprobado'", [correo(d.vendedor)]);
         if (!filas[0]) return { omitido: 'El vendedor ya no está en el equipo' };
-        const texto = `😴 Cliente dormido: ${d.cliente} · ${d.casa}. Pasaron sus ${d.dias} días de ciclo desde el último pedido confirmado `
-            + `(${d.variedad ? `${d.variedad}, ` : ''}${d.ultimaFecha}) sin cotización ni pedido nuevo${d.recompraAbierta ? ': su pedido de recompra sigue sin trabajar' : ''}.`;
+        // Texto editable en la Torre de control (mensajes.js); si la recompra sigue abierta, se dice al final
+        const base = renderizar((await leerMensajes(pool)).dormido.texto, {
+            vendedor: nombreCorto(filas[0]), cliente: d.cliente, casa: d.casa, variedad: d.variedad || 'sin variedad', fecha: d.ultimaFecha, dias: d.dias
+        });
+        const texto = d.recompraAbierta ? `${base} Su pedido de recompra sigue sin trabajar.` : base;
         await avisar(contexto, [filas[0].id], 'cliente', texto);
         return { para: filas[0].email };
     });

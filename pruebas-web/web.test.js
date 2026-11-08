@@ -439,6 +439,18 @@ describe('panel de indicadores: los números de cada persona, con datos reales',
 });
 
 // ---------------------------------------------------------------------------------------------------
+describe('Torre de control (Lote B)', () => {
+    const app = cargar(['panelCeo.js']);
+    test('canales legibles, importes en US$ y solo para el Master', () => {
+        assert.equal(app.global('canalesTorre')('whatsapp+push'), 'WhatsApp + push');
+        assert.equal(app.global('canalesTorre')(''), '');
+        assert.equal(app.global('TorreDeControl').usd(4500.4), 'US$ 4,500');
+        assert.equal(app.torreDeControl.esMaster, false, 'sin ámbito de Master no aparece');
+        app.responsable = { ambito: { master: true } };
+        assert.equal(app.torreDeControl.esMaster, true);
+    });
+});
+
 describe('archivos de la app', () => {
     test('style.css tiene las llaves equilibradas (una sin cerrar deja sin estilos todo lo que va después)', () => {
         const css = fs.readFileSync(path.join(RAIZ, 'style.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');

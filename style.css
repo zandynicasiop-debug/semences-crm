@@ -4009,6 +4009,275 @@ body.ventana-flotante {
     grid-column: 1 / -1;
 }
 
+/* Lote B: Torre de control del Master */
+.dialogo-torre {
+    width: min(1100px, calc(100vw - 2rem));
+}
+
+.torre-pestanas,
+.torre-botones,
+.torre-variables {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sdc-espacio-2);
+}
+
+.torre-pestanas {
+    margin: var(--sdc-espacio-3) 0;
+}
+
+.torre-pestanas [aria-pressed="true"] {
+    background: var(--sdc-primario);
+    color: var(--sdc-tinta, #fff);
+    border-color: var(--sdc-primario);
+}
+
+.torre-contenido {
+    display: grid;
+    gap: var(--sdc-espacio-3);
+}
+
+.torre-tabla {
+    overflow-x: auto;
+    border: 1px solid var(--ui-borde);
+    border-radius: var(--sdc-radio-sm);
+}
+
+.torre-tabla table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--sdc-texto-sm);
+    color: var(--ui-texto);
+}
+
+.torre-tabla th,
+.torre-tabla td {
+    padding: var(--sdc-espacio-2);
+    border-bottom: 1px solid var(--ui-borde);
+    text-align: left;
+    vertical-align: top;
+}
+
+.torre-tabla th {
+    color: var(--ui-titulo);
+    white-space: nowrap;
+}
+
+.torre-accion {
+    display: grid;
+    gap: var(--sdc-espacio-1);
+    min-width: 9rem;
+}
+
+.torre-secciones {
+    display: grid;
+    gap: var(--sdc-espacio-2);
+}
+
+.torre-secciones > button,
+.torre-global > button {
+    justify-self: start;
+}
+
+.torre-casilla {
+    display: flex;
+    align-items: center;
+    gap: var(--sdc-espacio-2);
+    color: var(--ui-texto);
+}
+
+.torre-casilla input {
+    width: 1.15rem;
+    height: 1.15rem;
+    accent-color: var(--sdc-primario);
+}
+
+.torre-global {
+    display: grid;
+    gap: var(--sdc-espacio-2);
+    padding-top: var(--sdc-espacio-3);
+    border-top: 1px solid var(--ui-borde);
+}
+
+.torre-global h4 {
+    color: var(--ui-titulo);
+}
+
+.torre-mensaje {
+    display: grid;
+    gap: var(--sdc-espacio-2);
+}
+
+.torre-previa {
+    padding: var(--sdc-espacio-2) var(--sdc-espacio-3);
+    border-left: 3px solid var(--sdc-primario);
+    background: var(--ui-apagado);
+    color: var(--ui-texto);
+    font-size: var(--sdc-texto-sm);
+    white-space: pre-wrap;
+}
+
+/* Mi agenda con Borja (Torre de control) */
+.agenda-ceo {
+    display: grid;
+    gap: var(--sdc-espacio-3);
+}
+
+.agenda-ceo-chat {
+    display: grid;
+    gap: var(--sdc-espacio-2);
+    padding: var(--sdc-espacio-3);
+    border: 1px solid var(--ui-borde);
+    border-radius: var(--sdc-radio-sm);
+    background: var(--ui-apagado);
+}
+
+.agenda-ceo-chat h4,
+.agenda-ceo-lista h4 {
+    color: var(--ui-titulo);
+}
+
+.agenda-ceo-mensajes {
+    display: grid;
+    gap: var(--sdc-espacio-2);
+    max-height: 14rem;
+    overflow-y: auto;
+}
+
+.agenda-ceo-yo,
+.agenda-ceo-borja {
+    max-width: 85%;
+    padding: var(--sdc-espacio-2) var(--sdc-espacio-3);
+    border-radius: var(--sdc-radio-sm);
+    font-size: var(--sdc-texto-sm);
+    white-space: pre-wrap;
+    color: var(--ui-texto);
+}
+
+.agenda-ceo-yo {
+    justify-self: end;
+    background: var(--ui-tarjeta);
+    border: 1px solid var(--ui-borde);
+}
+
+.agenda-ceo-borja {
+    justify-self: start;
+    border-left: 3px solid var(--sdc-primario);
+    background: var(--ui-tarjeta);
+}
+
+.agenda-ceo-orden,
+.agenda-ceo-rapido,
+.agenda-ceo-umbral {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sdc-espacio-2);
+    align-items: center;
+}
+
+.agenda-ceo-orden input {
+    flex: 1 1 16rem;
+    min-width: 0;
+}
+
+.agenda-ceo-rapido input[type="text"] {
+    flex: 1 1 12rem;
+    min-width: 0;
+}
+
+.agenda-ceo-orden input,
+.agenda-ceo-rapido :is(input, select),
+.agenda-ceo-umbral input {
+    min-height: var(--sdc-objetivo-tactil);
+    padding: var(--sdc-espacio-2) var(--sdc-espacio-3);
+    border: 1px solid var(--ui-borde);
+    border-radius: var(--sdc-radio-sm);
+    background: var(--ui-tarjeta);
+    color: var(--ui-texto);
+}
+
+.agenda-ceo-umbral label {
+    flex: 1 1 100%;
+    font-size: var(--sdc-texto-sm);
+    color: var(--ui-texto);
+}
+
+.agenda-ceo-umbral input {
+    width: 8rem;
+}
+
+.agenda-ceo-cuerpo {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    gap: var(--sdc-espacio-3);
+}
+
+.agenda-ceo-listas {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    gap: var(--sdc-espacio-3);
+    align-content: start;
+}
+
+.agenda-ceo-lado {
+    display: grid;
+    gap: var(--sdc-espacio-3);
+    align-content: start;
+}
+
+.agenda-ceo-lista {
+    display: grid;
+    gap: var(--sdc-espacio-2);
+    align-content: start;
+    padding: var(--sdc-espacio-3);
+    border: 1px solid var(--ui-borde);
+    border-radius: var(--sdc-radio-sm);
+}
+
+.agenda-ceo-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: var(--sdc-espacio-2);
+    align-items: start;
+    padding-left: var(--sdc-espacio-2);
+    border-left: 3px solid transparent;
+}
+
+.agenda-ceo-item.prioridad-alta {
+    border-left-color: var(--sdc-dorado);
+}
+
+.agenda-ceo-item div {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+    font-size: var(--sdc-texto-sm);
+}
+
+.agenda-ceo-titulo {
+    color: var(--ui-texto);
+    overflow-wrap: anywhere;
+}
+
+.agenda-ceo-item input[type="checkbox"] {
+    width: 1.1rem;
+    height: 1.1rem;
+    margin-top: 2px;
+    accent-color: var(--sdc-primario);
+}
+
+.agenda-ceo-evento {
+    font-size: var(--sdc-texto-sm);
+    color: var(--ui-texto);
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+    .agenda-ceo-cuerpo {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
 /* Calculadora agronómica dentro del pedido */
 .calculadora {
     border: 1px solid var(--ui-borde);

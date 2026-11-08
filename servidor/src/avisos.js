@@ -71,7 +71,7 @@ export function crearAvisos(config, hacerFetch = fetch, enviarPush = webpush.sen
             // Meta rechaza variables vacías: lo vacío va como "—"
             const variables = (Array.isArray(mensaje) ? mensaje : [mensaje]).map(v => textoWhatsapp(v) || '—');
             if (!Array.isArray(mensaje) && variables[0] === '—') throw new Error('Mensaje vacío');
-            await enviarJson(`https://graph.facebook.com/${whatsapp.version}/${whatsapp.telefonoId}/messages`, {
+            const respuesta = await enviarJson(`https://graph.facebook.com/${whatsapp.version}/${whatsapp.telefonoId}/messages`, {
                 messaging_product: 'whatsapp',
                 to: telefono,
                 type: 'template',
@@ -81,6 +81,30 @@ export function crearAvisos(config, hacerFetch = fetch, enviarPush = webpush.sen
                     components: [{ type: 'body', parameters: variables.map(text => ({ type: 'text', text })) }]
                 }
             }, { Authorization: `Bearer ${whatsapp.token}` }, hacerFetch);
+            // El id del mensaje en Meta (wamid…): Meta avisa luego por el webhook si se entregó y si se leyó
+            try {
+                const datos = await respuesta.json();
+                return (datos && Array.isArray(datos.messages) && datos.messages[0] && datos.messages[0].id) || '';
+            } catch (e) {
+                return '';
+            }
+        },
+
+        /**
+         * Plantillas aprobadas en Meta ({ nombre, idioma, variables }), si está WHATSAPP_CUENTA_ID (la cuenta de
+         * WhatsApp Business). Sin ella, null: la Torre de control ofrece las plantillas configuradas en el servidor.
+         */
+        async plantillasAprobadas() {
+            if (!whatsappActivo || !whatsapp.cuentaId) return null;
+            const r = await hacerFetch(`https://graph.facebook.com/${whatsapp.version}/${whatsapp.cuentaId}/message_templates?status=APPROVED&fields=name,language,status,components&limit=200`,
+                { headers: { Authorization: `Bearer ${whatsapp.token}` }, signal: AbortSignal.timeout(15000) });
+            if (!r.ok) throw Object.assign(new Error(`Meta respondió ${r.status} al pedir las plantillas`), { status: r.status });
+            const datos = await r.json();
+            return (Array.isArray(datos.data) ? datos.data : []).filter(p => p && p.status === 'APPROVED').map(p => {
+                const cuerpo = (Array.isArray(p.components) ? p.components : []).find(c => c && c.type === 'BODY');
+                const variables = new Set(String((cuerpo && cuerpo.text) || '').match(/\{\{\s*\d+\s*\}\}/g) || []).size;
+                return { nombre: String(p.name), idioma: String(p.language || ''), variables };
+            });
         },
 
         // Mensaje normal (sin plantilla): solo vale como respuesta, en las 24 h siguientes a que la persona escriba

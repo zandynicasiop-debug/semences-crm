@@ -165,6 +165,13 @@ export function crearGoogle(config) {
             return r.data.id;
         },
 
+        // Como enviarCorreo, pero dentro de un hilo (hilo: el threadId de Gmail; vacío = hilo nuevo). Devuelve { id, hilo }
+        async enviarCorreoEnHilo(tokenRefresco, alRenovar, mensajeCrudo, hilo = '') {
+            const servicio = gmail({ version: 'v1', auth: autenticado(tokenRefresco, alRenovar) });
+            const r = await servicio.users.messages.send({ userId: 'me', requestBody: { raw: mensajeCrudo, ...(hilo ? { threadId: hilo } : {}) } });
+            return { id: r.data.id || '', hilo: r.data.threadId || '' };
+        },
+
         // Con invitados (evento.attendees), Google les manda la invitación por correo (sendUpdates: all)
         async crearEvento(tokenRefresco, alRenovar, evento, conMeet) {
             const servicio = calendar({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });
