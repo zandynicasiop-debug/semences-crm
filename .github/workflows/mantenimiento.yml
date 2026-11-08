@@ -14,26 +14,13 @@ permissions:
   contents: write
 
 env:
-  # Ramas fusionadas en main (comprobado antes de la salida a producción 2.1.0)
-  RAMAS: >-
-    apps/produccion
-    arm/auditoria-modulos
-    arm/cola-offline-plantillas
-    arm/errores-google-verificacion
-    arm/eventos-dominio
-    arm/version-parcial
-    auditoria/correcciones-seguridad-pruebas
-    fase2/pedidos-recompra
-    lote-a/campo-y-ventas
-    lote-b/panel-ceo
-  # Versiones de prueba que se retiran (versión y etiqueta), de la beta.4 a la beta.9
+  # Ramas fusionadas que se borran. Ya se borraron las 10 de antes de la 2.1.0. No va version/2.1.0: se conserva
+  # para recompilar las apps de esa versión sin tocar main
+  RAMAS: ''
+  # Versiones de prueba que se retiran (versión y etiqueta). Ya se retiraron de la beta.4 a la beta.9; ahora la
+  # beta.10, para que en Releases solo quede la versión definitiva 2.1.0
   VERSIONES: >-
-    v2.0.0-beta.4
-    v2.0.0-beta.5
-    v2.0.0-beta.6
-    v2.0.0-beta.7
-    v2.0.0-beta.8
-    v2.0.0-beta.9
+    v2.0.0-beta.10
 
 jobs:
   limpiar:
