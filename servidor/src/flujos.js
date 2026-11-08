@@ -34,6 +34,7 @@ import { errorDefinitivo } from './eventos.js';
 import { REGLA_RECOMPRA, ESTADOS_VENTA, idRecompra, pedidoDeRecompra, ejecutorDe } from './pedidos.js';
 import { REGLA_PLANTULACION, alPlantular, alEntregarEnvio, alDormirCliente } from './campo.js';
 import { leerMensajes, renderizar } from './mensajes.js';
+import { REGLA_SUPERVISION_CEO, alOrdenarABorja, alSupervisarCotizacion } from './agendaCeo.js';
 
 export const ETAPAS_CLIENTE = ['Prospecto', 'Contactado', 'Reunión', 'Propuesta', 'Cliente', 'Perdido'];
 
@@ -54,7 +55,9 @@ export const REGLAS = [
     // Ciclo de recompra: pedido Confirmado o Entregado → en la próxima temporada, pedido Cotizado nuevo (pedidos.js)
     REGLA_RECOMPRA,
     // Lote A: pedido con plantulación confirmado → lote del germinador y siembra en la agenda (campo.js)
-    REGLA_PLANTULACION
+    REGLA_PLANTULACION,
+    // Lote B: cotización alta → Supervisión Comercial de la agenda del CEO (agendaCeo.js)
+    REGLA_SUPERVISION_CEO
 ];
 
 /**
@@ -330,5 +333,8 @@ export const MANEJADORES = {
     // Lote A (campo.js)
     PEDIDO_PLANTULACION: alPlantular,
     ENVIO_ENTREGADO: alEntregarEnvio,
-    CLIENTE_DORMIDO: alDormirCliente
+    CLIENTE_DORMIDO: alDormirCliente,
+    // Lote B (agendaCeo.js): órdenes del CEO a Borja (Calendar y Gmail) y Supervisión Comercial
+    BORJA_CEO_ORDEN: alOrdenarABorja,
+    CEO_SUPERVISION: alSupervisarCotizacion
 };

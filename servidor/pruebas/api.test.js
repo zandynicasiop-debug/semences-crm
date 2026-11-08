@@ -24,6 +24,7 @@ import { verificarServidor } from '../herramientas/verificar.js';
 import { asignarEjecutores, idRecompra } from '../src/pedidos.js';
 import { AGRONOMIA_POR_DEFECTO, idLoteDe, idTareaSiembra, idVisita, revisarDormidos } from '../src/campo.js';
 import { MENSAJES_POR_DEFECTO } from '../src/mensajes.js';
+import { idEventoCalendar } from '../src/agendaCeo.js';
 
 const BASES = (process.env.PRUEBA_BASES || '127.0.0.1:33061,127.0.0.1:33062').split(',');
 
@@ -42,6 +43,12 @@ function googleFalso() {
             if (g.fallo) throw g.fallo;
             g.llamadas.push({ tipo: 'correo', token, crudo });
             return 'correo-1';
+        },
+        enviarCorreoEnHilo: async (token, alRenovar, crudo, hilo) => {
+            if (g.fallo) throw g.fallo;
+            const n = g.llamadas.filter(l => l.tipo === 'correoHilo').length + 1;
+            g.llamadas.push({ tipo: 'correoHilo', token, crudo, hilo });
+            return { id: `mensaje-${n}`, hilo: hilo || `hilo-${n}` };
         },
         crearEvento: async (token, alRenovar, evento, conMeet) => {
             if (g.fallo) throw g.fallo;
@@ -155,7 +162,7 @@ for (const base of BASES) {
                 try { pool = await conectar(config.mysql); break; } catch (e) { if (i > 60) throw e; await new Promise(r => setTimeout(r, 1000)); }
             }
             // Base limpia: se borran las tablas y conectar() las vuelve a crear
-            for (const tabla of ['operaciones_lote', 'auditoria', 'auditoria_ancla', 'eventos', 'avisos_persona', 'metas', 'reportes_revisiones', 'reportes_resumenes', 'reportes_avisos_equipo', 'reportes_semanales', 'reportes_recordatorios', 'instagram_mensajes', 'instagram_conversaciones', 'instagram_cuentas', 'sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'directos', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
+            for (const tabla of ['agenda_ceo', 'ajustes', 'operaciones_lote', 'auditoria', 'auditoria_ancla', 'eventos', 'avisos_persona', 'metas', 'reportes_revisiones', 'reportes_resumenes', 'reportes_avisos_equipo', 'reportes_semanales', 'reportes_recordatorios', 'instagram_mensajes', 'instagram_conversaciones', 'instagram_cuentas', 'sesiones', 'codigos', 'registros', 'metricas', 'equipo', 'cola_avisos', 'push_suscripciones', 'directos', 'usuarios']) await pool.query(`DROP TABLE IF EXISTS ${tabla}`);
             await pool.end();
             pool = await conectar(config.mysql);
 
@@ -1496,6 +1503,8 @@ for (const base of BASES) {
         });
 
         test('ARM: cliente a Reunión → evento en la misma transacción, pasos con punto de control y aviso solo al responsable', async () => {
+            // Lo que dejaron encolado las pruebas anteriores (p. ej. la supervisión de cotizaciones) sale antes: aquí se cuentan solo los suyos
+            await procesarEventos({ pool, config, google, avisos }, MANEJADORES, { registrar: { error: () => {} } });
             const contar = async (where = '1') => Number((await pool.query(`SELECT COUNT(*) n FROM eventos WHERE ${where}`))[0][0].n);
             const cliente = { id: 'cli-reu', nombre: 'Agroexport La Vega', pais: 'RD', casa: 'Fitó', etapa: 'Prospecto', telefono: '8095550123' };
             await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: cliente }] });
@@ -2083,6 +2092,101 @@ for (const base of BASES) {
             assert.deepEqual([wa.plantilla, wa.parametros], ['aviso_equipo', null]);
             // Vuelta a los mensajes de siempre
             assert.equal((await panel(sesiones.jefa, { operacion: 'mensajes', mensajes: MENSAJES_POR_DEFECTO })).estado, 200);
+        });
+
+        test('lote B: mi agenda con Borja — órdenes, listas privadas, Calendar y Gmail en segundo plano y Supervisión Comercial', async () => {
+            const borja = async (texto) => (await panel(sesiones.jefa, { operacion: 'borjaOrden', texto })).json;
+            const asuntoDe = (crudo) => {
+                const texto = Buffer.from(crudo, 'base64url').toString();
+                const cabecera = (texto.match(/^Subject: (.+)$/m) || ['', ''])[1];
+                return cabecera.replace(/=\?UTF-8\?B\?([^?]+)\?=/gi, (_, b) => Buffer.from(b, 'base64').toString()).replace(/\s+/g, ' ');
+            };
+            await pool.query('DELETE FROM agenda_ceo'); // Lo de una ejecución anterior de las pruebas
+            assert.equal((await panel(sesiones.ana, { operacion: 'agenda' })).estado, 403, 'solo el Master');
+            assert.equal((await panel(sesiones.jefa, { operacion: 'borjaOrden', texto: '  ' })).estado, 400);
+
+            // Anotar en una lista, con fecha y prioridad
+            let r = await borja('finanzas: pagar el ITBIS el viernes (urgente)');
+            assert.match(r.respuesta, /^Anotado en Finanzas: «pagar el ITBIS» para el viernes, \d+ de \w+ \(prioridad alta\)\.$/);
+            assert.deepEqual(r.listas.Finanzas.map(i => [i.titulo, i.prioridad, i.tipo, i.sincronizado]), [['pagar el ITBIS', 'Alta', 'nota', '']]);
+            assert.deepEqual(r.nombresListas, ['Mis Cosas', 'Finanzas', 'Supervisión Comercial', 'Seguimiento de Correos']);
+            assert.ok(Array.isArray(r.calendario) && Array.isArray(r.equipo) && r.equipo.length > 0, 'calendario de hoy y pendientes del equipo en la misma vista');
+
+            // Agendar: el ítem sale al momento; la cita la crea el motor en segundo plano (id fijo: sin duplicados)
+            r = await borja('agenda reunión con Hexagon mañana a las 3 con compras@hexagon.com');
+            assert.match(r.respuesta, /^Agendando «reunión con Hexagon» el .* a las 15:00 en tu Google Calendar, con invitación y Meet para compras@hexagon\.com/);
+            const cita = r.listas['Mis Cosas'].find(i => i.tipo === 'cita');
+            assert.equal(cita.sincronizado, 'pendiente');
+            let antes = google.llamadas.length;
+            await procesar();
+            const evento = google.llamadas.slice(antes).find(l => l.tipo === 'evento');
+            assert.equal(evento.evento.id, idEventoCalendar(cita.id));
+            assert.deepEqual([evento.conMeet, evento.evento.attendees, evento.evento.start.timeZone, evento.evento.summary], [true, [{ email: 'compras@hexagon.com' }], config.zonaHoraria, 'reunión con Hexagon']);
+            assert.equal(Date.parse(evento.evento.end.dateTime) - Date.parse(evento.evento.start.dateTime), 30 * 60000);
+            r = (await panel(sesiones.jefa, { operacion: 'agenda' })).json;
+            assert.deepEqual([r.listas['Mis Cosas'].find(i => i.id === cita.id).sincronizado, r.listas['Mis Cosas'].find(i => i.id === cita.id).enlace], ['hecho', 'https://meet.google.com/abc-defg-hij']);
+            assert.ok((await avisosDe(sesiones.jefa)).some(x => /Borja agendó «reunión con Hexagon» en tu Google Calendar/.test(x.texto)));
+            // Todo el día, sin hora
+            await borja('agenda revisión de cierre el 30 de noviembre');
+            antes = google.llamadas.length;
+            await procesar();
+            const diaEntero = google.llamadas.slice(antes).find(l => l.tipo === 'evento');
+            assert.ok(diaEntero.evento.start.date && diaEntero.evento.end.date && !diaEntero.evento.start.dateTime);
+
+            // Correo desde su Gmail y luego el seguimiento en el mismo hilo
+            r = await borja('correo a ana@semillasdata.com: Precios de diciembre | Ana, ¿me pasas la lista de precios?');
+            assert.match(r.respuesta, /^Enviando desde tu Gmail a ana@semillasdata\.com: «Precios de diciembre»\. Queda en Seguimiento de Correos/);
+            await procesar();
+            const primero = google.llamadas.filter(l => l.tipo === 'correoHilo').at(-1);
+            assert.deepEqual([primero.hilo, asuntoDe(primero.crudo)], ['', 'Precios de diciembre']);
+            assert.match(Buffer.from(primero.crudo, 'base64url').toString(), /^To: ana@semillasdata\.com/);
+            r = await borja('seguimiento a ana@semillasdata.com: ¿pudiste revisarla?');
+            assert.match(r.respuesta, /«Re: Precios de diciembre» \(en el mismo hilo\)/);
+            await procesar();
+            const segundo = google.llamadas.filter(l => l.tipo === 'correoHilo').at(-1);
+            assert.deepEqual([segundo.hilo, asuntoDe(segundo.crudo)], ['hilo-1', 'Re: Precios de diciembre']);
+            r = (await panel(sesiones.jefa, { operacion: 'agenda' })).json;
+            assert.deepEqual(r.listas['Seguimiento de Correos'].map(i => i.sincronizado), ['hecho', 'hecho']);
+            assert.match((await borja('correo a ana@semillasdata.com sin dos puntos')).respuesta, /Enviando|No puedo|Dime/);
+
+            // Completar, consultar y órdenes incompletas
+            r = await borja('listo: itbis');
+            assert.equal(r.respuesta, 'Hecho: «pagar el ITBIS». ¡Uno menos!');
+            assert.deepEqual([r.listas.Finanzas.length, r.hechos.some(i => i.titulo === 'pagar el ITBIS')], [0, true]);
+            assert.match((await borja('listo: algo que no existe')).respuesta, /^No encontré/);
+            assert.match((await borja('¿qué tengo hoy?')).respuesta, /^Tienes \d+ pendientes/);
+            assert.match((await borja('agenda algo')).respuesta, /^¿Para cuándo\?/);
+            assert.match((await borja('ayuda')).respuesta, /Puedo anotarte cosas en tus listas/);
+
+            // Alta rápida, reabrir y borrar; nada que no sea suyo
+            r = (await panel(sesiones.jefa, { operacion: 'agendaItem', crear: { lista: 'Supervisión Comercial', titulo: 'Revisar cartera VE', prioridad: 'Baja', fecha: '2026-12-01' } })).json;
+            const rapido = r.listas['Supervisión Comercial'].find(i => i.titulo === 'Revisar cartera VE');
+            assert.deepEqual([rapido.prioridad, rapido.fecha], ['Baja', '2026-12-01']);
+            assert.equal((await panel(sesiones.jefa, { operacion: 'agendaItem', crear: { lista: 'Inventada', titulo: 'x' } })).estado, 400);
+            await panel(sesiones.jefa, { operacion: 'agendaItem', id: rapido.id, cambio: 'completar' });
+            r = (await panel(sesiones.jefa, { operacion: 'agendaItem', id: rapido.id, cambio: 'reabrir' })).json;
+            assert.ok(r.listas['Supervisión Comercial'].some(i => i.id === rapido.id));
+            await panel(sesiones.jefa, { operacion: 'agendaItem', id: rapido.id, cambio: 'borrar' });
+            assert.equal((await panel(sesiones.jefa, { operacion: 'agendaItem', id: rapido.id, cambio: 'borrar' })).estado, 404);
+            const [[jefa]] = await pool.query("SELECT id FROM usuarios WHERE email = 'jefa@gmail.com'");
+            assert.deepEqual((await pool.query('SELECT DISTINCT usuario_id FROM agenda_ceo'))[0].map(f => f.usuario_id), [jefa.id], 'cada Master, solo lo suyo');
+
+            // Supervisión Comercial sola: una cotización en US$ que supera el umbral entra una sola vez
+            const cot = { id: 'lb-cot', numero: 'COT-LB', clienteId: 'f2-finca', pais: 'RD', casa: 'Gautier Semences', moneda: 'US$', lineas: [{ producto: 'Tomate Gautier', cantidad: 1000, unidad: 'mil', precio: 6 }] };
+            assert.equal((await accion(fase2.sesiones.marta, { accion: 'sincronizar', guardar: [{ modulo: 'cotizaciones', registro: cot }, { modulo: 'cotizaciones', registro: { ...cot, id: 'lb-cot-baja', numero: 'COT-B', lineas: [{ producto: 'x', cantidad: 10, unidad: 'mil', precio: 10 }] } }] })).estado, 200);
+            await procesar();
+            await accion(fase2.sesiones.marta, { accion: 'sincronizar', guardar: [{ modulo: 'cotizaciones', registro: { ...cot, condiciones: 'Pago a 30 días' } }] });
+            await procesar();
+            r = (await panel(sesiones.jefa, { operacion: 'agenda' })).json;
+            const supervision = r.listas['Supervisión Comercial'].filter(i => i.automatico);
+            assert.deepEqual(supervision.map(i => [i.titulo, i.prioridad]), [['Cotización alta: COT-LB · Finca Dos Casas · US$ 6,000 (Gautier Semences, marta)', 'Alta']]);
+            // Con el umbral más bajo, la de US$ 100 también entra (al volver a guardarla con más importe)
+            r = (await panel(sesiones.jefa, { operacion: 'agendaUmbral', umbral: 50 })).json;
+            assert.equal(r.umbral, 50);
+            await accion(fase2.sesiones.marta, { accion: 'sincronizar', guardar: [{ modulo: 'cotizaciones', registro: { ...cot, id: 'lb-cot-baja', numero: 'COT-B', lineas: [{ producto: 'x', cantidad: 11, unidad: 'mil', precio: 10 }] } }] });
+            await procesar();
+            assert.ok((await panel(sesiones.jefa, { operacion: 'agenda' })).json.listas['Supervisión Comercial'].some(i => /COT-B/.test(i.titulo)));
+            await panel(sesiones.jefa, { operacion: 'agendaUmbral', umbral: 5000 });
         });
 
         test('salir cierra la sesión', async () => {

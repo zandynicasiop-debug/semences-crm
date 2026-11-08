@@ -31,6 +31,7 @@ import { construirCorreo } from './correo.js';
 import { enZona, inicioDelDia } from './fechas.js';
 import { auditar } from './auditoria.js';
 import { CATALOGO, VARIABLES, SECCIONES_BORJA, leerMensajes, leerBorja, validarMensajes, guardarAjuste } from './mensajes.js';
+import { vistaAgenda, ordenABorja, cambiarItem, guardarUmbral } from './agendaCeo.js';
 
 const ABIERTAS = ['Pendiente', 'Aprobada'];
 const normal = (/** @type {unknown} */ t) => String(t || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').trim().toLowerCase();
@@ -153,7 +154,8 @@ export async function accionPanelCeo(datos, contexto, { errorApp }) {
     const ahora = new Date();
     const hoy = enZona(ahora, config.zonaHoraria).fecha;
 
-    if (op === 'radar') {
+    // El radar (también lo usa la agenda del CEO: "los pendientes del equipo")
+    const radar = async () => {
         const todo = await db.listarTodo(pool);
         const personas = [];
         for (const p of await equipo(pool, config)) {
@@ -167,7 +169,29 @@ export async function accionPanelCeo(datos, contexto, { errorApp }) {
             });
         }
         personas.sort((x, y) => y.total - x.total || x.nombre.localeCompare(y.nombre, 'es'));
-        return { ok: true, hoy, personas };
+        return personas;
+    };
+
+    if (op === 'radar') return { ok: true, hoy, personas: await radar() };
+
+    // ----- Mi agenda con Borja (agendaCeo.js): listas, calendario de hoy y pendientes del equipo, en una vista -----
+    if (op === 'agenda') return vistaAgenda(contexto, { personas: await radar() });
+    if (op === 'borjaOrden') {
+        const texto = String(datos.texto || '').trim();
+        if (!texto) throw errorApp('Escríbele algo a Borja');
+        const r = await ordenABorja(contexto, texto);
+        await auditar(pool, config, { usuario, accion: 'crear', modulo: 'agendaCeo', objeto: r.accion, resumen: texto.slice(0, 200), red });
+        return { ...(await vistaAgenda(contexto, { personas: await radar() })), respuesta: r.respuesta, accion: r.accion };
+    }
+    if (op === 'agendaItem') {
+        await cambiarItem(contexto, datos, errorApp);
+        return vistaAgenda(contexto, { personas: await radar() });
+    }
+    if (op === 'agendaUmbral') {
+        const umbral = Number(datos.umbral);
+        if (!(umbral > 0) || umbral > 1e8) throw errorApp('Escribe el umbral en US$, mayor que 0');
+        await guardarUmbral(pool, Math.round(umbral), usuario.email);
+        return vistaAgenda(contexto, { personas: await radar() });
     }
 
     if (op === 'revision') {

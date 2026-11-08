@@ -566,7 +566,7 @@ la cola se vacía, como el resto de la copia local.
 ### Tipos (TypeScript, sin compilar)
 
 `npx tsc --noEmit` (desde la raíz; o `npm run tipos`) comprueba en modo estricto los archivos con `// @ts-check`:
-`eventos.js`, `flujos.js`, `cuotas.js`, `lotes.js`, `pedidos.js`, `campo.js`, `mensajes.js` y `panelCeo.js` del servidor y `colaEtapas.js` de la web. El proyecto sigue
+`eventos.js`, `flujos.js`, `cuotas.js`, `lotes.js`, `pedidos.js`, `campo.js`, `mensajes.js`, `panelCeo.js` y `agendaCeo.js` del servidor y `colaEtapas.js` de la web. El proyecto sigue
 siendo JavaScript, sin paso de compilación en FastComet. GitHub Actions lo ejecuta en cada subida a `main` y, si
 falla, no publica.
 ## 16. Subir a semillasdata.com (FastComet): el día del despliegue
@@ -740,4 +740,28 @@ empresa inicie conversaciones con texto libre, así que solo se elige entre las 
 `WHATSAPP_CUENTA_ID` (la cuenta de WhatsApp Business) se leen de Meta con sus variables; sin ella, se ofrecen las
 configuradas en el servidor. El briefing admite una plantilla de 7 variables (varias líneas) o de 1 (una línea); el
 recordatorio, de 1. Mientras nadie cambie nada, todo sale con los textos de siempre. Los cambios quedan en la auditoría.
+
+**Mi agenda con Borja** (pestaña de la Torre de control; `servidor/src/agendaCeo.js`, tabla `agenda_ceo`). La agenda
+privada de cada Master: cada uno ve y toca solo lo suyo (todas las consultas van por su usuario). En una sola vista:
+sus cuatro listas (Mis Cosas, Finanzas, Supervisión Comercial y Seguimiento de Correos), su Google Calendar de hoy y
+los pendientes del equipo (los del radar). Se le escribe a Borja en español y lo entiende sin IA (coste cero y siempre
+la misma respuesta para el mismo texto):
+
+| Orden | Qué hace |
+|---|---|
+| `finanzas: pagar el ITBIS el viernes (urgente)` | Lo anota en esa lista, con fecha y prioridad alta |
+| `agenda reunión con Hexagon mañana a las 3 con compras@hexagon.com` | Cita en su Google Calendar, con invitación y Meet al invitado |
+| `agenda revisión de cierre el 30 de noviembre` | Cita de todo el día |
+| `correo a ana@semillasdata.com: Asunto \| Texto` | Lo envía desde su Gmail y lo deja en Seguimiento de Correos |
+| `seguimiento a ana@semillasdata.com: ¿novedades?` | Responde en el mismo hilo de Gmail ("Re: …") |
+| `listo: pagar el ITBIS` | Lo da por hecho (se puede reabrir) |
+| `¿qué tengo hoy?` / `ayuda` | Cuántos pendientes tiene / qué sabe hacer |
+
+Fechas: hoy, mañana, pasado mañana, días de la semana, 15/11, "30 de noviembre", AAAA-MM-DD; horas: "a las 3" (de 1 a 6,
+por la tarde), "4pm", "15:30", "por la mañana/tarde"; duración: "por 1 hora". Lo de Google (Calendar y Gmail) va en
+segundo plano: el ítem se guarda en la misma transacción que el evento `BORJA_CEO_ORDEN` y el motor lo hace en unos
+segundos; la cita lleva un id fijo de Calendar, así que un reintento no la duplica. Si Google no lo permite (cuenta sin
+conectar, permiso retirado), el ítem queda como "Falló" con el motivo y le llega a la campana.
+**Supervisión Comercial se llena sola**: cada cotización en US$ que supera el umbral (US$ 5,000 por defecto, editable en
+la pestaña) entra en la lista de cada Master, una sola vez por cotización, con prioridad alta.
 

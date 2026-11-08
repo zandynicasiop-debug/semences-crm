@@ -6,12 +6,14 @@
  * - Briefings: el resumen de las 7:00 de cada persona (si salió, por dónde y, en WhatsApp, si se entregó y se leyó),
  *   y volver a enviarlo ahora a RD, VE o todos.
  * - Borja: qué secciones lleva el resumen y el resumen global de RD y VE, en 1 clic.
+ * - Mi agenda con Borja: órdenes escritas a Borja (anotar, agendar en Google Calendar, correos y seguimientos desde
+ *   Gmail, completar), las listas privadas del Master, su calendario de hoy y los pendientes del equipo, en una vista.
  * - Mensajes: texto, asunto y hora de los mensajes automáticos, con sus variables, y la plantilla de WhatsApp
  *   (solo entre las aprobadas en Meta).
  * Todo con DOM (sin innerHTML con datos): los nombres y textos del equipo nunca se interpretan como HTML.
  */
 const NOMBRE_CARGO_TORRE = { vendedor: 'Vendedor', tecnico: 'Técnico', plantulador: 'Plantulador', administrativo: 'Administrativo', master: 'Master' };
-const PESTANAS_TORRE = [['radar', 'Pendientes del equipo'], ['briefings', 'Briefings'], ['borja', 'Borja'], ['mensajes', 'Mensajes']];
+const PESTANAS_TORRE = [['radar', 'Pendientes del equipo'], ['briefings', 'Briefings'], ['borja', 'Borja'], ['agenda', 'Mi agenda con Borja'], ['mensajes', 'Mensajes']];
 const NOMBRE_CANAL_TORRE = { whatsapp: 'WhatsApp', push: 'push', correo: 'correo' };
 const canalesTorre = (texto) => String(texto || '').split('+').filter(Boolean).map(c => NOMBRE_CANAL_TORRE[c] || c).join(' + ');
 
@@ -112,7 +114,7 @@ class TorreDeControl {
         Object.entries(this.botones).forEach(([clave, b]) => b.setAttribute('aria-pressed', String(clave === id)));
         this.contenido.replaceChildren(this.nota('Cargando…'));
         try {
-            const pintar = { radar: () => this.pintarRadar(), briefings: () => this.pintarBriefings(), borja: () => this.pintarBorja(), mensajes: () => this.pintarMensajes() }[id];
+            const pintar = { radar: () => this.pintarRadar(), briefings: () => this.pintarBriefings(), borja: () => this.pintarBorja(), agenda: () => this.pintarAgenda(), mensajes: () => this.pintarMensajes() }[id];
             await pintar();
         } catch (error) {
             this.contenido.replaceChildren(this.nota(error.message, 'form-error'));
@@ -328,6 +330,232 @@ class TorreDeControl {
         });
         global.append(titulo, this.nota('Ventas en US$ y miles, cotizaciones abiertas, pedidos por cerrar, recompras, clientes en Reunión, dormidos y reportes bloqueados, en RD y Venezuela.'), generar, resultado);
         this.contenido.replaceChildren(form, global);
+    }
+
+    // ----- Mi agenda con Borja -----
+    async pintarAgenda(vista = null) {
+        const v = vista || await this.pedir({ operacion: 'agenda' });
+        this.chat = this.chat || [];
+        const marco = document.createElement('div');
+        marco.className = 'agenda-ceo';
+
+        // Chat: órdenes escritas a Borja
+        const chat = document.createElement('section');
+        chat.className = 'agenda-ceo-chat';
+        const titulo = document.createElement('h4');
+        titulo.textContent = 'Escríbele a Borja';
+        const registro = document.createElement('div');
+        registro.className = 'agenda-ceo-mensajes';
+        registro.setAttribute('aria-live', 'polite');
+        const pintarChat = () => {
+            registro.replaceChildren();
+            if (!this.chat.length) registro.appendChild(this.nota('Por ejemplo: «finanzas: pagar el ITBIS el viernes», «agenda reunión con Hexagon mañana a las 3 con compras@hexagon.com», «correo a ana@semillasdata.com: Precios | ¿me pasas la lista?», «listo: pagar el ITBIS» o «¿qué tengo hoy?». Escribe «ayuda» para ver todo.'));
+            this.chat.slice(-8).forEach(m => {
+                const p = document.createElement('p');
+                p.className = m.de === 'yo' ? 'agenda-ceo-yo' : 'agenda-ceo-borja';
+                p.textContent = m.texto;
+                registro.appendChild(p);
+            });
+            registro.scrollTop = registro.scrollHeight;
+        };
+        const form = document.createElement('form');
+        form.className = 'agenda-ceo-orden';
+        const entrada = document.createElement('input');
+        entrada.type = 'text';
+        entrada.maxLength = 1000;
+        entrada.id = 'agenda-ceo-entrada';
+        entrada.setAttribute('aria-label', 'Orden para Borja');
+        entrada.placeholder = 'Escríbele a Borja…';
+        const enviar = document.createElement('button');
+        enviar.type = 'submit';
+        enviar.className = 'btn-primary';
+        enviar.textContent = 'Enviar';
+        form.append(entrada, enviar);
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const texto = entrada.value.trim();
+            if (!texto) return;
+            this.chat.push({ de: 'yo', texto });
+            entrada.value = '';
+            enviar.disabled = true;
+            try {
+                const r = await this.pedir({ operacion: 'borjaOrden', texto });
+                this.chat.push({ de: 'borja', texto: r.respuesta });
+                await this.pintarAgenda(r);
+                // Calendar y Gmail van en segundo plano: en unos segundos se ve si ya quedó hecho
+                if (['agendar', 'correo'].includes(r.accion)) setTimeout(() => { if (this.actual === 'agenda') this.pintarAgenda(); }, 5000);
+                const nueva = document.getElementById('agenda-ceo-entrada');
+                if (nueva) nueva.focus();
+            } catch (error) {
+                this.chat.push({ de: 'borja', texto: error.message });
+                pintarChat();
+            } finally {
+                enviar.disabled = false;
+            }
+        });
+        chat.append(titulo, registro, form);
+        pintarChat();
+
+        // Alta rápida en una lista
+        const rapido = document.createElement('form');
+        rapido.className = 'agenda-ceo-rapido';
+        const lista = document.createElement('select');
+        lista.setAttribute('aria-label', 'Lista');
+        v.nombresListas.forEach(n => { const o = document.createElement('option'); o.value = n; o.textContent = n; lista.appendChild(o); });
+        const que = document.createElement('input');
+        que.type = 'text';
+        que.maxLength = 300;
+        que.placeholder = 'Nuevo pendiente';
+        que.setAttribute('aria-label', 'Nuevo pendiente');
+        const dia = document.createElement('input');
+        dia.type = 'date';
+        dia.setAttribute('aria-label', 'Para cuándo (opcional)');
+        const prioridad = document.createElement('select');
+        prioridad.setAttribute('aria-label', 'Prioridad');
+        ['Media', 'Alta', 'Baja'].forEach(p => { const o = document.createElement('option'); o.value = p; o.textContent = p; prioridad.appendChild(o); });
+        const anadir = document.createElement('button');
+        anadir.type = 'submit';
+        anadir.className = 'btn-secondary';
+        anadir.textContent = 'Añadir';
+        rapido.append(lista, que, dia, prioridad, anadir);
+        rapido.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!que.value.trim()) return que.focus();
+            try {
+                await this.pintarAgenda(await this.pedir({ operacion: 'agendaItem', crear: { lista: lista.value, titulo: que.value, fecha: dia.value, prioridad: prioridad.value } }));
+            } catch (error) {
+                this.chat.push({ de: 'borja', texto: error.message });
+                this.pintarAgenda();
+            }
+        });
+
+        // Las cuatro listas
+        const listas = document.createElement('div');
+        listas.className = 'agenda-ceo-listas';
+        const cambiar = async (id, cambio) => {
+            try { await this.pintarAgenda(await this.pedir({ operacion: 'agendaItem', id, cambio })); } catch (error) { this.chat.push({ de: 'borja', texto: error.message }); this.pintarAgenda(); }
+        };
+        v.nombresListas.forEach(nombre => {
+            const tarjeta = document.createElement('section');
+            tarjeta.className = 'agenda-ceo-lista';
+            const h = document.createElement('h4');
+            h.textContent = `${nombre} (${v.listas[nombre].length})`;
+            tarjeta.appendChild(h);
+            if (!v.listas[nombre].length) tarjeta.appendChild(this.nota('Nada pendiente.'));
+            v.listas[nombre].forEach(item => {
+                const fila = document.createElement('div');
+                fila.className = `agenda-ceo-item prioridad-${item.prioridad.toLowerCase()}`;
+                const casilla = document.createElement('input');
+                casilla.type = 'checkbox';
+                casilla.setAttribute('aria-label', `Hecho: ${item.titulo}`);
+                casilla.addEventListener('change', () => cambiar(item.id, 'completar'));
+                const textos = document.createElement('div');
+                const t = document.createElement('span');
+                t.className = 'agenda-ceo-titulo';
+                t.textContent = `${item.tipo === 'cita' ? '📅 ' : item.tipo === 'correo' ? '✉️ ' : ''}${item.titulo}`;
+                const meta = document.createElement('span');
+                meta.className = 'nota-suave';
+                const estadoGoogle = item.sincronizado === 'pendiente' ? (item.tipo === 'cita' ? 'Agendando…' : 'Enviando…')
+                    : item.sincronizado === 'hecho' ? (item.tipo === 'cita' ? 'En tu Calendar' : 'Enviado') : item.sincronizado === 'fallido' ? `Falló: ${item.error}` : '';
+                meta.textContent = [item.fecha && `${item.fecha}${item.hora ? ` ${item.hora}` : ''}`, item.prioridad !== 'Media' && `Prioridad ${item.prioridad.toLowerCase()}`, estadoGoogle, item.automatico && 'Automático'].filter(Boolean).join(' · ');
+                textos.append(t, meta);
+                if (item.enlace && /^https:\/\//.test(item.enlace)) {
+                    const a = document.createElement('a');
+                    a.href = item.enlace;
+                    a.target = '_blank';
+                    a.rel = 'noopener';
+                    a.textContent = /meet\.google/.test(item.enlace) ? 'Abrir Meet' : 'Abrir';
+                    textos.appendChild(a);
+                }
+                const borrar = this.boton('Quitar', 'btn-texto btn-peligro', () => cambiar(item.id, 'borrar'));
+                borrar.setAttribute('aria-label', `Quitar ${item.titulo}`);
+                fila.append(casilla, textos, borrar);
+                tarjeta.appendChild(fila);
+            });
+            listas.appendChild(tarjeta);
+        });
+
+        // Calendario de hoy y pendientes del equipo
+        const lado = document.createElement('div');
+        lado.className = 'agenda-ceo-lado';
+        const cal = document.createElement('section');
+        cal.className = 'agenda-ceo-lista';
+        const hc = document.createElement('h4');
+        hc.textContent = 'Tu calendario de hoy';
+        cal.appendChild(hc);
+        if (v.avisoCalendario) cal.appendChild(this.nota(v.avisoCalendario));
+        else if (!v.calendario.length) cal.appendChild(this.nota('Nada en tu Google Calendar hoy.'));
+        v.calendario.forEach(e => {
+            const p = document.createElement('p');
+            p.className = 'agenda-ceo-evento';
+            p.textContent = `${e.todoElDia ? 'Todo el día' : TorreDeControl.hora(e.inicio)} · ${e.titulo}`;
+            if (e.meet && /^https:\/\//.test(e.meet)) {
+                const a = document.createElement('a');
+                a.href = e.meet;
+                a.target = '_blank';
+                a.rel = 'noopener';
+                a.textContent = ' · Meet';
+                p.appendChild(a);
+            }
+            cal.appendChild(p);
+        });
+        const eq = document.createElement('section');
+        eq.className = 'agenda-ceo-lista';
+        const he = document.createElement('h4');
+        he.textContent = 'Pendientes del equipo';
+        eq.appendChild(he);
+        if (!v.equipo.length) eq.appendChild(this.nota('El equipo está al día.'));
+        v.equipo.forEach(p => {
+            const linea = document.createElement('p');
+            linea.className = 'agenda-ceo-evento';
+            const n = (cuantos, uno, varios) => `${cuantos} ${cuantos === 1 ? uno : varios}`;
+            linea.textContent = `${p.nombre}: ${[p.cotizaciones.n && `${n(p.cotizaciones.n, 'cotización', 'cotizaciones')} (${TorreDeControl.usd(p.cotizaciones.usd)})`, p.pedidos.n && n(p.pedidos.n, 'pedido por cerrar', 'pedidos por cerrar'), p.reuniones && `${p.reuniones} en Reunión`, p.tareasVencidas && n(p.tareasVencidas, 'tarea vencida', 'tareas vencidas'), p.reporteBloqueado && 'reporte bloqueado'].filter(Boolean).join(' · ')}`;
+            eq.appendChild(linea);
+        });
+        eq.appendChild(this.boton('Ver el radar completo', 'btn-texto', () => this.mostrar('radar')));
+        // Umbral de Supervisión Comercial
+        const umbral = document.createElement('form');
+        umbral.className = 'agenda-ceo-umbral';
+        const etiqueta = document.createElement('label');
+        etiqueta.htmlFor = 'agenda-ceo-umbral';
+        etiqueta.textContent = 'Cotizaciones a Supervisión Comercial desde (US$)';
+        const valor = document.createElement('input');
+        valor.type = 'number';
+        valor.id = 'agenda-ceo-umbral';
+        valor.min = '1';
+        valor.step = '1';
+        valor.value = String(v.umbral);
+        const guardar = document.createElement('button');
+        guardar.type = 'submit';
+        guardar.className = 'btn-secondary';
+        guardar.textContent = 'Guardar';
+        umbral.append(etiqueta, valor, guardar);
+        umbral.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            try { await this.pintarAgenda(await this.pedir({ operacion: 'agendaUmbral', umbral: Number(valor.value) })); } catch (error) { this.chat.push({ de: 'borja', texto: error.message }); this.pintarAgenda(); }
+        });
+        lado.append(cal, eq, umbral);
+
+        // Lo hecho en los últimos 7 días (se puede reabrir)
+        const hechos = document.createElement('details');
+        hechos.className = 'agenda-ceo-hechos';
+        const resumen = document.createElement('summary');
+        resumen.textContent = `Hecho en los últimos 7 días (${v.hechos.length})`;
+        hechos.appendChild(resumen);
+        v.hechos.forEach(item => {
+            const p = document.createElement('p');
+            p.className = 'agenda-ceo-evento';
+            p.textContent = `✓ ${item.titulo} (${item.lista}) `;
+            const reabrir = this.boton('Reabrir', 'btn-texto', () => cambiar(item.id, 'reabrir'));
+            p.appendChild(reabrir);
+            hechos.appendChild(p);
+        });
+
+        const cuerpo = document.createElement('div');
+        cuerpo.className = 'agenda-ceo-cuerpo';
+        cuerpo.append(listas, lado);
+        marco.append(chat, rapido, cuerpo, hechos);
+        if (this.actual === 'agenda') this.contenido.replaceChildren(marco);
     }
 
     // ----- 4. Mensajes -----
