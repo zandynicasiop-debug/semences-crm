@@ -2,9 +2,10 @@
  * Google Workspace para el CRM, con el permiso de cada persona (OAuth, google.js):
  *
  * - Drive · documentos de los clientes: certificados fitosanitarios, permisos de importación, análisis de
- *   germinación, facturas o fotos de campo, en una carpeta por cliente dentro de DOCUMENTOS_CARPETA_ID.
- * - Drive · respaldo diario: todo el CRM en un JSON en RESPALDO_CARPETA_ID, con la cuenta del sistema; se
- *   conservan RESPALDO_CONSERVAR días.
+ *   germinación, facturas o fotos de campo, en la carpeta de cada cliente del Drive del CRM (drive.js: lo crea y
+ *   guarda la cuenta del sistema, con el permiso mínimo drive.file).
+ * - Drive · respaldo diario: todo el CRM en un JSON en la carpeta "Respaldos" del Drive del CRM; se conservan
+ *   RESPALDO_CONSERVAR días (RESPALDOS=no lo apaga).
  * - Calendar · agenda del CRM: los seguimientos de clientes, las tareas, los trasplantes del germinador y la llegada
  *   estimada de los envíos (DHL y FedEx) de cada persona pasan a su Google Calendar como eventos de día completo. Es idempotente: cada evento lleva su clave
  *   (p. ej. "seguimiento:<id del cliente>") y sincronizar otra vez actualiza o borra, nunca duplica.
@@ -21,6 +22,9 @@ import { errorApp, conGoogle } from './llamadasGoogle.js';
 import { enZona, inicioDelDia, sumarDias } from './fechas.js';
 import { cuotaGoogle } from './cuotas.js';
 import { traducir, idiomaCorreo } from './idioma.js';
+import { cuentaDelSistema, conDriveDelCrm, carpetasDelCrm, driveActivo } from './drive.js';
+
+export { cuentaDelSistema };
 
 export const DIAS_AGENDA = 60;          // La agenda del CRM cubre de hoy a 60 días
 export const HORA_AGENDA = 6;           // Sincronización automática: a las 6:00, antes del resumen de Borja
@@ -144,14 +148,6 @@ export async function sincronizarAgenda(contexto, persona, datosTodos, ahora = n
 
 // ----- Cuenta del sistema y correos de aviso ----------------------------------------------------------------
 
-// La persona de CUENTA_GOOGLE_SISTEMA, si entró y tiene Google conectado; si no, null
-export async function cuentaDelSistema(pool, config) {
-    const correo = config.workspace && config.workspace.cuentaSistema;
-    if (!correo) return null;
-    const [filas] = await pool.query('SELECT * FROM usuarios WHERE email = ? AND token_google IS NOT NULL', [correo]);
-    return filas[0] || null;
-}
-
 // Tareas en segundo plano (correos, lo lento de los webhooks de Meta): quien las lanza responde sin esperarlas;
 // las pruebas pueden esperarlas (esperarSegundoPlano)
 const pendientes = new Set();
@@ -202,26 +198,24 @@ export function documentoValido({ nombre, tipo, base64 }) {
 // ----- Drive: respaldo del CRM ------------------------------------------------------------------------------
 
 /**
- * Respaldo de todo el CRM (JSON) en RESPALDO_CARPETA_ID con la cuenta del sistema, y borra los de más de
- * RESPALDO_CONSERVAR días. Devuelve { archivo, enlace, registros, borrados }.
+ * Respaldo de todo el CRM (JSON) en la carpeta "Respaldos" del Drive del CRM (cuenta del sistema), y borra los de
+ * más de RESPALDO_CONSERVAR días. Devuelve { archivo, enlace, registros, borrados }.
  */
 export async function respaldar(contexto, ahora = new Date()) {
     const { pool, config, google } = contexto;
-    const { respaldoCarpetaId: carpetaId, respaldoConservar } = config.workspace || {};
-    if (!carpetaId) throw errorApp('No hay carpeta de respaldos configurada (RESPALDO_CARPETA_ID)', 503, 'configuracion');
-    const sistema = await cuentaDelSistema(pool, config);
-    if (!sistema) throw errorApp('La cuenta del sistema (CUENTA_GOOGLE_SISTEMA) no ha entrado en la app o no tiene Google conectado', 503, 'configuracion');
+    const { respaldos, respaldoConservar } = config.workspace || {};
+    if (!respaldos) throw errorApp('Los respaldos en Drive están apagados (RESPALDOS=no)', 503, 'configuracion');
     const datos = await listarTodo(pool);
     const registros = Object.fromEntries(MODULOS_CRM.map(m => [m, (datos[m] || []).length]));
     const local = enZona(ahora, config.zonaHoraria);
     const nombre = `semences-crm-respaldo-${local.fecha}-${String(local.hora).padStart(2, '0')}${String(local.minuto).padStart(2, '0')}.json`;
     const contenido = JSON.stringify({ formato: 'semences-crm-respaldo', version: 1, generado: ahora.toISOString(), zonaHoraria: config.zonaHoraria, registros, datos });
-    return conGoogle({ pool, config, usuario: sistema }, async (token, alRenovar) => {
+    return conDriveDelCrm(contexto, async (token, alRenovar, ids) => {
         const archivo = await google.subirArchivo(token, alRenovar, {
-            carpetaId, nombre, tipo: 'application/json', datos: Buffer.from(contenido, 'utf8'),
+            carpetaId: ids.respaldos, nombre, tipo: 'application/json', datos: Buffer.from(contenido, 'utf8'),
             descripcion: 'Respaldo automático del CRM de Semences del Caribe', propiedades: { semencesRespaldo: '1' }
         });
-        const viejos = await google.respaldos(token, alRenovar, { carpetaId, antesDe: new Date(ahora.getTime() - respaldoConservar * 86400000) });
+        const viejos = await google.respaldos(token, alRenovar, { carpetaId: ids.respaldos, antesDe: new Date(ahora.getTime() - respaldoConservar * 86400000) });
         for (const viejo of viejos) await google.borrarArchivo(token, alRenovar, viejo.id);
         return { archivo: archivo.nombre, enlace: archivo.enlace, registros, borrados: viejos.length };
     });
@@ -231,13 +225,12 @@ export async function respaldar(contexto, ahora = new Date()) {
 export async function respaldoPendiente(contexto, ahora = new Date()) {
     const { pool, config, google } = contexto;
     const ws = config.workspace || {};
-    if (!ws.respaldoCarpetaId || !ws.cuentaSistema) return false;
+    if (!ws.respaldos || !driveActivo(config)) return false;
     const { fecha, hora } = enZona(ahora, config.zonaHoraria);
     if (hora < ws.respaldoHora) return false;
-    const sistema = await cuentaDelSistema(pool, config);
-    if (!sistema) return false;
+    if (!(await cuentaDelSistema(pool, config))) return false;
     const desde = inicioDelDia(fecha, config.zonaHoraria);
-    const hechos = await conGoogle({ pool, config, usuario: sistema }, (token, alRenovar) => google.respaldos(token, alRenovar, { carpetaId: ws.respaldoCarpetaId, desde }));
+    const hechos = await conDriveDelCrm(contexto, (token, alRenovar, ids) => google.respaldos(token, alRenovar, { carpetaId: ids.respaldos, desde }));
     return hechos.length === 0;
 }
 
@@ -251,12 +244,17 @@ export async function respaldoPendiente(contexto, ahora = new Date()) {
 export function iniciarWorkspace(contexto, { cadaMs = 10 * 60000, registrar = console } = {}) {
     let ocupado = false;
     let agendaHecha = '';
+    let driveListo = false;
     const repaso = async () => {
         if (ocupado) return;
         ocupado = true;
         try {
             const { config, pool } = contexto;
             const ahora = new Date();
+            // Primer arranque con la cuenta del Master conectada: crea las carpetas y la plantilla base del CRM en su Drive
+            if (!driveListo && driveActivo(config) && await cuentaDelSistema(pool, config)) {
+                await carpetasDelCrm(contexto).then(() => { driveListo = true; }).catch(e => registrar.error('Drive del CRM:', e.message));
+            }
             if (await respaldoPendiente(contexto, ahora).catch(e => { registrar.error('Respaldo (comprobación):', e.message); return false; })) {
                 const r = await respaldar(contexto, ahora);
                 registrar.log(`Respaldo del CRM en Drive: ${r.archivo} (${r.borrados} antiguos borrados)`);
@@ -279,5 +277,8 @@ export function iniciarWorkspace(contexto, { cadaMs = 10 * 60000, registrar = co
     };
     const temporizador = setInterval(repaso, cadaMs);
     temporizador.unref();
-    return () => clearInterval(temporizador);
+    // El primer repaso, poco después de arrancar (no a los 10 minutos): así el Drive del CRM queda listo enseguida
+    const primero = setTimeout(repaso, Math.min(cadaMs, 15000));
+    primero.unref();
+    return () => { clearInterval(temporizador); clearTimeout(primero); };
 }

@@ -146,7 +146,7 @@ sequenceDiagram
 
 | Botón | Para quién | Permisos que pide | Verificación de Google |
 |---|---|---|---|
-| **Entrar con tu cuenta @empresa** (principal) | cuentas del Workspace | identidad + Gmail (enviar), Calendar, Drive, Docs | no, si la app es Interna o "de confianza" en el Workspace |
+| **Entrar con tu cuenta @empresa** (principal) | cuentas del Workspace | identidad + Gmail (enviar), Calendar y Drive **solo de los archivos de la app** (`drive.file`) | sí: la pantalla es **Externa** (hay cuentas @gmail.com en el equipo); `drive.file` no es un permiso restringido |
 | **Entra con tu cuenta personal de Google** (opción B) | Gmail u otras cuentas personales | solo identidad (`openid email profile`) | **nunca** (permisos básicos) |
 | **Conectar Gmail, Calendar y Drive** (en Cuenta) | quien entró con la opción B y quiera esas funciones | los de Workspace | sí, para cuentas externas (ver 7.3) |
 
@@ -183,9 +183,9 @@ se cambia por uno simulado) y por `conGoogle()` (reintentos y reconexión, `src/
 
 | Función | Cómo | Con qué cuenta | Cuándo |
 |---|---|---|---|
-| **Documentos del cliente** (Drive) | Certificados fitosanitarios, permisos de importación, análisis de germinación, facturas, fotos → carpeta del cliente en `DOCUMENTOS_CARPETA_ID` (PDF, imagen, Word, Excel, CSV; 8 MB) | la de quien sube | botón *Documentos en Drive* del expediente (`subirDocumento`, `documentos`) |
+| **Documentos del cliente** (Drive) | Certificados fitosanitarios, permisos de importación, análisis de germinación, facturas, fotos → carpeta del cliente en *Semences del Caribe · CRM › Clientes* (PDF, imagen, Word, Excel, CSV; 8 MB); quien sube recibe **lectura** de esa carpeta | la del sistema (Master) | botón *Documentos en Drive* del expediente (`subirDocumento`, `documentos`) |
 | **Reportes PDF** (Docs + Drive) | Plantilla con `{{campos}}` → PDF en la carpeta del cliente | la de quien lo pide | botón *Reporte PDF en Drive* (`reporte`) |
-| **Respaldo del CRM** (Drive) | Todo el CRM en un JSON (`semences-crm-respaldo-AAAA-MM-DD-HHMM.json`) en `RESPALDO_CARPETA_ID`; borra los de más de `RESPALDO_CONSERVAR` días | la del sistema | cada día a `RESPALDO_HORA`; un Master, a mano (`respaldar`) |
+| **Respaldo del CRM** (Drive) | Todo el CRM en un JSON (`semences-crm-respaldo-AAAA-MM-DD-HHMM.json`) en *Semences del Caribe · CRM › Respaldos*; borra los de más de `RESPALDO_CONSERVAR` días (`RESPALDOS=no` lo apaga) | la del sistema | cada día a `RESPALDO_HORA`; un Master, a mano (`respaldar`) |
 | **Exportar a Sheets** | Una pestaña por módulo, la misma hoja cada vez | la de quien exporta | menú › *Exportar el CRM* (`exportar`) |
 | **Agenda del CRM** (Calendar) | Seguimientos de clientes (míos o sin asignar), mis tareas, los trasplantes del germinador y la llegada estimada de los envíos de DHL y FedEx sin entregar (al vendedor, solo los de sus clientes, como en el resumen de Borja), de hoy a 60 días, como eventos de día completo que no marcan "ocupado". Cada evento lleva su clave privada: **sincronizar otra vez actualiza o borra, nunca duplica** | la de cada persona | cada mañana a las 6:00 (`AGENDA_AUTOMATICA`); a mano en *Cuenta* (`sincronizarAgenda`) |
 | **Reuniones** (Calendar + Meet) | Evento con Meet e invitación al cliente; aviso de horario ocupado | la de quien agenda | expediente del cliente, tablero |
@@ -230,8 +230,10 @@ Menú › **Google Auth Platform** (antes "Pantalla de consentimiento de OAuth")
    | `gmail.send` | Enviar cotizaciones y avisos (no puede leer el correo) | sensible |
    | `calendar.events` | Eventos, reuniones de Meet y agenda del CRM | sensible |
    | `calendar.freebusy` | Saber si una hora está ocupada (sin ver qué hay) | sensible |
-   | `documents` | Rellenar la plantilla del reporte | sensible |
-   | `drive` | Plantilla, PDF, documentos, respaldos y hoja de exportación | **restringido** |
+   | `drive.file` | Solo los archivos que crea la app: carpetas del CRM, plantillas, PDF, documentos, respaldos y la hoja de exportación (Docs y Sheets lo aceptan para esos archivos) | **no sensible** |
+
+   Desde la salida a producción ya no se piden `drive` (restringido) ni `documents` (sensible): con `drive.file` la
+   app no puede leer nada del Drive de nadie que no haya creado ella (7.5).
 
 ### 7.3 Que las cuentas de la empresa no vean avisos con la app Externa
 
@@ -245,8 +247,10 @@ restringidos y limita a **100 personas** el total de usuarios. Para las cuentas 
 
 Las **cuentas personales** que pulsen *Conectar Gmail, Calendar y Drive* sí verán el aviso (y cuentan para el límite de
 100) hasta que la app pase la **verificación de Google** (Google Auth Platform › *Verification center*: verificación de
-marca, vídeo de demostración y, por el permiso `drive`, una evaluación de seguridad anual). Si no hace falta que el
-personal externo use esas funciones, no hay que verificar nada: entran y trabajan con su identidad.
+marca, vídeo de demostración y justificación de `gmail.send` y `calendar.events`). Con `drive.file` **ya no hace falta
+la evaluación de seguridad anual** (CASA) que exigía el permiso `drive` completo. Para la revisión, las páginas
+`privacidad.html` y `condiciones.html` explican el uso de cada permiso. Si no hace falta que el personal externo use
+esas funciones, no hay que verificar nada: entran y trabajan con su identidad.
 
 ### 7.4 Credenciales
 
@@ -259,20 +263,45 @@ personal externo use esas funciones, no hay que verificar nada: entran y trabaja
 > **No hace falta** un cliente OAuth para Android, iOS ni escritorio: todas las apps entran a través del backend (el
 > cliente "Aplicación web") y vuelven con `semences://sesion`, protegido con PKCE.
 
-### 7.5 Carpetas de Drive
+### 7.5 Carpetas de Drive (`drive.file`: no se crea nada a mano)
 
-1. En Google Drive, crea una **unidad compartida** `CRM Semences` con tres carpetas: `Reportes y documentos de
-   clientes`, `Respaldos del CRM` y la plantilla del reporte (Google Docs con `{{cliente}}`, `{{procesos}}`…).
-2. Comparte la unidad con el equipo como **Gestor de contenido**; la carpeta `Respaldos del CRM`, **solo con los
-   Master** (cada respaldo lleva todos los clientes y sus teléfonos).
-3. Copia los ids (lo que va tras `/folders/` o `/d/` en la dirección) a `REPORTE_CARPETA_ID`,
-   `DOCUMENTOS_CARPETA_ID` (o déjala vacía para usar la de reportes), `RESPALDO_CARPETA_ID` y `REPORTE_PLANTILLA_ID`.
+La app pide a Google el permiso mínimo de Drive, **`drive.file`**: solo ve los archivos que crea ella, nunca el resto
+del Drive de nadie (no es un permiso "restringido", así que la verificación de Google es la normal, sin auditoría de
+seguridad externa). Por eso todo el Drive del CRM lo crea y guarda **la cuenta del sistema (el Master)**
+(`src/drive.js`), en su *Mi unidad*, la primera vez que el servidor arranca con esa cuenta conectada:
+
+```
+Semences del Caribe · CRM/
+  Clientes/      una carpeta por cliente: documentos, reportes PDF y expedientes
+  Reportes/      reportes sin cliente
+  Respaldos/     respaldo diario (JSON); solo el Master tiene acceso
+  Plantillas/    "Plantilla base del expediente" y la de cada casa comercial (copias de la base)
+```
+
+- Los ids se guardan en `ajustes` (clave `drive`). Las carpetas se reconocen por su marca (`appProperties`), no por
+  el nombre: se pueden renombrar o mover dentro de la raíz. Si alguien las borra, se vuelven a crear solas.
+- **Diseño de la empresa:** el Master abre *Plantillas › Plantilla base del expediente* en Google Docs y le da el
+  formato (logo, colores) sin quitar los `{{campos}}`. Las plantillas de cada casa comercial se copian de ella la
+  primera vez que hacen falta y cada casa puede retocar la suya.
+- **Quién ve qué:** cuando alguien sube un documento, abre los documentos o genera un reporte de un cliente que
+  puede ver (su país y su casa), recibe acceso de **lectura** a la carpeta de ese cliente, sin correo de Google. Los
+  cambios entran siempre por la app (y quedan en la auditoría). Respaldos y plantillas no se comparten.
+- Las variables `REPORTE_PLANTILLA_ID`, `REPORTE_CARPETA_ID`, `DOCUMENTOS_CARPETA_ID` y `RESPALDO_CARPETA_ID` ya no
+  se usan (si siguen en el `.env`, el arranque solo lo avisa). Las carpetas hechas a mano antes de este cambio siguen
+  donde estaban, pero la app ya no las ve: lo que haga falta conservar se sube de nuevo desde la app.
+- Si el Workspace del Master prohíbe compartir fuera del dominio, las personas con @gmail.com no podrán abrir los
+  enlaces (la subida sí funciona y queda en el registro del servidor): en la consola de Google Workspace, permitir
+  compartir con cuentas externas de confianza.
 
 ### 7.6 Cuenta del sistema
 
 1. Un Master entra en la app con su cuenta de Google (botón principal, con todos los permisos).
-2. Su correo va en `CUENTA_GOOGLE_SISTEMA`. Reinicia la app Node en cPanel.
-3. Comprueba en `https://api.semillasdata.com/api/salud` que `integraciones` dice `respaldos: true` y `correos: true`.
+2. Su correo va en `CUENTA_GOOGLE_SISTEMA`. Reinicia la app Node en cPanel: a los pocos segundos aparece en su Drive
+   la carpeta *Semences del Caribe · CRM* (7.5).
+3. Comprueba en `https://api.semillasdata.com/api/salud` que `integraciones` dice `documentos`, `reportes`,
+   `respaldos` y `correos: true`.
+4. Si se cambia de cuenta del sistema, la nueva empieza su propia estructura (la anterior sigue en el Drive de la otra
+   cuenta, que puede compartirla a mano).
 
 ### 7.7 Orígenes de las apps
 
@@ -293,8 +322,7 @@ Todas están documentadas, con su formato, en **`servidor/.env.example`**; al ar
 | Google: entrada | `GOOGLE_CLIENT_ID` · `GOOGLE_CLIENT_SECRET` · `DOMINIO` · `ADMINS` · `CUENTAS_PERSONALES` | id, secreto y `DOMINIO` o `ADMINS` | cuentas personales: `si` |
 | Seguridad | `CLAVE_CIFRADO` · `DIAS_SESION` · `ENTRADAS_POR_MINUTO` · `PETICIONES_POR_MINUTO` · `ACCIONES_POR_MINUTO` | `CLAVE_CIFRADO` (`npm run clave`) | 30 · 20 · 600 · 240 |
 | Zona y agenda | `ZONA_HORARIA` · `MINUTOS_REUNION` · `RESUMEN_HORA` · `UMBRAL_GERMINACION` | — | `America/Santo_Domingo` · 30 · 7 · 85 |
-| Workspace automático | `CUENTA_GOOGLE_SISTEMA` · `RESPALDO_CARPETA_ID` · `RESPALDO_HORA` · `RESPALDO_CONSERVAR` · `DOCUMENTOS_CARPETA_ID` · `CORREOS_AVISOS` · `AGENDA_AUTOMATICA` | — | — · — · 2 · 30 · la de reportes · `si` · `si` |
-| Reportes | `REPORTE_PLANTILLA_ID` · `REPORTE_CARPETA_ID` | — | — |
+| Workspace automático y Drive del CRM | `CUENTA_GOOGLE_SISTEMA` · `RESPALDOS` · `RESPALDO_HORA` · `RESPALDO_CONSERVAR` · `CORREOS_AVISOS` · `AGENDA_AUTOMATICA` | — (sin ella, Drive y correos apagados) | — · `si` · 2 · 30 · `si` · `si` |
 | Reporte semanal | `REPORTE_SEMANAL` · `REPORTE_HORA` · `REPORTE_RESUMEN_HORA` | — | `si` · 16 (viernes) · 8 (lunes) |
 | Revisión con IA (Claude) | `ANTHROPIC_API_KEY` · `IA_MODELO` | — (sin clave, apagada) | — · `claude-opus-5-5` |
 | Bandeja de Instagram | `META_APP_SECRET` · `META_VERIFY_TOKEN` · `META_VERSION` | — | — · — · `v21.0` |
@@ -528,12 +556,12 @@ de antes y `CLAVE_CIFRADO` = la nueva → reiniciar (cada token se vuelve a cifr
 
 ### Plantilla del expediente por casa comercial
 
-Al pasar un cliente a "Reunión", el paso `plantilla` (`flujos.js › asegurarPlantillaCasaComercial`) busca en la
-carpeta de documentos (`DOCUMENTOS_CARPETA_ID`, o `REPORTE_CARPETA_ID`) la plantilla de Docs de **su** casa comercial
+Al pasar un cliente a "Reunión", el paso `plantilla` (`flujos.js › asegurarPlantillaCasaComercial`) busca en
+*Semences del Caribe · CRM › Plantillas* (Drive del CRM, cuenta del sistema; 7.5) la plantilla de Docs de **su** casa comercial
 (Gautier Semences, Hexagon Seeds, Genome Seeds o Fitó), reconocida por su marca en Drive (`appProperties
 semencesPlantilla`), no por el nombre. Si no existe, la crea:
 
-- con `REPORTE_PLANTILLA_ID`: como copia de esa plantilla general (el diseño de la empresa);
+- como copia de la *Plantilla base del expediente* (el diseño de la empresa, que el Master edita en Docs);
 - sin ella: un documento nuevo con los marcadores reales del expediente: `{{cliente}}`, `{{pais}}`, `{{casa}}`,
   `{{ubicacion}}`, `{{telefono}}`, `{{whatsapp}}`, `{{marca}}`, `{{seguimiento}}`, `{{procesos}}`, `{{visitas}}`,
   `{{rendimientos}}`, `{{responsable}}` y `{{fecha}}`. Una prueba comprueba que son exactamente los campos que
@@ -541,9 +569,9 @@ semencesPlantilla`), no por el nombre. Si no existe, la crea:
 
 El documento nuevo solo se marca como plantilla cuando ya tiene el texto (si algo falla a medias se borra y se
 reintenta), y el paso tiene su punto de control: no se busca ni se crea dos veces. Cada casa puede después darle
-su formato en Docs; mientras conserve los `{{marcadores}}`, el expediente sale con sus datos. Sin carpeta
-configurada no se crea nada (no se reparten plantillas por el Drive personal de cada vendedor) y se usa
-`REPORTE_PLANTILLA_ID` como antes.
+su formato en Docs; mientras conserve los `{{marcadores}}`, el expediente sale con sus datos. Sin cuenta del sistema
+no se crea nada (no se reparten plantillas por el Drive personal de cada vendedor): esos pasos quedan "omitidos" y el
+aviso al responsable sale igual. El reporte PDF de la ficha del cliente usa la misma plantilla de su casa.
 
 ### Cambios de etapa sin conexión (cola en IndexedDB)
 
@@ -594,8 +622,8 @@ salen conectadas cuando el backend ya responde y existe el secreto `SEMENCES_API
    (todas en `servidor/.env.example`):
    - Obligatorias: `URL_PUBLICA`, `DOMINIO` y/o `ADMINS`, `MYSQL_*`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
      `CLAVE_CIFRADO`. `ORIGENES` vacía ya acepta semillasdata.com, GitHub Pages y las apps.
-   - Opcionales de esta versión: `DOCUMENTOS_CARPETA_ID` y `REPORTE_PLANTILLA_ID` (carpeta del cliente y expediente
-     PDF al pasar a "Reunión"), `ANTHROPIC_API_KEY` (revisión de los reportes semanales). `CLAVE_CIFRADO_ANTERIOR`
+   - Opcionales de esta versión: `CUENTA_GOOGLE_SISTEMA` (el Master: Drive del CRM, expediente PDF al pasar a
+     "Reunión", respaldos y correos), `ANTHROPIC_API_KEY` (revisión de los reportes semanales). `CLAVE_CIFRADO_ANTERIOR`
      solo al rotar la clave.
 4. **Run NPM Install** y **Start/Restart**.
 5. `https://api.semillasdata.com/api/salud` → `"ok":true`, `"base":"ok"` y la clave `"eventos"`. Si la base venía de

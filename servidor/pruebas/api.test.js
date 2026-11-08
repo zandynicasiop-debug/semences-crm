@@ -81,6 +81,13 @@ function googleFalso() {
             g.llamadas.push({ tipo: 'reporte', token, datos });
             return { id: 'pdf-1', enlace: 'https://drive.google.com/file/d/pdf-1/view' };
         },
+        // Drive del CRM con drive.file (drive.js): estructura creada por la cuenta del sistema y carpetas compartidas
+        estructuraDrive: async (token, alRenovar, datos) => {
+            g.llamadas.push({ tipo: 'estructura', token, datos });
+            return { raiz: 'drive-raiz', documentos: 'drive-clientes', reportes: 'drive-reportes', respaldos: 'drive-respaldos', plantillas: 'drive-plantillas', base: 'drive-base' };
+        },
+        compartir: async (token, alRenovar, datos) => { g.llamadas.push({ tipo: 'compartir', token, datos }); },
+        carpetas: new Set(),
         // Drive y Calendar simulados (workspace.js)
         archivos: [],
         eventosCal: [],
@@ -88,14 +95,21 @@ function googleFalso() {
             g.llamadas.push({ tipo: 'subir', token, datos });
             const id = `archivo-${g.archivos.length + 1}`;
             const archivo = { id, nombre: datos.nombre, tipo: datos.tipo, enlace: `https://drive.google.com/file/d/${id}/view`, fecha: new Date().toISOString(), tamano: datos.datos.length };
-            g.archivos.push({ ...archivo, cliente: datos.carpetaCliente && datos.carpetaCliente.id, respaldo: Boolean(datos.propiedades && datos.propiedades.semencesRespaldo), creado: Date.now(), contenido: datos.datos });
+            const cliente = datos.carpetaCliente ? datos.carpetaCliente.id : String(datos.carpetaId || '').replace(/^carpeta-/, '');
+            g.archivos.push({ ...archivo, cliente, carpetaId: datos.carpetaId, respaldo: Boolean(datos.propiedades && datos.propiedades.semencesRespaldo), creado: Date.now(), contenido: datos.datos });
             return archivo;
         },
         carpetaCliente: async (token, alRenovar, datos) => {
             g.llamadas.push({ tipo: 'carpeta', token, datos });
-            return { id: `carpeta-${datos.carpetaCliente.id}`, enlace: `https://drive.google.com/drive/folders/carpeta-${datos.carpetaCliente.id}` };
+            const id = `carpeta-${datos.carpetaCliente.id}`;
+            if (datos.crear === false && !g.carpetas.has(id)) return null;
+            g.carpetas.add(id);
+            return { id, enlace: `https://drive.google.com/drive/folders/${id}` };
         },
-        archivosDelCliente: async (token, alRenovar, { carpetaCliente }) => g.archivos.filter(a => a.cliente === carpetaCliente.id).map(({ id, nombre, tipo, enlace, fecha, tamano }) => ({ id, nombre, tipo, enlace, fecha, tamano })),
+        archivosDelCliente: async (token, alRenovar, { carpetaId, carpetaCliente }) => {
+            const cliente = carpetaCliente ? carpetaCliente.id : String(carpetaId).replace(/^carpeta-/, '');
+            return g.archivos.filter(a => a.cliente === cliente && !a.respaldo).map(({ id, nombre, tipo, enlace, fecha, tamano }) => ({ id, nombre, tipo, enlace, fecha, tamano }));
+        },
         respaldos: async (token, alRenovar, { desde, antesDe }) => g.archivos.filter(a => a.respaldo && (!desde || a.creado >= desde.getTime()) && (!antesDe || a.creado < antesDe.getTime())),
         borrarArchivo: async (token, alRenovar, id) => { g.archivos = g.archivos.filter(a => a.id !== id); },
         eventosCrm: async (token) => g.eventosCal.filter(e => e.token === token).map(({ id, clave, inicio, titulo, descripcion }) => ({ id, clave, inicio, titulo, descripcion })),
@@ -419,19 +433,12 @@ for (const base of BASES) {
             assert.equal((await llamar('/api/yo', { metodo: 'GET', sesion: sesiones.jefa })).json.usuario.googleConectado, false);
         });
 
-        test('reportes: sin plantilla configurada lo dice; con plantilla genera el PDF', async () => {
-            assert.equal((await accion(sesiones.ana, { accion: 'reporte', titulo: 'Visita' })).estado, 503);
-            const r = await accion(sesiones.ana, { accion: 'reporte', plantillaId: '1AbCdEfGhIjKlMnOpQrStUvWxYz', titulo: 'Visita a/finca', campos: { cliente: 'Ana', fecha: '3/11' } });
-            assert.equal(r.json.enlace, 'https://drive.google.com/file/d/pdf-1/view');
-            const datos = google.llamadas.at(-1).datos;
-            assert.equal(datos.titulo, 'Visita a finca');
-            assert.deepEqual(datos.campos, { cliente: 'Ana', fecha: '3/11' });
-            assert.equal(datos.carpetaCliente, null);
-            await accion(sesiones.ana, { accion: 'reporte', plantillaId: '1AbCdEfGhIjKlMnOpQrStUvWxYz', titulo: 'R', cliente: { id: 'cli-17', nombre: 'Finca\nÑapa/Sur' } });
-            assert.deepEqual(google.llamadas.at(-1).datos.carpetaCliente, { id: 'cli-17', nombre: 'Finca Ñapa Sur' });
-            assert.equal((await accion(sesiones.ana, { accion: 'reporte', plantillaId: '1AbCdEfGhIjKlMnOpQrStUvWxYz', cliente: { id: "x' or name contains '" } })).estado, 400);
-            assert.equal((await accion(sesiones.ana, { accion: 'reporte', plantillaId: '../../etc', titulo: 'x' })).estado, 400);
-            assert.equal((await accion(sesiones.ana, { accion: 'reporte', plantillaId: '1AbCdEfGhIjKlMnOpQrStUvWxYz', campos: { 'a}}{{b': 1 } })).estado, 400);
+        test('reportes: sin la cuenta del Master (Drive del CRM) lo dice; los campos se comprueban', async () => {
+            const r = await accion(sesiones.ana, { accion: 'reporte', titulo: 'Visita' });
+            assert.equal(r.estado, 503);
+            assert.match(r.json.error, /CUENTA_GOOGLE_SISTEMA/);
+            assert.equal((await accion(sesiones.ana, { accion: 'reporte', campos: { 'a}}{{b': 1 } })).estado, 400);
+            assert.equal((await accion(sesiones.ana, { accion: 'subirDocumento', clienteId: 'x', nombre: 'a.pdf', tipo: 'application/pdf', base64: 'JVBERg==' })).estado, 503);
         });
 
         test('equipo: solo admins; añadir permite entrar y quitar cierra sus sesiones', async () => {
@@ -1433,7 +1440,7 @@ for (const base of BASES) {
 
         test('Google Workspace: documentos del cliente en Drive, agenda en Calendar, respaldo y correos de aviso', async () => {
             const original = config.workspace;
-            config.workspace = { ...original, documentosCarpetaId: 'carpetaDocumentos1', respaldoCarpetaId: 'carpetaRespaldos1', cuentaSistema: 'jefa@gmail.com', correosAvisos: true };
+            config.workspace = { ...original, respaldos: true, cuentaSistema: 'jefa@gmail.com', correosAvisos: true };
             try {
                 const salud = (await llamar('/api/salud', { metodo: 'GET' })).json.integraciones;
                 assert.equal(salud.documentos && salud.respaldos && salud.correos, true);
@@ -1441,15 +1448,34 @@ for (const base of BASES) {
                 const cliente = { id: 'cli-docs', nombre: 'Finca Los Robles', pais: 'VE', casa: 'Fitó', seguimiento: manana, telefono: '04141234567' };
                 assert.equal((await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'clientes', registro: cliente }] })).estado, 200);
 
-                // Drive: el documento va a la carpeta del cliente, subido con la cuenta de quien lo sube
+                // Drive (drive.file): antes de subir nada, la lista de documentos de un cliente sin carpeta está vacía y no crea nada
+                const vacia = await accion(sesiones.ana, { accion: 'documentos', clienteId: 'cli-docs' });
+                assert.deepEqual([vacia.estado, vacia.json.archivos, vacia.json.carpeta], [200, [], '']);
+                assert.equal(google.carpetas.has('carpeta-cli-docs'), false);
+                // La primera vez, la cuenta del sistema (la del Master) crea la estructura del CRM en su Drive y la guarda
+                const estructura = google.llamadas.filter(l => l.tipo === 'estructura');
+                assert.equal(estructura.length, 1);
+                assert.equal(estructura[0].token, 'refresco-jefa');
+                assert.equal(estructura[0].datos.nombres.raiz, 'Semences del Caribe · CRM');
+                assert.match(estructura[0].datos.textoBase, /\{\{cliente\}\}[\s\S]*\{\{rendimientos\}\}/);
+                const [[ajuste]] = await pool.query("SELECT valor FROM ajustes WHERE clave = 'drive'");
+                assert.deepEqual(JSON.parse(ajuste.valor), { raiz: 'drive-raiz', documentos: 'drive-clientes', reportes: 'drive-reportes', respaldos: 'drive-respaldos', plantillas: 'drive-plantillas', base: 'drive-base', cuenta: 'jefa@gmail.com' });
+
+                // El documento va a la carpeta del cliente dentro de "Clientes", subido por la cuenta del sistema (no la de
+                // Ana: con drive.file su cuenta no vería lo que suben los demás), y Ana recibe lectura de esa carpeta
                 const pdf = Buffer.from('%PDF-1.7 certificado').toString('base64');
                 const subida = await accion(sesiones.ana, { accion: 'subirDocumento', clienteId: 'cli-docs', nombre: 'Certificado fitosanitario', tipo: 'application/pdf', base64: pdf, descripcion: 'Lote 12' });
                 assert.equal(subida.estado, 200);
                 assert.equal(subida.json.archivo.nombre, 'Certificado fitosanitario.pdf');
+                assert.equal(subida.json.carpeta, 'https://drive.google.com/drive/folders/carpeta-cli-docs');
                 const llamada = google.llamadas.filter(l => l.tipo === 'subir').pop();
-                assert.equal(llamada.token, 'refresco-ana');
-                assert.deepEqual(llamada.datos.carpetaCliente, { id: 'cli-docs', nombre: 'Finca Los Robles' });
-                assert.equal(llamada.datos.carpetaId, 'carpetaDocumentos1');
+                assert.equal(llamada.token, 'refresco-jefa');
+                assert.equal(llamada.datos.carpetaId, 'carpeta-cli-docs');
+                const carpeta = google.llamadas.filter(l => l.tipo === 'carpeta').pop();
+                assert.deepEqual([carpeta.token, carpeta.datos.carpetaId, carpeta.datos.carpetaCliente], ['refresco-jefa', 'drive-clientes', { id: 'cli-docs', nombre: 'Finca Los Robles' }]);
+                const compartidas = () => google.llamadas.filter(l => l.tipo === 'compartir').map(l => `${l.datos.id}>${l.datos.email}`);
+                assert.deepEqual(compartidas(), ['carpeta-cli-docs>ana@semillasdata.com']);
+                assert.equal(google.llamadas.filter(l => l.tipo === 'estructura').length, 1, 'la estructura ya guardada no se vuelve a crear');
                 assert.equal((await accion(sesiones.ana, { accion: 'subirDocumento', clienteId: 'cli-docs', nombre: 'x.html', tipo: 'text/html', base64: pdf })).estado, 400);
                 assert.equal((await accion(sesiones.ana, { accion: 'subirDocumento', clienteId: 'no-existe', nombre: 'x', tipo: 'application/pdf', base64: pdf })).estado, 404);
                 // Luis (vendedor de RD con Gautier) no ve los clientes de Venezuela con Fitó
@@ -1457,6 +1483,26 @@ for (const base of BASES) {
                 assert.equal((await accion(sesiones.luis, { accion: 'documentos', clienteId: 'cli-docs' })).estado, 403);
                 const lista = await accion(sesiones.ana, { accion: 'documentos', clienteId: 'cli-docs' });
                 assert.deepEqual(lista.json.archivos.map(a => a.nombre), ['Certificado fitosanitario.pdf']);
+                assert.equal(compartidas().length, 1, 'ya compartida con Ana: no se repite');
+
+                // Reporte PDF del cliente: plantilla de su casa (copia de la base, en "Plantillas"), país y casa desde la
+                // ficha, PDF en su carpeta. Lo que mande la app como plantilla se ignora (drive.file no la vería)
+                const reporte = await accion(sesiones.ana, { accion: 'reporte', titulo: 'Visita a/finca', plantillaId: 'archivo-ajeno-1234567890', campos: { cliente: 'Finca Los Robles' }, cliente: { id: 'cli-docs', nombre: 'otro nombre' } });
+                assert.equal(reporte.estado, 200);
+                assert.equal(reporte.json.enlace, 'https://drive.google.com/file/d/pdf-1/view');
+                const plantilla = google.llamadas.filter(l => l.tipo === 'plantilla').pop();
+                assert.deepEqual([plantilla.token, plantilla.datos.casa, plantilla.datos.carpetaId, plantilla.datos.copiarDe], ['refresco-jefa', 'Fitó', 'drive-plantillas', 'drive-base']);
+                const pdfCliente = google.llamadas.filter(l => l.tipo === 'reporte').pop();
+                assert.equal(pdfCliente.token, 'refresco-jefa');
+                assert.deepEqual([pdfCliente.datos.titulo, pdfCliente.datos.carpetaId, pdfCliente.datos.plantillaId], ['Visita a finca', 'carpeta-cli-docs', google.plantillas['Fitó'].id]);
+                assert.deepEqual(pdfCliente.datos.campos, { cliente: 'Finca Los Robles', pais: 'Venezuela', casa: 'Fitó' });
+                // Sin cliente: a "Reportes", desde la base, y se comparte el PDF con quien lo pidió
+                await accion(sesiones.ana, { accion: 'reporte', titulo: 'Resumen', campos: { fecha: '3/11' } });
+                const suelto = google.llamadas.filter(l => l.tipo === 'reporte').pop();
+                assert.deepEqual([suelto.datos.carpetaId, suelto.datos.plantillaId], ['drive-reportes', 'drive-base']);
+                assert.deepEqual(compartidas().at(-1), 'pdf-1>ana@semillasdata.com');
+                assert.equal((await accion(sesiones.ana, { accion: 'reporte', cliente: { id: "x' or name contains '" } })).estado, 400);
+                assert.equal((await accion(sesiones.luis, { accion: 'reporte', cliente: { id: 'cli-docs' } })).estado, 403, 'Luis no ve ese cliente: tampoco su carpeta');
 
                 // Calendar: el seguimiento de mañana entra en su agenda; repetir no duplica; cambiar la fecha lo mueve
                 const primera = await accion(sesiones.ana, { accion: 'sincronizarAgenda' });
@@ -1481,6 +1527,7 @@ for (const base of BASES) {
                 assert.equal(respaldo.estado, 200);
                 assert.match(respaldo.json.archivo, /^semences-crm-respaldo-\d{4}-\d{2}-\d{2}-\d{4}\.json$/);
                 const guardado = google.archivos.find(a => a.respaldo);
+                assert.equal(guardado.carpetaId, 'drive-respaldos');
                 assert.equal(google.llamadas.filter(l => l.tipo === 'subir').pop().token, 'refresco-jefa');
                 const json = JSON.parse(guardado.contenido.toString('utf8'));
                 assert.equal(json.formato, 'semences-crm-respaldo');
@@ -1520,9 +1567,10 @@ for (const base of BASES) {
             assert.equal(await contar("clave LIKE 'reunion:cli-luis:%'"), 0, 'deshecho junto con los cambios');
 
             // Ejecución: falla el paso del hueco (Google 503) → se reintenta sin repetir carpeta ni expediente
-            const original = { workspace: config.workspace, reportes: config.reportes, ocupado: google.ocupado };
-            config.workspace = { ...original.workspace, documentosCarpetaId: 'carpetaDocumentos1' };
-            config.reportes = { plantillaId: 'plantilla-expediente-123456', carpetaId: 'carpetaReportes1' };
+            const original = { workspace: config.workspace, ocupado: google.ocupado };
+            // Drive del CRM con la cuenta del Master (drive.js); Calendar (el hueco) con la del responsable
+            config.workspace = { ...original.workspace, cuentaSistema: 'jefa@gmail.com' };
+            const antesPlantillas = google.llamadas.filter(l => l.tipo === 'plantilla').length;
             // Google caído más rato que los reintentos inmediatos de conGoogle (3 intentos): lo retoma el motor de eventos
             let caido = true;
             google.ocupado = async (...args) => { if (caido) throw Object.assign(new Error('Backend Error'), { status: 503 }); return original.ocupado(...args); };
@@ -1539,15 +1587,16 @@ for (const base of BASES) {
                 assert.deepEqual(Object.keys(JSON.parse(pendiente.pasos)).sort(), ['carpeta', 'expediente', 'plantilla'], 'lo hecho queda guardado');
                 assert.equal(llamadas('carpeta'), 1);
                 assert.equal(llamadas('reporte'), 1);
-                // Su casa (Fitó) no tenía plantilla: se creó en la carpeta de documentos, como copia de la general,
-                // y el expediente salió de ella
-                const plantillas = google.llamadas.filter(l => l.tipo === 'plantilla');
+                // La plantilla de su casa (Fitó) se busca en "Plantillas" (copia de la base, con la cuenta del sistema),
+                // el expediente sale de ella, va a la carpeta del cliente y esa carpeta se comparte con el responsable
+                const plantillas = google.llamadas.filter(l => l.tipo === 'plantilla').slice(antesPlantillas);
                 assert.equal(plantillas.length, 1);
-                assert.deepEqual([plantillas[0].datos.casa, plantillas[0].datos.carpetaId, plantillas[0].datos.copiarDe], ['Fitó', 'carpetaDocumentos1', 'plantilla-expediente-123456']);
+                assert.deepEqual([plantillas[0].token, plantillas[0].datos.casa, plantillas[0].datos.carpetaId, plantillas[0].datos.copiarDe], ['refresco-jefa', 'Fitó', 'drive-plantillas', 'drive-base']);
                 assert.match(plantillas[0].datos.texto, /\{\{procesos\}\}/);
                 const reporte = google.llamadas.find(l => l.tipo === 'reporte' && JSON.stringify(l.datos).includes('cli-reu'));
-                assert.equal(reporte.datos.plantillaId, google.plantillas['Fitó'].id);
+                assert.deepEqual([reporte.token, reporte.datos.plantillaId, reporte.datos.carpetaId], ['refresco-jefa', google.plantillas['Fitó'].id, 'carpeta-cli-reu']);
                 assert.deepEqual([reporte.datos.campos.casa, reporte.datos.campos.pais], ['Fitó', 'República Dominicana']);
+                assert.ok(google.llamadas.some(l => l.tipo === 'compartir' && l.datos.id === 'carpeta-cli-reu' && l.datos.email === 'ana@semillasdata.com'));
 
                 caido = false;
                 await pool.query("UPDATE eventos SET proximo = UTC_TIMESTAMP() - INTERVAL 1 SECOND WHERE clave LIKE 'reunion:cli-reu:%'");
@@ -1555,7 +1604,7 @@ for (const base of BASES) {
                 assert.deepEqual(segundo, { hechos: 1, reintentar: 0, fallidos: 0 });
                 assert.equal(llamadas('carpeta'), 1, 'la carpeta no se repite');
                 assert.equal(llamadas('reporte'), 1, 'el PDF no se repite');
-                assert.equal(google.llamadas.filter(l => l.tipo === 'plantilla').length, 1, 'la plantilla no se vuelve a buscar');
+                assert.equal(google.llamadas.filter(l => l.tipo === 'plantilla').length, antesPlantillas + 1, 'la plantilla no se vuelve a buscar');
                 const [[hecho]] = await pool.query("SELECT estado, intentos, pasos FROM eventos WHERE clave LIKE 'reunion:cli-reu:%'");
                 assert.equal(hecho.estado, 'hecho');
                 assert.equal(hecho.intentos, 2);
@@ -1572,7 +1621,7 @@ for (const base of BASES) {
                 assert.match(directos[0].texto, /primer hueco libre/);
                 assert.equal(google.llamadas.filter(l => l.tipo === 'evento' && JSON.stringify(l.evento).includes('Agroexport')).length, 0, 'al cliente no se le invita solo');
             } finally {
-                Object.assign(config, { workspace: original.workspace, reportes: original.reportes });
+                config.workspace = original.workspace;
                 google.ocupado = original.ocupado;
             }
 

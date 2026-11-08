@@ -165,10 +165,11 @@ export function crearApp({ config, pool, google, avisos, transportistas = null, 
             ok: base === 'ok', servicio: 'Semences del Caribe · backend', base,
             integraciones: {
                 chat: avisos.chatActivo, whatsapp: avisos.whatsappActivo, whatsappClientes: avisos.whatsappClientesActivo, push: avisos.pushActivo,
-                reportes: Boolean(config.reportes.plantillaId),
+                // Drive del CRM (drive.js): reportes PDF, documentos y respaldos con la cuenta del Master (drive.file)
+                reportes: Boolean(config.workspace.cuentaSistema),
                 ia: Boolean(ia.activo),
-                documentos: Boolean(config.workspace.documentosCarpetaId),
-                respaldos: Boolean(config.workspace.respaldoCarpetaId && config.workspace.cuentaSistema),
+                documentos: Boolean(config.workspace.cuentaSistema),
+                respaldos: Boolean(config.workspace.respaldos && config.workspace.cuentaSistema),
                 correos: Boolean(config.workspace.correosAvisos && config.workspace.cuentaSistema),
                 agenda: config.workspace.agendaAutomatica
             },

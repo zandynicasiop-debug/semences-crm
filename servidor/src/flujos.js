@@ -4,10 +4,11 @@
  *
  * Disparador: un cliente pasa a la etapa "Reunión" (embudo comercial: Prospecto → Contactado → Reunión →
  * Propuesta → Cliente / Perdido). Acción, en segundo plano y con un punto de control por paso:
- *   1. carpeta     su carpeta en Drive (dentro de DOCUMENTOS_CARPETA_ID), creada la primera vez
+ *   1. carpeta     su carpeta en el Drive del CRM (drive.js: "Clientes", con la cuenta del sistema), creada la
+ *                  primera vez y compartida (lectura) con el responsable
  *   2. plantilla   la plantilla de Docs de su casa comercial (asegurarPlantillaCasaComercial): si aún no existe
- *                  en DOCUMENTOS_CARPETA_ID, se crea sola, como copia de REPORTE_PLANTILLA_ID o con los marcadores
- *   3. expediente  PDF desde esa plantilla (o desde REPORTE_PLANTILLA_ID) con sus datos, procesos y visitas
+ *                  en "Plantillas", se crea sola, como copia de la plantilla base o con los marcadores
+ *   3. expediente  PDF desde esa plantilla (o desde la base) con sus datos, procesos y visitas, en su carpeta
  *   4. hueco       el primer hueco libre del responsable (Calendar FreeBusy: solo ocupado/libre) en 5 días
  *                  laborables, de 9:00 a 17:00 en la zona del equipo
  *   5. aviso       solo al responsable (unicast): bandeja del tablero, push y WhatsApp, con los enlaces y el hueco
@@ -35,6 +36,9 @@ import { REGLA_RECOMPRA, ESTADOS_VENTA, idRecompra, pedidoDeRecompra, ejecutorDe
 import { REGLA_PLANTULACION, alPlantular, alEntregarEnvio, alDormirCliente } from './campo.js';
 import { leerMensajes, renderizar } from './mensajes.js';
 import { REGLA_SUPERVISION_CEO, alOrdenarABorja, alSupervisarCotizacion } from './agendaCeo.js';
+import { conDriveDelCrm, carpetaDelCliente, carpetaDe, driveActivo, textoPlantilla } from './drive.js';
+
+export { textoPlantilla };
 
 export const ETAPAS_CLIENTE = ['Prospecto', 'Contactado', 'Reunión', 'Propuesta', 'Cliente', 'Perdido'];
 
@@ -159,56 +163,21 @@ export function camposExpediente(cliente, datos, persona, fechaTexto) {
 }
 
 /**
- * Texto de la plantilla nueva de una casa comercial: los marcadores son exactamente los campos de
- * camposExpediente (una prueba lo comprueba), así que el PDF nunca sale con un {{marcador}} sin rellenar.
- * @param {string} casa
- */
-export function textoPlantilla(casa) {
-    return [
-        `Semences del Caribe · ${casa}`,
-        'Expediente del cliente',
-        '',
-        'Cliente: {{cliente}}',
-        'País: {{pais}} · Casa comercial: {{casa}}',
-        'Ubicación: {{ubicacion}}',
-        'Teléfono: {{telefono}} · WhatsApp: {{whatsapp}}',
-        'Marca que compra: {{marca}}',
-        'Próximo seguimiento: {{seguimiento}}',
-        '',
-        'Procesos agronómicos',
-        '{{procesos}}',
-        '',
-        'Visitas',
-        '{{visitas}}',
-        '',
-        'Rendimientos',
-        '{{rendimientos}}',
-        '',
-        'Preparado por {{responsable}} el {{fecha}}.',
-        ''
-    ].join('\n');
-}
-
-/**
  * Plantilla de Google Docs del expediente para la casa comercial del cliente (Gautier Semences, Hexagon Seeds,
- * Genome Seeds o Fitó). La busca en la carpeta de documentos (DOCUMENTOS_CARPETA_ID, o REPORTE_CARPETA_ID) y, si
- * no existe, la crea: como copia de la plantilla general (REPORTE_PLANTILLA_ID, con el diseño de la empresa) o,
- * sin ella, con los marcadores reales del expediente (textoPlantilla). Cada casa puede luego darle su formato
- * en Docs: mientras conserve los {{marcadores}}, el PDF sale con sus datos.
- * Sin carpeta configurada no se crea nada (no se reparten plantillas por el Drive personal de cada vendedor).
- * @param {{ google: any, config: any }} contexto
- * @param {<T>(tarea: (token: string, alRenovar: (token: string) => Promise<void>) => Promise<T>) => Promise<T>} conGoogleDe
- *   las llamadas a Google con la cuenta del responsable (y su cuota)
+ * Genome Seeds o Fitó), en la carpeta "Plantillas" del Drive del CRM (drive.js). Si no existe, se crea como copia
+ * de la plantilla base (a la que el Master da el diseño de la empresa) o, sin ella, con los marcadores reales del
+ * expediente (textoPlantilla). Cada casa puede luego darle su formato en Docs: mientras conserve los
+ * {{marcadores}}, el PDF sale con sus datos.
+ * @param {{ google: any }} contexto
+ * @param {<T>(tarea: (token: string, alRenovar: (token: string) => Promise<void>, ids: Record<string, string>) => Promise<T>) => Promise<T>} conDrive
+ *   las llamadas a Drive con la cuenta del sistema y las carpetas del CRM (drive.js › conDriveDelCrm)
  * @param {string} casa
  * @returns {Promise<{ id: string, enlace: string, creada: boolean } | { omitido: string }>}
  */
-export async function asegurarPlantillaCasaComercial({ google, config }, conGoogleDe, casa) {
+export async function asegurarPlantillaCasaComercial({ google }, conDrive, casa) {
     if (!CASAS.includes(casa)) return { omitido: casa ? `Casa comercial desconocida: ${String(casa).slice(0, 60)}` : 'El cliente no tiene casa comercial' };
-    const carpetaId = (config.workspace && config.workspace.documentosCarpetaId) || (config.reportes && config.reportes.carpetaId) || '';
-    if (!carpetaId) return { omitido: 'Sin carpeta de documentos para las plantillas (DOCUMENTOS_CARPETA_ID)' };
-    return conGoogleDe((token, alRenovar) => google.plantillaDeCasa(token, alRenovar, {
-        carpetaId, casa, titulo: `Plantilla del expediente · ${casa}`, texto: textoPlantilla(casa),
-        copiarDe: (config.reportes && config.reportes.plantillaId) || ''
+    return conDrive((token, alRenovar, ids) => google.plantillaDeCasa(token, alRenovar, {
+        carpetaId: ids.plantillas, casa, titulo: `Plantilla del expediente · ${casa}`, texto: textoPlantilla(casa), copiarDe: ids.base || ''
     }));
 }
 
@@ -220,30 +189,36 @@ export async function alPasarAReunion(evento, { paso, contexto }) {
     if (cliente.etapa !== 'Reunión') return; // Cambió de etapa antes de procesarse: ya no toca nada
     const persona = await responsableDe(pool, config, cliente, evento.usuarioId);
     if (!persona) throw errorDefinitivo('Nadie del equipo aprobado puede ver ese cliente');
-    // Con la cuenta del responsable; conGoogle pone la cuota de Google (cuotas.js) en cada llamada
+    // Calendar con la cuenta del responsable; Drive con la del sistema (drive.js). conGoogle pone la cuota de Google
+    // (cuotas.js) en cada llamada
     /** @type {<T>(tarea: (token: string, alRenovar: (token: string) => Promise<void>) => Promise<T>) => Promise<T>} */
     const conGoogleDe = (tarea) => conGoogle({ pool, config, usuario: persona }, tarea);
-    const carpetaCliente = { id: cliente.id, nombre: String(cliente.nombre || cliente.id).replace(/[\r\n/\\]/g, ' ').trim().slice(0, 150) || cliente.id };
+    /** @type {<T>(tarea: (token: string, alRenovar: (token: string) => Promise<void>, ids: Record<string, string>) => Promise<T>) => Promise<T>} */
+    const conDrive = (tarea) => conDriveDelCrm(contexto, tarea);
     const ahora = new Date();
     const local = enZona(ahora, config.zonaHoraria);
 
+    // La carpeta del cliente, compartida (lectura) con el responsable para que el enlace le abra
     const carpeta = await paso('carpeta', () => opcional(async () => {
-        const raiz = config.workspace && config.workspace.documentosCarpetaId;
-        if (!raiz) return { omitido: 'Sin carpeta de documentos (DOCUMENTOS_CARPETA_ID)' };
-        return conGoogleDe((token, alRenovar) => google.carpetaCliente(token, alRenovar, { carpetaId: raiz, carpetaCliente }));
+        if (!driveActivo(config)) return { omitido: 'Drive del CRM apagado (CUENTA_GOOGLE_SISTEMA)' };
+        const { id, enlace } = await carpetaDelCliente(contexto, cliente, persona.email);
+        return { id, enlace };
     }));
 
     // La plantilla de su casa comercial (se crea la primera vez): con su punto de control, no se busca dos veces
-    const plantilla = await paso('plantilla', () => opcional(() => asegurarPlantillaCasaComercial({ google, config }, conGoogleDe, String(cliente.casa || ''))));
-    const plantillaId = (plantilla && 'id' in plantilla && plantilla.id) || config.reportes.plantillaId;
+    const plantilla = await paso('plantilla', () => opcional(() => driveActivo(config)
+        ? asegurarPlantillaCasaComercial({ google }, conDrive, String(cliente.casa || ''))
+        : Promise.resolve({ omitido: 'Drive del CRM apagado (CUENTA_GOOGLE_SISTEMA)' })));
 
     const expediente = await paso('expediente', () => opcional(async () => {
-        if (!plantillaId) return { omitido: 'Sin plantilla de reporte (REPORTE_PLANTILLA_ID ni de su casa comercial)' };
+        if (!carpeta || !('id' in carpeta)) return { omitido: 'Sin carpeta del cliente en Drive' };
         const datos = await db.listarTodo(pool);
         const fechaTexto = ahora.toLocaleDateString('es-DO', { timeZone: config.zonaHoraria, day: 'numeric', month: 'long', year: 'numeric' });
-        return conGoogleDe((token, alRenovar) => google.crearReporte(token, alRenovar, {
-            plantillaId, carpetaId: config.reportes.carpetaId,
-            titulo: `Expediente ${carpetaCliente.nombre} ${local.fecha}`, campos: camposExpediente(cliente, datos, persona, fechaTexto), carpetaCliente
+        const nombre = carpetaDe(cliente).nombre;
+        // De la plantilla de su casa o, sin casa, de la base
+        return conDrive((token, alRenovar, ids) => google.crearReporte(token, alRenovar, {
+            plantillaId: (plantilla && 'id' in plantilla && plantilla.id) || ids.base, carpetaId: carpeta.id,
+            titulo: `Expediente ${nombre} ${local.fecha}`, campos: camposExpediente(cliente, datos, persona, fechaTexto), carpetaCliente: null
         }));
     }));
 

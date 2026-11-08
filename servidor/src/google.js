@@ -2,8 +2,11 @@
  * Google: inicio de sesión (OAuth 2.0 con código) y servicios con la cuenta de cada persona.
  *
  * Cada persona autoriza una vez; Google da un token de refresco que se guarda cifrado en la base.
- * Con él, el backend envía correos, crea eventos y reuniones y genera reportes A NOMBRE DE ESA PERSONA.
- * Como la app es "Interna" del Workspace de la empresa, Google no exige verificarla.
+ * Con él, el backend envía correos, crea eventos y reuniones A NOMBRE DE ESA PERSONA.
+ * La pantalla de consentimiento es "Externa" (parte del equipo usa cuentas @gmail.com personales), así que
+ * se piden los permisos mínimos: Drive solo con drive.file (los archivos que crea la propia app, nunca el
+ * resto del Drive de nadie). Las carpetas, plantillas, reportes y respaldos del CRM los crea y guarda la
+ * cuenta del Master (drive.js) y se comparten, como lectura, con quien puede ver cada cliente.
  *
  * Todo lo que habla con Google pasa por aquí: en las pruebas se sustituye por uno falso.
  */
@@ -20,8 +23,9 @@ export const PERMISOS = [
     'https://www.googleapis.com/auth/gmail.send',          // Enviar correos (no puede leerlos)
     'https://www.googleapis.com/auth/calendar.events',     // Crear eventos y reuniones de Meet
     'https://www.googleapis.com/auth/calendar.freebusy',   // Saber si una hora está ocupada (sin ver qué hay)
-    'https://www.googleapis.com/auth/drive',               // Plantilla de reporte, PDF y hoja de exportación (Sheets acepta este permiso)
-    'https://www.googleapis.com/auth/documents'            // Rellenar la copia de la plantilla
+    // Solo los archivos que crea la app: carpetas y plantillas del CRM, PDF, respaldos y la hoja de exportación.
+    // Docs y Sheets aceptan este permiso para esos archivos, así que no hace falta pedir 'documents' ni 'drive'
+    'https://www.googleapis.com/auth/drive.file'
 ];
 
 // Entrar con una cuenta personal: solo nombre, correo y foto. No necesitan verificación de Google, así que
@@ -102,6 +106,48 @@ export async function plantillaDeCasaEn(unidad, documentos, { carpetaId, casa, t
         throw error;
     }
     return { id: nuevo.data.id, enlace: nuevo.data.webViewLink || '', creada: true };
+}
+
+/**
+ * Lo que hace estructuraDrive con una unidad de Drive y Docs (separado para probarlo con unos falsos).
+ * nombres: { raiz, documentos, reportes, respaldos, plantillas }. La raíz va a "Mi unidad" de la cuenta; las
+ * demás, dentro de la raíz. La plantilla base (Docs) va en plantillas: el Master le da el diseño de la empresa
+ * y las de cada casa comercial se copian de ella.
+ */
+export async function estructuraEn(unidad, documentos, { previa = {}, nombres, textoBase, tituloBase }) {
+    const CARPETA = 'application/vnd.google-apps.folder';
+    const vigente = async (id) => {
+        if (!id || !/^[\w-]{10,200}$/.test(String(id))) return false;
+        try {
+            const r = await unidad.files.get({ fileId: id, fields: 'id, trashed', supportsAllDrives: true });
+            return !r.data.trashed;
+        } catch (error) {
+            if ([404, 403].includes(Number(error.code || error.status))) return false; // Borrada o ya no es de la app
+            throw error;
+        }
+    };
+    const carpeta = async (clave, padre) => {
+        if (await vigente(previa[clave])) return previa[clave];
+        const encontradas = await unidad.files.list({
+            q: [`mimeType = '${CARPETA}'`, 'trashed = false', `appProperties has { key = 'semencesCrm' and value = '${clave}' }`, padre ? `'${padre}' in parents` : '']
+                .filter(Boolean).join(' and '),
+            fields: 'files(id)', pageSize: 1, supportsAllDrives: true, includeItemsFromAllDrives: true
+        });
+        const existente = encontradas.data.files && encontradas.data.files[0];
+        if (existente) return existente.id;
+        const creada = await unidad.files.create({
+            supportsAllDrives: true, fields: 'id',
+            requestBody: { name: nombres[clave], mimeType: CARPETA, parents: padre ? [padre] : undefined, appProperties: { semencesCrm: clave } }
+        });
+        return creada.data.id;
+    };
+    const raiz = await carpeta('raiz', '');
+    const ids = { raiz };
+    for (const clave of ['documentos', 'reportes', 'respaldos', 'plantillas']) ids[clave] = await carpeta(clave, raiz);
+    const base = (await vigente(previa.base)) && previa.plantillas === ids.plantillas
+        ? { id: previa.base }
+        : await plantillaDeCasaEn(unidad, documentos, { carpetaId: ids.plantillas, casa: 'base', titulo: tituloBase, texto: textoBase, copiarDe: '' });
+    return { ...ids, base: base.id };
 }
 
 // Evento de día completo del CRM en Google Calendar: se reconoce por sus propiedades privadas (semencesOrigen y
@@ -262,17 +308,19 @@ export function crearGoogle(config) {
             return archivoDeDrive(r.data);
         },
 
-        // Carpeta de un cliente dentro de carpetaId (se crea la primera vez): { id, enlace }
-        async carpetaCliente(tokenRefresco, alRenovar, { carpetaId, carpetaCliente }) {
+        // Carpeta de un cliente dentro de carpetaId: { id, enlace }. Se crea la primera vez (con crear = false, si no
+        // existe devuelve null)
+        async carpetaCliente(tokenRefresco, alRenovar, { carpetaId, carpetaCliente, crear = true }) {
             const unidad = drive({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });
-            const id = await carpetaDelCliente(unidad, carpetaId, carpetaCliente);
-            return { id, enlace: `https://drive.google.com/drive/folders/${id}` };
+            const id = await carpetaDelCliente(unidad, carpetaId, carpetaCliente, crear);
+            return id ? { id, enlace: `https://drive.google.com/drive/folders/${id}` } : null;
         },
 
-        // Archivos de la carpeta de un cliente (los más nuevos primero); [] si todavía no tiene carpeta
+        // Archivos de la carpeta de un cliente (los más nuevos primero); [] si todavía no tiene carpeta. Sin
+        // carpetaCliente, los de carpetaId (que ya es la carpeta del cliente)
         async archivosDelCliente(tokenRefresco, alRenovar, { carpetaId, carpetaCliente }) {
             const unidad = drive({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });
-            const carpeta = await carpetaDelCliente(unidad, carpetaId, carpetaCliente, false);
+            const carpeta = carpetaCliente ? await carpetaDelCliente(unidad, carpetaId, carpetaCliente, false) : carpetaId;
             if (!carpeta) return [];
             const r = await unidad.files.list({
                 q: `'${carpeta}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
@@ -297,6 +345,26 @@ export function crearGoogle(config) {
         async borrarArchivo(tokenRefresco, alRenovar, id) {
             const unidad = drive({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });
             await unidad.files.delete({ fileId: id, supportsAllDrives: true });
+        },
+
+        /**
+         * Carpetas y plantilla base del CRM en el Drive de esta cuenta (la del Master), creadas por la app (drive.file
+         * solo ve lo que crea ella). previa: lo guardado ({ raiz, documentos, … }); lo que ya no existe o está en la
+         * papelera se busca por su marca (appProperties semencesCrm) y, si no aparece, se crea. Devuelve los ids.
+         */
+        async estructuraDrive(tokenRefresco, alRenovar, { previa = {}, nombres, textoBase, tituloBase }) {
+            const auth = autenticado(tokenRefresco, alRenovar);
+            const unidad = drive({ version: 'v3', auth });
+            return estructuraEn(unidad, docs({ version: 'v1', auth }), { previa, nombres, textoBase, tituloBase });
+        },
+
+        // Da acceso de lectura a una carpeta o archivo (sin correo de aviso de Google). Ya compartido: no cambia nada
+        async compartir(tokenRefresco, alRenovar, { id, email }) {
+            const unidad = drive({ version: 'v3', auth: autenticado(tokenRefresco, alRenovar) });
+            await unidad.permissions.create({
+                fileId: id, supportsAllDrives: true, sendNotificationEmail: false, fields: 'id',
+                requestBody: { type: 'user', role: 'reader', emailAddress: email }
+            });
         },
 
         // ----- Calendar: la agenda del CRM (seguimientos, tareas, trasplantes) en el calendario de cada persona -----
@@ -326,18 +394,18 @@ export function crearGoogle(config) {
                 .catch(e => { if (![404, 410].includes(Number(e.code || e.status))) throw e; }); // Ya no estaba
         },
 
-        /**
-         * Copia la plantilla, cambia {{campo}} por su valor, guarda el PDF y borra la copia.
-         * Con carpetaCliente ({ id, nombre }), el PDF va a la carpeta de ese cliente dentro de carpetaId,
-         * que se crea la primera vez. La carpeta se reconoce por el id del cliente guardado en sus
-         * propiedades (no por el nombre): renombrarla o renombrar al cliente no crea otra.
-         */
         // Plantilla de Docs del expediente de una casa comercial (plantillaDeCasaEn): la busca o la crea
         async plantillaDeCasa(tokenRefresco, alRenovar, opciones) {
             const auth = autenticado(tokenRefresco, alRenovar);
             return plantillaDeCasaEn(drive({ version: 'v3', auth }), docs({ version: 'v1', auth }), opciones);
         },
 
+        /**
+         * Copia la plantilla, cambia {{campo}} por su valor, guarda el PDF y borra la copia.
+         * Con carpetaCliente ({ id, nombre }), el PDF va a la carpeta de ese cliente dentro de carpetaId,
+         * que se crea la primera vez. La carpeta se reconoce por el id del cliente guardado en sus
+         * propiedades (no por el nombre): renombrarla o renombrar al cliente no crea otra.
+         */
         async crearReporte(tokenRefresco, alRenovar, { plantillaId, carpetaId, titulo, campos, carpetaCliente }) {
             const auth = autenticado(tokenRefresco, alRenovar);
             const unidad = drive({ version: 'v3', auth });
