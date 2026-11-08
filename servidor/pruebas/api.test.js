@@ -1355,6 +1355,23 @@ for (const base of BASES) {
             assert.deepEqual(delCliente[1].cambios, { telefono: ['8095550001', '8095550002'] }, 'campo a campo, solo lo que cambió');
             assert.equal(delCliente[2].cambios.nombre[0], 'Finca Auditada', 'lo borrado queda guardado');
 
+            // Botón "Editar" (visitas y procesos): corregir un dato es "modificar" el MISMO registro, con antes y después,
+            // nunca borrar y volver a crear (se perdería la trazabilidad)
+            const visita = { id: `vis-${id}`, clienteId: 'cli-docs', cliente: 'Finca Los Robles', pais: 'VE', casa: 'Fitó', fecha: '2026-11-05', estado: 'Bueno', comentarios: 'Riego por goteo' };
+            await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'visitas', registro: visita }] });
+            await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'visitas', registro: { ...visita, estado: 'Regular', comentarios: 'Riego por goteo; trips en el borde' } }] });
+            const proceso = { id: `pro-${id}`, clienteId: 'cli-docs', cliente: 'Finca Los Robles', pais: 'VE', casa: 'Fitó', lote: 'L-7', variedad: 'Tomate', proceso: 'Trasplante', fechaInicio: '2026-11-10' };
+            await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'agronomia', registro: proceso }] });
+            await accion(sesiones.ana, { accion: 'sincronizar', guardar: [{ modulo: 'agronomia', registro: { ...proceso, fechaInicio: '2026-11-12' } }] });
+            const deLaVisita = (await ultimas({ modulo: 'visitas', objeto: visita.id })).entradas.reverse();
+            assert.deepEqual(deLaVisita.map(e => e.accion), ['crear', 'modificar']);
+            assert.deepEqual(deLaVisita[1].cambios, { estado: ['Bueno', 'Regular'], comentarios: ['Riego por goteo', 'Riego por goteo; trips en el borde'] });
+            const delProceso = (await ultimas({ modulo: 'agronomia', objeto: proceso.id })).entradas.reverse();
+            assert.deepEqual(delProceso.map(e => e.accion), ['crear', 'modificar']);
+            assert.deepEqual(delProceso[1].cambios, { fechaInicio: ['2026-11-10', '2026-11-12'] });
+            const [[{ n }]] = await pool.query('SELECT COUNT(*) n FROM registros WHERE modulo = ? AND id = ?', ['visitas', visita.id]);
+            assert.equal(Number(n), 1, 'el mismo registro, no uno nuevo');
+
             // Sin permiso: quien no es Master no ve la auditoría, y el intento queda apuntado
             assert.equal((await accion(sesiones.luis, { accion: 'auditoria' })).estado, 403);
             const denegados = (await ultimas({ tipo: 'denegado', email: 'luis@semillasdata.com' })).entradas;

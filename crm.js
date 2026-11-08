@@ -127,6 +127,7 @@ const MODULOS_CRM = {
         pestana: 'Clientes',
         titulo: 'Registro de clientes',
         nuevo: 'Registrar cliente',
+        editar: 'Editar cliente',
         vacio: 'Todavía no hay clientes. Registra el primero: sus visitas, procesos y rendimientos quedarán en su expediente.',
         campos: [
             { id: 'nombre', etiqueta: 'Nombre', tipo: 'text', requerido: true, autocomplete: 'name' },
@@ -160,6 +161,7 @@ const MODULOS_CRM = {
         pestana: 'Visitas a finca',
         titulo: 'Visitas a clientes y fincas',
         nuevo: 'Registrar visita',
+        editar: 'Editar visita',
         vacio: 'Todavía no hay visitas registradas.',
         campos: [
             { id: 'clienteId', etiqueta: 'Cliente', tipo: 'cliente', requerido: true },
@@ -184,6 +186,7 @@ const MODULOS_CRM = {
         titulo: 'Procesos agronómicos',
         subtitulo: 'Agrupados por cliente y en orden de fechas: germinación, trasplante y cosecha de cada lote. Cada proceso se agenda en Google Calendar.',
         nuevo: 'Nuevo proceso',
+        editar: 'Editar proceso',
         vacio: 'Todavía no hay procesos. Registra una germinación, un trasplante o una cosecha.',
         agruparPorCliente: true,
         campos: [
@@ -218,6 +221,7 @@ const MODULOS_CRM = {
         pestana: 'Rendimiento',
         titulo: 'Rendimiento de parcelas',
         nuevo: 'Registrar rendimiento',
+        editar: 'Editar rendimiento',
         vacio: 'Todavía no hay rendimientos registrados.',
         campos: [
             { id: 'clienteId', etiqueta: 'Cliente', tipo: 'cliente' },
@@ -246,6 +250,7 @@ const MODULOS_CRM = {
         titulo: 'Envíos de semilla',
         subtitulo: 'Guías de DHL y FedEx que registra administración. Con el rastreo automático activado, el estado se actualiza solo; cuando cambia, se avisa al vendedor del cliente y, al registrarse, salir a reparto o entregarse, al plantulador.',
         nuevo: 'Registrar envío',
+        editar: 'Editar envío',
         vacio: 'Todavía no hay envíos registrados.',
         campos: [
             { id: 'clienteId', etiqueta: 'Cliente', tipo: 'cliente', requerido: true },
@@ -339,6 +344,7 @@ const MODULOS_CRM = {
         titulo: 'Germinador: lotes de plantulación',
         subtitulo: `Lotes en cámara y bandejas: variedad, germinación, clima de la cámara y trasplante previsto. Con germinación por debajo del ${UMBRAL_GERMINACION} % se avisa al equipo técnico del lote.`,
         nuevo: 'Registrar lote',
+        editar: 'Editar lote',
         vacio: 'Todavía no hay lotes en el germinador.',
         campos: [
             { id: 'clienteId', etiqueta: 'Cliente', tipo: 'cliente', requerido: true },
@@ -875,14 +881,16 @@ class CRM {
                     abrir.addEventListener('click', () => window.cotizador.abrir({ id: registro.id }));
                     acciones.appendChild(abrir);
                 }
-                // Pedidos: se editan (confirmar uno Cotizado, la recompra de la nueva temporada, la plantulación…)
-                if (modulo === 'pedidos') {
+                // Editar en el sitio (clientes, visitas, procesos, rendimientos, germinador, envíos y pedidos): corregir un
+                // dato nunca obliga a borrar y volver a crear; el servidor apunta cada cambio (campo, antes y después) en
+                // la cadena de auditoría. Una ficha compartida (de otra casa) no es suya: no se edita
+                if (def.editar && !(modulo === 'clientes' && registro.compartida)) {
                     const editar = document.createElement('button');
                     editar.type = 'button';
                     editar.className = 'btn-texto';
                     editar.textContent = 'Editar';
-                    editar.setAttribute('aria-label', `Editar el pedido de ${registro.cliente || ''} · ${registro.variedad || ''}`);
-                    editar.addEventListener('click', () => this.abrirFormulario('pedidos', registro, null, { editar: registro }));
+                    editar.setAttribute('aria-label', `${def.editar}: ${columnas[0].valor(registro) || ''}${registro.cliente && modulo !== 'clientes' ? ` · ${registro.cliente}` : ''}`);
+                    editar.addEventListener('click', () => this.abrirFormulario(modulo, registro, null, { editar: registro }));
                     acciones.appendChild(editar);
                 }
                 // Ficha compartida (cliente de otra casa de su país): se ve para no duplicarlo, pero no es suya
@@ -968,7 +976,8 @@ class CRM {
                     }
                     bloque.append(cab, this.construirTabla(modulo, [...filas].sort(def.ordenar), {
                         titulo: `Procesos de ${h3.textContent}`,
-                        dentroDeCliente: true
+                        dentroDeCliente: true,
+                        conAcciones: !soloLectura(modulo)
                     }));
                     contenido.appendChild(bloque);
                 });
@@ -1386,6 +1395,13 @@ class CRM {
             selector.addEventListener('change', () => this.cambiarEtapa(clienteId, selector.value, estado));
             fila.append(nombre, selector, estado);
             textos.appendChild(fila);
+            // Corregir la ficha aquí mismo (teléfono, ubicación, casa…), sin borrarla: queda en la auditoría
+            const editarFicha = document.createElement('button');
+            editarFicha.type = 'button';
+            editarFicha.className = 'btn-texto expediente-editar';
+            editarFicha.textContent = 'Editar ficha';
+            editarFicha.addEventListener('click', () => this.abrirFormulario('clientes', cliente, () => this.abrirExpediente(clienteId), { editar: cliente }));
+            textos.appendChild(editarFicha);
         }
         cab.append(textos, cerrar);
         caja.appendChild(cab);
@@ -1705,13 +1721,13 @@ class CRM {
         const guardar = document.createElement('button');
         guardar.type = 'submit';
         guardar.className = 'btn-primary';
-        guardar.textContent = modulo === 'agronomia' ? 'Guardar y agendar' : 'Guardar';
+        guardar.textContent = editar ? 'Guardar cambios' : modulo === 'agronomia' ? 'Guardar y agendar' : 'Guardar';
         acciones.append(cancelar, guardar);
         form.appendChild(acciones);
 
         form.addEventListener('submit', (e) => {
             e.preventDefault();
-            if (!this.validar(modulo, form)) return;
+            if (!this.validar(modulo, form, editar)) return;
             this.guardar(modulo, form, editar);
             terminar();
         });
@@ -1985,7 +2001,8 @@ class CRM {
         control.removeAttribute('aria-invalid');
     }
 
-    validar(modulo, form) {
+    // editando: el registro que se corrige (no choca consigo mismo, p. ej. el nombre del cliente)
+    validar(modulo, form, editando = null) {
         let primero = null;
         const fallo = (control, mensaje) => {
             this.mostrarError(control, mensaje);
@@ -2028,7 +2045,7 @@ class CRM {
         }
         if (modulo === 'clientes') {
             const nombre = normalizar(form.elements.nombre.value);
-            if (nombre && this.datos.clientes.some(c => normalizar(c.nombre) === nombre)) {
+            if (nombre && this.datos.clientes.some(c => normalizar(c.nombre) === nombre && !(editando && c.id === editando.id))) {
                 fallo(form.elements.nombre, 'Ya hay un cliente con ese nombre.');
             }
         }
@@ -2065,9 +2082,12 @@ class CRM {
             window.alert('El navegador no permite guardar datos en este momento: el registro se perderá al cerrar la página.');
         }
 
+        // Al editar, lo que va a Google Calendar solo se repite si cambió su fecha (si no, quedaría duplicado)
+        const cambio = (...campos) => !base || campos.some(c => String(base[c] ?? '') !== String(registro[c] ?? ''));
+
         // Cliente con próximo seguimiento: recordatorio en Google Calendar (9:00 a 9:30 de ese día).
         // Con el backend, antes se mira si esa hora ya está ocupada (se agenda igual, pero se avisa)
-        if (modulo === 'clientes' && registro.seguimiento && this.google) {
+        if (modulo === 'clientes' && registro.seguimiento && this.google && cambio('seguimiento')) {
             const agendar = () => this.google.agendarCalendar({
                 titulo: `Seguimiento · ${registro.nombre}`,
                 inicio: fechaLocal(registro.seguimiento, 9).toISOString(),
@@ -2082,7 +2102,7 @@ class CRM {
         }
 
         // Procesos agronómicos: se agendan en Google Calendar (de 8:00 a 17:00 del último día)
-        if (modulo === 'agronomia' && this.google) {
+        if (modulo === 'agronomia' && this.google && cambio('fechaInicio', 'fechaFin', 'proceso')) {
             const inicio = fechaLocal(registro.fechaInicio, 8);
             const fin = registro.fechaFin ? fechaLocal(registro.fechaFin, 17) : fechaLocal(registro.fechaInicio, 8, 30);
             this.google.agendarCalendar({
