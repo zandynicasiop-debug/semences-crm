@@ -842,6 +842,14 @@ El equipo le contesta a Borja (WhatsApp o chat de la app) con órdenes cortas: `
 | Viernes: los seguimientos cerrados con LISTO entran solos (las tareas y visitas ya entraban) | `pedidos.js › actividadesDelCrm` |
 | Esquema: `usuarios.borja_estado` (JSON) y `usuarios.comandos_whatsapp` (sin tablas nuevas) | `db.js` |
 
-Queda para B2: `AGENDAR` (FreeBusy + Calendar), `ESTADO EQUIPO` / `RESUMEN GLOBAL` para el Master y el marcador
-`{{bitacora}}` en el expediente PDF.
+### B2
+
+| Pieza | Dónde |
+|---|---|
+| `AGENDAR`: lector de fechas en español de la agenda del CEO (`interpretarCuando`), FreeBusy y evento en el Calendar de la persona (`conGoogle` con SU token); enlaza el cliente si lo nombra (seguimiento en esa fecha, por `ACCIONES.crm`) y pregunta si nombra a varios | `borja.js › agendar` |
+| `ESTADO EQUIPO` / `RESUMEN GLOBAL`, solo Master: el mismo cálculo que la Torre de control, con nombres de quién tiene el reporte bloqueado y atrasos | `panelCeo.js › pulsoDelEquipo, textoPulsoBorja` |
+| `{{bitacora}}` en el expediente PDF (Reunión y "Reporte PDF en Drive"), con fecha y autor, las 40 últimas; no se regenera el PDF en cada nota | `flujos.js › camposExpediente, textoBitacora`, `drive.js › textoPlantilla`, `acciones.js › reporte` |
+
+Las plantillas de cada casa que ya existan en Drive no tienen `{{bitacora}}`: el Master añade la línea en Docs (las
+nuevas y la plantilla base ya la traen).
 

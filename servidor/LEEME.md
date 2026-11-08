@@ -283,7 +283,9 @@ El equipo le contesta a Borja por **WhatsApp** (desde el número de su cuenta ap
 | `RESUMEN` (o `PENDIENTES`, `AGENDA`) | Su resumen de ahora, con las tareas y los seguimientos de clientes **numerados** |
 | `LISTO 2` (o `HECHO 2`, `LISTO visita Constanza`) | Marca hecho ese pendiente: la tarea, o el seguimiento (se borra la fecha y queda «Seguimiento hecho» en la bitácora). Entra en el reporte del viernes |
 | `VISITA Finca X (regular): nota` | Visita de hoy a ese cliente. Sin el estado del cultivo entre paréntesis, Borja pregunta 1) Bueno 2) Regular 3) Plagas 4) Estrés hídrico 5) Listo para cosecha |
-| `NOTA Finca X: texto` | Una entrada en la **bitácora** del cliente (sale en su expediente; no cambia la etapa) |
+| `NOTA Finca X: texto` | Una entrada en la **bitácora** del cliente (sale en su expediente y en el PDF con `{{bitacora}}`; no cambia la etapa) |
+| `AGENDAR Finca X el jueves a las 10` | Cita en **su** Google Calendar (mira antes si esa hora está ocupada y lo avisa; sin hora, todo el día). Si nombra a un cliente suyo, su próximo seguimiento queda en esa fecha; si nombra a varios, pregunta cuál. Sin Calendar conectado, se lo dice y le explica cómo conectarlo |
+| `ESTADO EQUIPO` (o `RESUMEN GLOBAL`) | Solo el **Master**: el pulso de RD y VE (ventas confirmadas del mes en US$, cotizaciones abiertas, pedidos por cerrar, clientes en Reunión, dormidos, seguimientos atrasados, tareas vencidas y quién tiene el reporte semanal bloqueado). Las mismas cifras que la Torre de control |
 | `AYUDA` | El menú. BAJA / ALTA siguen siendo las del consentimiento |
 
 - **Nada se adivina:** si el nombre coincide con varios clientes de su país y sus casas, Borja pregunta cuál con números. Nunca toca fichas compartidas de otra casa.

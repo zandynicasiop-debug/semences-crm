@@ -15,7 +15,7 @@ class ChatBorja {
         window.addEventListener('load', () => setTimeout(() => {
             if (!window.accesos) return;
             this.panel = crearPanelLateral('panel-borja', 'Borja');
-            this.panel.nota.textContent = 'Lo mismo que por WhatsApp: pídele tu resumen, marca pendientes, registra visitas y notas.';
+            this.panel.nota.textContent = 'Lo mismo que por WhatsApp: pídele tu resumen, marca pendientes, registra visitas y notas, agenda citas.';
             this.montar();
             window.accesos.registrar({ id: 'borja', titulo: 'Borja', icono: 'borja', controla: 'panel-borja', backend: true, alPulsar: () => this.alternar() });
         }));

@@ -143,6 +143,54 @@ export function textoConsolidado(/** @type {ReturnType<typeof consolidado>} */ r
 }
 
 /**
+ * El pulso del equipo ahora: el consolidado de RD y VE (el mismo de la Torre de control), quién tiene el reporte semanal
+ * bloqueado y los atrasos. Lo usan la Torre de control (resumenGlobal) y Borja (ESTADO EQUIPO / RESUMEN GLOBAL).
+ * @param {{ pool: any, config: any }} contexto @param {Date} [ahora]
+ */
+export async function pulsoDelEquipo({ pool, config }, ahora = new Date()) {
+    const hoy = enZona(ahora, config.zonaHoraria).fecha;
+    const todo = /** @type {Record<string, any[]>} */ (await db.listarTodo(pool));
+    /** @type {Record<string, number>} */
+    const bloqueados = {};
+    /** @type {{ nombre: string, paises: string[] }[]} */
+    const quienes = [];
+    for (const p of await equipo(pool, config)) {
+        if (!(await semanaBloqueada(pool, config, p, ahora))) continue;
+        const paises = ambitoDe(p, config).paises;
+        quienes.push({ nombre: String(p.nombre || p.email), paises });
+        for (const pais of paises) bloqueados[pais] = (bloqueados[pais] || 0) + 1;
+    }
+    const r = consolidado(todo, hoy, bloqueados);
+    /** @type {Record<string, number>} */
+    const seguimientosAtrasados = Object.fromEntries(PAISES.map(p => [p, 0]));
+    for (const c of todo.clientes || []) if (c.seguimiento && c.seguimiento < hoy && c.pais in seguimientosAtrasados) seguimientosAtrasados[c.pais]++;
+    const tareasVencidas = (todo.tareas || []).filter((/** @type {any} */ t) => !t.hecha && t.vence && t.vence < hoy).length;
+    return { hoy, r, texto: textoConsolidado(r), bloqueados: quienes, seguimientosAtrasados, tareasVencidas };
+}
+
+/**
+ * El pulso para leerlo en el chat (WhatsApp o la app), por país y con las alertas de atraso y bloqueo al final
+ * @param {Awaited<ReturnType<typeof pulsoDelEquipo>>} pulso
+ */
+export function textoPulsoBorja({ hoy, r, bloqueados, seguimientosAtrasados, tareasVencidas }) {
+    const [anio, mes, dia] = hoy.split('-');
+    const bloque = (/** @type {string} */ nombre, /** @type {any} */ c, /** @type {string} */ pais) => [
+        nombre,
+        `• Ventas confirmadas del mes: ${usd(c.ventasUsd)} (${c.ventasMiles.toLocaleString('es-DO')} mil semillas, ${c.pedidosVenta} pedido${c.pedidosVenta === 1 ? '' : 's'})`,
+        `• Cotizaciones abiertas: ${c.cotizacionesAbiertas} (${usd(c.cotizacionesUsd)}) · pedidos por cerrar: ${c.pedidosPorCerrar} (${usd(c.pedidosPorCerrarUsd)})`,
+        `• Clientes en Reunión: ${c.clientesEnReunion} · dormidos: ${c.dormidos} · recompras vencidas: ${c.recomprasVencidas}`,
+        `• Seguimientos atrasados: ${seguimientosAtrasados[pais] || 0}`
+    ].join('\n');
+    const alertas = [
+        bloqueados.length
+            ? `⛔ Reporte semanal sin entregar (app bloqueada): ${bloqueados.map(b => `${b.nombre} (${b.paises.join(', ')})`).join(', ')}`
+            : '✅ Todo el equipo entregó el reporte semanal',
+        tareasVencidas ? `⏰ Tareas vencidas en el equipo: ${tareasVencidas}` : ''
+    ].filter(Boolean);
+    return [`📊 Pulso del equipo · ${Number(dia)}/${Number(mes)}/${anio}`, bloque('🇩🇴 RD', r.paises.RD, 'RD'), bloque('🇻🇪 Venezuela', r.paises.VE, 'VE'), alertas.join('\n')].join('\n\n');
+}
+
+/**
  * @param {any} datos
  * @param {any} contexto
  * @param {{ errorApp: (mensaje: string, estado?: number, codigo?: string) => Error }} herramientas
@@ -285,15 +333,7 @@ export async function accionPanelCeo(datos, contexto, { errorApp }) {
     }
 
     if (op === 'resumenGlobal') {
-        const todo = await db.listarTodo(pool);
-        /** @type {Record<string, number>} */
-        const bloqueados = {};
-        for (const p of await equipo(pool, config)) {
-            if (!(await semanaBloqueada(pool, config, p, ahora))) continue;
-            for (const pais of ambitoDe(p, config).paises) bloqueados[pais] = (bloqueados[pais] || 0) + 1;
-        }
-        const r = consolidado(todo, hoy, bloqueados);
-        const texto = textoConsolidado(r);
+        const { r, texto } = await pulsoDelEquipo(contexto, ahora);
         const enviadoPor = [];
         if (datos.enviar) {
             await registrarAviso(pool, [usuario.id], 'meta', texto.replace(/^📊\s*/, '').replace(/\n/g, ' · '));

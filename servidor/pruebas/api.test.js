@@ -1527,7 +1527,7 @@ for (const base of BASES) {
                 const pdfCliente = google.llamadas.filter(l => l.tipo === 'reporte').pop();
                 assert.equal(pdfCliente.token, 'refresco-jefa');
                 assert.deepEqual([pdfCliente.datos.titulo, pdfCliente.datos.carpetaId, pdfCliente.datos.plantillaId], ['Visita a finca', 'carpeta-cli-docs', google.plantillas['Fitó'].id]);
-                assert.deepEqual(pdfCliente.datos.campos, { cliente: 'Finca Los Robles', pais: 'Venezuela', casa: 'Fitó' });
+                assert.deepEqual(pdfCliente.datos.campos, { cliente: 'Finca Los Robles', pais: 'Venezuela', casa: 'Fitó', bitacora: 'Sin notas' });
                 // Sin cliente: a "Reportes", desde la base, y se comparte el PDF con quien lo pidió
                 await accion(sesiones.ana, { accion: 'reporte', titulo: 'Resumen', campos: { fecha: '3/11' } });
                 const suelto = google.llamadas.filter(l => l.tipo === 'reporte').pop();
@@ -2486,6 +2486,75 @@ for (const base of BASES) {
             const auto = actividadesDelCrm(datos, 'bruno@semillasdata.com', { lunes: hoy, domingo: hoy }, (iso) => enZona(new Date(iso), config.zonaHoraria).fecha);
             assert.ok(auto.some(a => a.titulo === 'Seguimiento a Agro Constanza' && a.estado === 'Completada'));
             assert.equal(auto.filter(a => a.id.startsWith('auto:visita:')).length, 2);
+        });
+
+        test('Borja bidireccional (B2): AGENDAR en el Calendar de la persona, ESTADO EQUIPO solo para el Master y {{bitacora}} en el PDF', async () => {
+            const hoy = enZona(new Date(), config.zonaHoraria).fecha;
+            const manana = enZona(new Date(Date.now() + 86400000), config.zonaHoraria).fecha;
+            const borja = async (sesion, texto) => (await accion(sesion, { accion: 'borja', texto })).json.respuesta;
+            await pool.query("UPDATE usuarios SET borja_estado = NULL WHERE email = 'bruno@semillasdata.com'"); // La prueba anterior lo dejó en el límite
+            // Bruno no conectó Google: el seguimiento queda en el CRM y Borja le dice cómo conectar Calendar
+            let r = await borja(sesiones.bruno, 'AGENDAR Agro Constanza mañana a las 10');
+            assert.match(r, /Dejé el próximo seguimiento de Agro Constanza para el .* a las 10:00 en el CRM, pero no puedo ponerlo en tu Google Calendar/);
+            assert.match(r, /Tu cuenta › «Conectar Gmail, Calendar y Drive»/);
+            const datosB = (await accion(sesiones.jefa, { accion: 'sincronizar' })).json.datos;
+            assert.equal(datosB.clientes.find(c => c.id === 'bj-3').seguimiento, manana);
+            assert.match(await borja(sesiones.bruno, 'AGENDAR Agro Constanza'), /¿Para cuándo\?/);
+            assert.match(await borja(sesiones.bruno, 'AGENDAR Agro Constanza el 1/1/2020 a las 9'), /ya pasó/);
+
+            // Cami sí tiene Calendar: FreeBusy (avisa si ya tenía algo) y el evento en SU calendario, enlazado al cliente
+            google.identidades['codigo-cami'] = { email: 'cami@semillasdata.com', verificado: true, dominio: 'semillasdata.com', nombre: 'Cami', foto: '', tokenRefresco: 'r-cami', permisos: 'openid email https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.freebusy' };
+            sesiones.cami = (await entrarComo('codigo-cami')).json.sesion;
+            await accion(sesiones.jefa, { accion: 'accesos', operacion: 'aprobar', email: 'cami@semillasdata.com', cargo: 'vendedor', paises: ['RD'], casas: ['Gautier Semences'] });
+            const eventosAntes = google.llamadas.filter(l => l.tipo === 'evento').length;
+            r = await borja(sesiones.cami, 'AGENDAR visita a Finca Juan Pérez mañana a las 3 pm por 45 min');
+            assert.match(r, /📅 Agendado en tu Google Calendar: «visita a Finca Juan Pérez», .* a las 15:00\./);
+            assert.match(r, /ya tenías algo a esa hora/);
+            assert.match(r, /El próximo seguimiento de Finca Juan Pérez quedó para esa fecha/);
+            const evento = google.llamadas.filter(l => l.tipo === 'evento').slice(eventosAntes)[0];
+            assert.equal(evento.token, 'r-cami');
+            assert.equal(evento.conMeet, false);
+            assert.deepEqual(evento.evento.extendedProperties.private, { semencesOrigen: 'borja', semencesCliente: 'bj-1' });
+            assert.equal((new Date(evento.evento.end.dateTime) - new Date(evento.evento.start.dateTime)) / 60000, 45);
+            assert.equal(enZona(new Date(evento.evento.start.dateTime), config.zonaHoraria).hora, 15);
+            // Nombra a dos clientes: pregunta con cuál; una cita sin cliente va suelta, todo el día si no hay hora
+            r = await borja(sesiones.cami, 'AGENDAR Finca Juan Pérez y Finca Juan Gómez el viernes');
+            assert.match(r, /¿Con cuál de estos clientes\?\n1\) Finca Juan Gómez/);
+            assert.match(await borja(sesiones.cami, '1'), /Agendado en tu Google Calendar.*todo el día[\s\S]*seguimiento de Finca Juan Gómez/);
+            assert.match(await borja(sesiones.cami, 'AGENDAR comité de ventas pasado mañana'), /Agendado en tu Google Calendar: «comité de ventas», .*todo el día\.$/);
+            const suelto = google.llamadas.filter(l => l.tipo === 'evento').at(-1).evento;
+            assert.deepEqual(suelto.extendedProperties.private, { semencesOrigen: 'borja' });
+            assert.ok(suelto.start.date && !suelto.start.dateTime);
+
+            // ESTADO EQUIPO: solo el Master, con el mismo pulso que la Torre de control
+            assert.match(await borja(sesiones.cami, 'estado equipo'), /solo para la dirección/);
+            r = await borja(sesiones.jefa, 'Resumen global');
+            assert.match(r, /^📊 Pulso del equipo · /);
+            assert.match(r, /🇩🇴 RD\n• Ventas confirmadas del mes: US\$ [\d,.]+ \([\d,.]+ mil semillas, \d+ pedidos?\)/);
+            assert.match(r, /🇻🇪 Venezuela\n• Ventas confirmadas del mes/);
+            assert.match(r, /Clientes en Reunión: \d+/);
+            assert.match(r, /Seguimientos atrasados: \d+/);
+            assert.match(r, /(⛔ Reporte semanal sin entregar \(app bloqueada\): |✅ Todo el equipo entregó)/);
+            const global = (await accion(sesiones.jefa, { accion: 'panelCeo', operacion: 'resumenGlobal' })).json;
+            assert.ok(r.includes(`Clientes en Reunión: ${global.paises.RD.clientesEnReunion}`), 'las mismas cifras que la Torre de control');
+            assert.match(await borja(sesiones.jefa, 'ayuda'), /ESTADO EQUIPO/);
+            assert.doesNotMatch(await borja(sesiones.cami, 'ayuda'), /ESTADO EQUIPO/);
+
+            // {{bitacora}}: el expediente PDF lleva las notas acumuladas (por Borja o la web) cuando se genera
+            const original = config.workspace;
+            config.workspace = { ...original, cuentaSistema: 'jefa@gmail.com' };
+            try {
+                assert.equal((await accion(sesiones.cami, { accion: 'reporte', titulo: 'Expediente', campos: { cliente: 'Finca Juan Pérez' }, cliente: { id: 'bj-1' } })).estado, 200);
+                const campos = google.llamadas.filter(l => l.tipo === 'reporte').at(-1).datos.campos;
+                assert.match(campos.bitacora, new RegExp(`^${hoy.split('-').reverse().join('/')} · Bruno Díaz: pidió precio de tomate`, 'm'));
+                const plantilla = google.llamadas.filter(l => l.tipo === 'plantilla').at(-1);
+                assert.match(plantilla.datos.texto, /Bitácora\n\{\{bitacora\}\}/);
+            } finally {
+                config.workspace = original;
+            }
+            const [ordenes] = await pool.query("SELECT resumen FROM auditoria WHERE accion = 'borja' AND email IN ('cami@semillasdata.com', 'jefa@gmail.com') ORDER BY id");
+            assert.ok(ordenes.some(o => /agendar «visita a Finca Juan Pérez» .* 15:00 \(Finca Juan Pérez\)/.test(o.resumen)));
+            assert.ok(ordenes.some(o => /estado del equipo/.test(o.resumen)));
         });
 
         test('latido del Cron de cPanel: despierta, hace la vuelta pendiente y avisa UNA vez a los Master de cada flujo fallido', async () => {

@@ -65,6 +65,9 @@ export function textoPlantilla(casa) {
         'Rendimientos',
         '{{rendimientos}}',
         '',
+        'Bitácora',
+        '{{bitacora}}',
+        '',
         'Preparado por {{responsable}} el {{fecha}}.',
         ''
     ].join('\n');

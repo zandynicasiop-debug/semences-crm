@@ -16,7 +16,7 @@ import { normalizarTelefono, suscripcionValida } from './avisos.js';
 import { errorApp, conGoogle } from './llamadasGoogle.js';
 import { encolar, estadoCola } from './cola.js';
 import { emitirEventosDeCambios, emitirEvento } from './eventos.js';
-import { REGLAS } from './flujos.js';
+import { REGLAS, textoBitacora } from './flujos.js';
 import { enZona } from './fechas.js';
 import { darBienvenida } from './bienvenida.js';
 import { sincronizarAgenda, respaldar, documentoValido, avisarPorCorreo, enSegundoPlano } from './workspace.js';
@@ -32,7 +32,7 @@ import { registrarAviso, accionAvisos, avisosSinLeer } from './campana.js';
 import { accionReunion } from './reuniones.js';
 import { accionMetas } from './metas.js';
 import { accionAjustes } from './campo.js';
-import { accionPanelCeo } from './panelCeo.js';
+import { accionPanelCeo, pulsoDelEquipo, textoPulsoBorja } from './panelCeo.js';
 import { auditar, diferencias, quienDe, accionAuditoria } from './auditoria.js';
 
 export { errorApp, conGoogle }; // (en llamadasGoogle.js; se reexportan aquí como antes)
@@ -213,7 +213,11 @@ export const conEventos = ({ usuario, config, red, ambito }) => ({
  * @param {any} contexto { pool, config, google, avisos } @param {any} persona @param {string} texto @param {any} [opciones]
  */
 export function atenderOrdenBorja(contexto, persona, texto, opciones = {}) {
-    return atenderBorja({ ...contexto, ACCIONES, conEventos, prepararResumen: textoResumenAhora }, persona, texto, opciones);
+    return atenderBorja({
+        ...contexto, ACCIONES, conEventos, prepararResumen: textoResumenAhora,
+        // ESTADO EQUIPO (solo Master): el mismo pulso que la Torre de control
+        pulso: async (/** @type {any} */ c) => textoPulsoBorja(await pulsoDelEquipo(c))
+    }, persona, texto, opciones);
 }
 
 export const ACCIONES = {
@@ -366,6 +370,8 @@ export const ACCIONES = {
             // Lo que la plantilla de la casa pide y la app no manda (país y casa) sale de la ficha
             if (campos.pais === undefined) campos.pais = NOMBRE_PAIS[ficha.pais] || ficha.pais || '';
             if (campos.casa === undefined) campos.casa = ficha.casa || '';
+            // {{bitacora}}: las notas acumuladas (por Borja o la web) entran cuando se genera el PDF, no en cada nota
+            if (campos.bitacora === undefined) campos.bitacora = textoBitacora(ficha.bitacora);
             if (CASAS.includes(ficha.casa)) plantillaId = (await plantillaDeCasa(contexto, ficha.casa)).id;
         }
         const archivo = await crearReporteDelCrm(contexto, { plantillaId, titulo, campos, cliente, para: contexto.usuario.email });

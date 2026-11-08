@@ -293,6 +293,17 @@ describe('Borja bidireccional (borja.js)', () => {
         assert.equal(interpretarBorja('').tipo, 'ayuda');
     });
 
+    test('{{bitacora}} del expediente PDF: en orden, con fecha y autor, las 40 últimas', async () => {
+        const { textoBitacora } = await import('../src/flujos.js');
+        assert.equal(textoBitacora(undefined), 'Sin notas');
+        assert.equal(textoBitacora([
+            { id: 'b', fecha: '2026-11-08T15:00:00Z', autor: 'Bruno', texto: 'Seguimiento\nhecho' },
+            { id: 'a', fecha: '2026-11-07T09:00:00Z', autor: 'Teo', texto: 'Trips en el borde' }
+        ]), '07/11/2026 · Teo: Trips en el borde\n08/11/2026 · Bruno: Seguimiento hecho');
+        const muchas = Array.from({ length: 45 }, (_, i) => ({ id: String(i), fecha: `2026-10-${String(i % 28 + 1).padStart(2, '0')}T0${i % 10}:00:00Z`, autor: 'A', texto: `n${i}` }));
+        assert.equal(textoBitacora(muchas).split('\n').length, 40);
+    });
+
     test('bitácora: solo crece (une por id, en orden de fecha) y la lista del resumen se numera con lo visible', async () => {
         const { unirBitacora, numerarSecciones } = await import('../src/borja.js');
         const a = { id: 'a', fecha: '2026-11-08T10:00:00Z', autor: 'Ana', texto: 'uno' };

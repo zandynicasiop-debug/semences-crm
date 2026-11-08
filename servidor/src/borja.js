@@ -10,6 +10,10 @@
  *   VISITA Finca X (regular): nota    visita de hoy a ese cliente; sin el estado del cultivo entre paréntesis, Borja lo
  *                                     pregunta (1 a 5) antes de guardar
  *   NOTA Finca X: texto               una entrada en la bitácora del cliente (no cambia su etapa)
+ *   AGENDAR Finca X el jueves a las 10
+ *                                     cita en SU Google Calendar (mira antes si esa hora está ocupada); si nombra a un
+ *                                     cliente suyo, su próximo seguimiento queda en esa fecha
+ *   ESTADO EQUIPO (o RESUMEN GLOBAL)  solo el Master: el pulso de RD y VE (ventas, cotizaciones, Reunión, atrasos)
  *
  * Reglas:
  * - Nada se adivina: si el nombre coincide con varios clientes de su ámbito, Borja pregunta cuál (con números); si no
@@ -25,8 +29,10 @@
 import crypto from 'node:crypto';
 import * as db from './db.js';
 import { ambitoDe, filtrarDatos, puedeEscribir, dentroDelAmbito } from './permisos.js';
-import { enZona } from './fechas.js';
+import { enZona, inicioDelDia, sumarDias } from './fechas.js';
 import { auditar } from './auditoria.js';
+import { interpretarCuando } from './agendaCeo.js';
+import { conGoogle } from './llamadasGoogle.js';
 
 export const ESTADOS_CULTIVO = ['Bueno', 'Regular', 'Con plagas o enfermedades', 'Estrés hídrico', 'Listo para cosecha'];
 export const MAX_ORDENES_HORA = 30;
@@ -39,8 +45,11 @@ export const MENU = [
     '• RESUMEN: tus pendientes de hoy, numerados',
     '• LISTO 2: marcar hecho el pendiente número 2',
     '• VISITA Finca X (regular): lo que viste',
-    '• NOTA Finca X: texto para su bitácora'
+    '• NOTA Finca X: texto para su bitácora',
+    '• AGENDAR Finca X el jueves a las 10: cita en tu Google Calendar'
 ].join('\n');
+export const MENU_MASTER = `${MENU}\n• ESTADO EQUIPO: el pulso de RD y VE`;
+export const COMO_CONECTAR = 'Conéctalo en la app: toca tu nombre arriba › Tu cuenta › «Conectar Gmail, Calendar y Drive».';
 
 export const PREGUNTA_CULTIVO = ESTADOS_CULTIVO.map((e, i) => `${i + 1}) ${e}`).join('  ');
 
@@ -185,7 +194,7 @@ const ahoraIso = () => new Date().toISOString();
  * Atiende un mensaje de una persona del equipo. canal: 'whatsapp' | 'app'; idMensaje: el id de Meta (evita atender
  * dos veces el mismo mensaje si Meta lo reenvía). Devuelve { respuesta } (null = no contestar) y, para las pruebas y
  * la auditoría, { orden }.
- * @param {{ pool: any, config: any, google?: any, avisos?: any, ACCIONES: any, conEventos: Function, prepararResumen: Function }} contexto
+ * @param {{ pool: any, config: any, google?: any, avisos?: any, ACCIONES: any, conEventos: Function, prepararResumen: Function, pulso: Function }} contexto
  * @param {any} persona fila de usuarios
  * @param {string} texto
  * @param {{ canal?: 'whatsapp' | 'app', idMensaje?: string, ahora?: Date }} [opciones]
@@ -282,10 +291,69 @@ export async function atenderBorja(contexto, persona, texto, { canal = 'app', id
     /** Lo que se hace con el cliente ya elegido */
     const conCliente = async (/** @type {any} */ cliente, /** @type {any} */ siguiente) => {
         if (siguiente.accion === 'nota') { await guardar({ pendiente: null }); return guardarNota(cliente, siguiente.nota); }
+        if (siguiente.accion === 'agendar') { await guardar({ pendiente: null }); return agendar(cliente, siguiente.cita); }
         if (siguiente.estado) { await guardar({ pendiente: null }); return registrarVisita(cliente, siguiente.nota, siguiente.estado); }
         // Visita sin el estado del cultivo: se pregunta antes de guardar (no se inventa)
         await guardar({ pendiente: { tipo: 'cultivo', fecha: hoy, creado: ahora.getTime(), cliente: { id: cliente.id, nombre: cliente.nombre, pais: cliente.pais, casa: cliente.casa, ubicacion: cliente.ubicacion || '' }, nota: siguiente.nota } });
         return `¿Cómo está el cultivo en ${cliente.nombre}? Responde con el número:\n${PREGUNTA_CULTIVO}`;
+    };
+
+    // Fecha legible: "jueves 12/11 a las 10:00" (o "el 12/11, todo el día")
+    const cuandoTexto = (/** @type {string} */ fecha, /** @type {string | null} */ hora) => {
+        const dia = new Date(`${fecha}T12:00:00Z`).toLocaleDateString('es-DO', { weekday: 'long', day: 'numeric', month: 'numeric', timeZone: 'UTC' });
+        return hora ? `${dia} a las ${hora}` : `${dia}, todo el día`;
+    };
+    // ¿Puede usar su Google Calendar? (conectó Google con el permiso de eventos; sin la lista de permisos, se intenta)
+    const conCalendar = () => Boolean(persona.token_google) && (!persona.permisos_google || /calendar\.events/.test(String(persona.permisos_google)));
+
+    /** AGENDAR: cita en su Calendar y, si es de un cliente suyo, su próximo seguimiento @type {(cliente: any, cita: any) => Promise<string>} */
+    const agendar = async (cliente, cita) => {
+        const partes = [];
+        // El seguimiento del cliente en el CRM (si puede editar su ficha), por el camino de la web
+        let seguimiento = false;
+        if (cliente) {
+            const ficha = await db.leerRegistro(pool, 'clientes', cliente.id);
+            if (ficha && puedeEscribir(ambito, 'clientes', ficha)) {
+                await contexto.ACCIONES.crm({ modulo: 'clientes', registro: { ...ficha, seguimiento: cita.fecha } }, como);
+                seguimiento = true;
+            }
+        }
+        if (!conCalendar()) {
+            partes.push(`${seguimiento ? `Dejé el próximo seguimiento de ${cliente.nombre} para el ${cuandoTexto(cita.fecha, cita.hora)} en el CRM, pero n` : 'N'}o puedo ponerlo en tu Google Calendar: no lo tienes conectado. ${COMO_CONECTAR}`);
+        } else {
+            const zona = config.zonaHoraria;
+            const evento = /** @type {any} */ ({
+                summary: cita.titulo.slice(0, 200),
+                description: [`Agendado con Borja (${canal === 'whatsapp' ? 'WhatsApp' : 'app'}).`, cliente && [cliente.nombre, cliente.ubicacion, cliente.telefono && `Tel. ${cliente.telefono}`].filter(Boolean).join(' · ')].filter(Boolean).join('\n'),
+                extendedProperties: { private: { semencesOrigen: 'borja', ...(cliente ? { semencesCliente: String(cliente.id) } : {}) } }
+            });
+            let ocupado = false;
+            try {
+                await conGoogle({ pool, config, usuario: persona }, async (/** @type {string} */ token, /** @type {any} */ alRenovar) => {
+                    if (cita.hora) {
+                        const [h, m] = cita.hora.split(':').map(Number);
+                        const inicio = new Date(inicioDelDia(cita.fecha, zona).getTime() + (h * 60 + m) * 60000);
+                        const fin = new Date(inicio.getTime() + (cita.minutos || config.minutosReunion || 30) * 60000);
+                        ocupado = (await contexto.google.ocupado(token, alRenovar, inicio, fin)).length > 0;
+                        evento.start = { dateTime: inicio.toISOString(), timeZone: zona };
+                        evento.end = { dateTime: fin.toISOString(), timeZone: zona };
+                    } else {
+                        evento.start = { date: cita.fecha };
+                        evento.end = { date: sumarDias(cita.fecha, 1) };
+                    }
+                    await contexto.google.crearEvento(token, alRenovar, evento, false);
+                });
+                partes.push(`📅 Agendado en tu Google Calendar: «${evento.summary}», ${cuandoTexto(cita.fecha, cita.hora)}.`);
+                if (ocupado) partes.push('⚠️ Ojo: ya tenías algo a esa hora.');
+                if (seguimiento) partes.push(`El próximo seguimiento de ${cliente.nombre} quedó para esa fecha.`);
+            } catch (fallo) {
+                const error = /** @type {any} */ (fallo);
+                if (error && error.codigo === 'google') partes.push(`${seguimiento ? `Dejé el seguimiento de ${cliente.nombre} en el CRM, pero ` : ''}tu Google no me deja agendar. ${COMO_CONECTAR}`);
+                else throw error;
+            }
+        }
+        await anotar(`agendar «${cita.titulo}» ${cita.fecha}${cita.hora ? ` ${cita.hora}` : ''}${cliente ? ` (${cliente.nombre})` : ''}`);
+        return partes.join(' ');
     };
 
     /** @type {(item: any) => Promise<string>} */
@@ -382,12 +450,33 @@ export async function atenderBorja(contexto, persona, texto, { canal = 'app', id
     case 'formato':
         await guardar(sinPendiente);
         return { respuesta: `Así: ${orden.ejemplo}`, orden: 'formato' };
-    case 'agendar':
-    case 'global':
+    case 'agendar': {
+        const { fecha, hora, minutos, resto } = /** @type {{ fecha: string | null, hora: string | null, minutos: number, resto: string }} */ (interpretarCuando(String(orden.texto || ''), hoy));
+        if (!fecha) { await guardar(sinPendiente); return { respuesta: '¿Para cuándo? Así: AGENDAR Finca X el jueves a las 10 (o mañana a las 3 pm, o el 20/11).', orden: 'agendar' }; }
+        if (fecha < hoy) { await guardar(sinPendiente); return { respuesta: `El ${fecha.split('-').reverse().join('/')} ya pasó. Dime una fecha de hoy en adelante.`, orden: 'agendar' }; }
+        const titulo = resto.trim() || 'Cita';
+        const cita = { fecha, hora, minutos, titulo };
+        // ¿Nombra a un cliente suyo? Si es uno, se enlaza; si son varios, pregunta cuál; si ninguno, es una cita suelta
+        const datos = /** @type {any} */ (filtrarDatos(await db.listarTodo(pool), ambito));
+        const t = normalizar(titulo);
+        const nombrados = (datos.clientes || []).filter((/** @type {any} */ c) => !c.compartida && dentroDelAmbito(ambito, 'clientes', c)
+            && normalizar(c.nombre).length >= 4 && t.includes(normalizar(c.nombre)));
+        if (nombrados.length > 1 && nombrados.length <= MAX_OPCIONES) {
+            const opciones = nombrados.map((/** @type {any} */ c) => ({ id: c.id, nombre: c.nombre, casa: c.casa || '' }));
+            await guardar({ pendiente: { tipo: 'cliente', fecha: hoy, creado: ahora.getTime(), opciones, siguiente: { accion: 'agendar', cita } } });
+            return { respuesta: `¿Con cuál de estos clientes?\n${opciones.map((/** @type {any} */ o, /** @type {number} */ i) => `${i + 1}) ${o.nombre}${o.casa ? ` (${o.casa})` : ''}`).join('\n')}\nResponde solo con el número.`, orden: 'agendar' };
+        }
         await guardar(sinPendiente);
-        return { respuesta: `Eso llega en la próxima actualización de Borja. Mientras tanto:\n${MENU}`, orden: orden.tipo };
+        return { respuesta: await agendar(nombrados.length === 1 ? nombrados[0] : null, cita), orden: 'agendar' };
+    }
+    case 'global': {
+        await guardar(sinPendiente);
+        if (!ambito.master) return { respuesta: 'El pulso de todo el equipo (ESTADO EQUIPO) es solo para la dirección. Escribe RESUMEN para ver lo tuyo.', orden: 'global' };
+        await anotar('estado del equipo');
+        return { respuesta: await contexto.pulso({ pool, config }), orden: 'global' };
+    }
     default:
         await guardar(sinPendiente);
-        return { respuesta: `${orden.tipo === 'ayuda' ? '👋 Hola, soy Borja.' : 'No te entendí.'} ${MENU}\n(BAJA / ALTA: dejar o volver a recibir WhatsApp)`, orden: orden.tipo };
+        return { respuesta: `${orden.tipo === 'ayuda' ? '👋 Hola, soy Borja.' : 'No te entendí.'} ${ambito.master ? MENU_MASTER : MENU}\n(BAJA / ALTA: dejar o volver a recibir WhatsApp)`, orden: orden.tipo };
     }
 }

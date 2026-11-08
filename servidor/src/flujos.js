@@ -158,8 +158,21 @@ export function camposExpediente(cliente, datos, persona, fechaTexto) {
         responsable: persona.nombre || persona.email,
         procesos: lineas(delCliente('agronomia'), p => `${p.lote || ''} · ${p.variedad || ''} · ${p.proceso || ''}: ${p.fechaInicio || ''} – ${p.fechaFin || 'pendiente'}`),
         visitas: lineas(delCliente('visitas'), v => `${v.fecha || ''} · ${v.estado || ''}${v.comentarios ? `: ${v.comentarios}` : ''}`),
-        rendimientos: lineas(delCliente('rendimiento'), r => `${r.fecha || ''} · ${r.lote || ''}: ${r.unidades ?? ''} unidades`)
+        rendimientos: lineas(delCliente('rendimiento'), r => `${r.fecha || ''} · ${r.lote || ''}: ${r.unidades ?? ''} unidades`),
+        // Borja bidireccional: la bitácora (notas, seguimientos hechos), de la más antigua a la más reciente; las 40 últimas
+        bitacora: textoBitacora(cliente.bitacora)
     };
+}
+
+/**
+ * La bitácora de un cliente para el expediente PDF ({{bitacora}}): "08/11/2026 · Bruno Díaz: pidió precio de tomate"
+ * @param {unknown} bitacora
+ */
+export function textoBitacora(bitacora) {
+    const lista = (Array.isArray(bitacora) ? bitacora : []).filter(e => e && e.texto)
+        .sort((a, b) => String(a.fecha).localeCompare(String(b.fecha))).slice(-40);
+    if (!lista.length) return 'Sin notas';
+    return lista.map(e => `${String(e.fecha || '').slice(0, 10).split('-').reverse().join('/')} · ${e.autor || ''}: ${String(e.texto).replace(/\s+/g, ' ')}`).join('\n');
 }
 
 /**

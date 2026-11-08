@@ -366,7 +366,7 @@ window.TEXTOS_EN = {
     'Cargando la finca 3D…': 'Loading the 3D farm…',
     'Reintentar': 'Try again',
     // Borja bidireccional (borja.js, expediente y accesos)
-    'Lo mismo que por WhatsApp: pídele tu resumen, marca pendientes, registra visitas y notas.': 'Same as on WhatsApp: ask for your summary, mark items done, log visits and notes.',
+    'Lo mismo que por WhatsApp: pídele tu resumen, marca pendientes, registra visitas y notas, agenda citas.': 'Same as on WhatsApp: ask for your summary, mark items done, log visits and notes, book appointments.',
     'Mi resumen': 'My summary',
     'Qué puedo pedir': 'What can I ask',
     'Conversación con Borja': 'Conversation with Borja',
