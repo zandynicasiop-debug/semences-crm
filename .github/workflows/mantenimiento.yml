@@ -1,0 +1,74 @@
+# Limpieza del repositorio: borra las ramas ya fusionadas en main y retira las versiones de prueba antiguas.
+#
+# Se lanza subiendo la rama mantenimiento/limpieza (o a mano, Actions › Run workflow). Al terminar, borra también
+# esa rama. Antes de borrar cada rama comprueba con GitHub que no tiene nada que no esté en main: si tiene algo,
+# la deja y lo avisa. Las listas están aquí abajo, a la vista, para que nada se borre sin estar escrito.
+name: Mantenimiento (ramas fusionadas y versiones de prueba)
+
+on:
+  push:
+    branches: ['mantenimiento/limpieza']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  # Ramas fusionadas en main (comprobado antes de la salida a producción 2.1.0)
+  RAMAS: >-
+    apps/produccion
+    arm/auditoria-modulos
+    arm/cola-offline-plantillas
+    arm/errores-google-verificacion
+    arm/eventos-dominio
+    arm/version-parcial
+    auditoria/correcciones-seguridad-pruebas
+    fase2/pedidos-recompra
+    lote-a/campo-y-ventas
+    lote-b/panel-ceo
+  # Versiones de prueba que se retiran (versión y etiqueta), de la beta.4 a la beta.9
+  VERSIONES: >-
+    v2.0.0-beta.4
+    v2.0.0-beta.5
+    v2.0.0-beta.6
+    v2.0.0-beta.7
+    v2.0.0-beta.8
+    v2.0.0-beta.9
+
+jobs:
+  limpiar:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Ramas fusionadas
+        run: |
+          for rama in $RAMAS; do
+            if ! gh api "repos/$GITHUB_REPOSITORY/branches/$rama" > /dev/null 2>&1; then
+              echo "Ya no existe: $rama"; continue
+            fi
+            # Lo que tiene la rama y no está en main (0 = fusionada del todo)
+            delante=$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$rama" --jq '.ahead_by')
+            if [ "$delante" != "0" ]; then
+              echo "::warning::$rama tiene $delante cambio(s) que no están en main: NO se borra"; continue
+            fi
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$rama" && echo "Borrada: $rama"
+          done
+
+      - name: Versiones de prueba antiguas
+        run: |
+          for version in $VERSIONES; do
+            if gh release view "$version" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+              gh release delete "$version" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes && echo "Retirada: $version"
+            elif gh api "repos/$GITHUB_REPOSITORY/git/refs/tags/$version" > /dev/null 2>&1; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$version" && echo "Etiqueta suelta borrada: $version"
+            else
+              echo "No existe: $version"
+            fi
+          done
+
+      - name: Borrar la rama que lanzó la limpieza
+        if: github.ref == 'refs/heads/mantenimiento/limpieza'
+        run: |
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/mantenimiento/limpieza"
+          echo "Borrada la rama mantenimiento/limpieza"

@@ -1,6 +1,6 @@
 {
   "name": "semences-crm-servidor",
-  "version": "1.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "Backend de Semences del Caribe: base de datos del CRM (MySQL), inicio de sesión con Google Workspace, Gmail, Calendar, Meet, reportes PDF desde Docs y avisos por Google Chat y WhatsApp.",
   "type": "module",

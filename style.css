@@ -1193,6 +1193,11 @@ summary {
     max-width: 100%;
 }
 
+.expediente-editar {
+    margin-top: var(--sdc-espacio-2);
+    padding-left: 0;
+}
+
 .expediente-etapa-estado {
     flex-basis: 100%;
     font-weight: 400; /* Texto normal: el nombre "Etapa" va en negrita media, el aviso no */
@@ -4651,4 +4656,19 @@ body.ventana-flotante {
         min-width: var(--sdc-objetivo-tactil);
         justify-content: center;
     }
+}
+
+/* Simulador 3D: mientras se descarga three.js (solo la primera vez que se abre) */
+.simulador-cargando {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sdc-espacio-2);
+    margin: 0;
+    padding: var(--sdc-espacio-4);
+    text-align: center;
+    color: var(--ui-texto-suave);
 }

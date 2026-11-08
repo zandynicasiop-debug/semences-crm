@@ -45,6 +45,8 @@ class VentanaFlotante {
         // Volver al simulador si se estaba en otro módulo, para que el lienzo tenga tamaño al moverlo
         const pestana = document.getElementById('tab-simulador');
         if (window.crm && pestana.getAttribute('aria-current') !== 'true') window.crm.activarPestana(pestana);
+        // La finca 3D se carga la primera vez que hace falta (app.js): se espera a que esté
+        if (!(await tablero.iniciarSimulador())) return;
 
         let ventana;
         try {

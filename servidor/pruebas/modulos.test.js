@@ -270,6 +270,15 @@ describe('esquema de las variables de entorno (.env.example)', () => {
     });
 });
 
+describe('consentimiento de WhatsApp (bajas.js)', () => {
+    test('reconoce BAJA, STOP y frases de baja (con o sin tilde); ALTA; lo demás no', async () => {
+        const { pideBajaOAlta } = await import('../src/bajas.js');
+        for (const t of ['BAJA', 'baja.', ' Stop ', 'cancelar', 'No quiero recibir más mensajes', 'no mas mensajes!', 'Darme de baja']) assert.equal(pideBajaOAlta(t), 'baja', t);
+        for (const t of ['ALTA', 'alta', 'Start']) assert.equal(pideBajaOAlta(t), 'alta', t);
+        for (const t of ['Hola', '¿Tienen baja germinación?', 'la semilla bajó de precio', '', null, 'baja'.repeat(30)]) assert.equal(pideBajaOAlta(t), null, String(t));
+    });
+});
+
 describe('seguridad de la entrada de datos', () => {
     test('rechaza claves que contaminan prototipos a cualquier profundidad', () => {
         assert.equal(problemaEnDatos({ a: 1, b: [{ c: 'x' }] }), '');
@@ -998,10 +1007,11 @@ describe('Google Workspace: agenda, documentos y avisos (workspace.js)', async (
         assert.equal(asunto, 'Semences del Caribe · Germinación baja');
     });
 
-    test('respaldo: no toca sin carpeta, sin cuenta del sistema o antes de su hora', async () => {
+    test('respaldo: no toca apagado, sin cuenta del sistema o antes de su hora', async () => {
         const pool = poolFalso([[/FROM usuarios WHERE email/, () => []]]);
-        const base = { zonaHoraria: 'America/Santo_Domingo', workspace: { respaldoCarpetaId: 'carpeta123456', cuentaSistema: 'jefa@gmail.com', respaldoHora: 2 } };
-        assert.equal(await respaldoPendiente({ pool, config: { ...base, workspace: { ...base.workspace, respaldoCarpetaId: '' } } }), false);
+        const base = { zonaHoraria: 'America/Santo_Domingo', workspace: { respaldos: true, cuentaSistema: 'jefa@gmail.com', respaldoHora: 2 } };
+        assert.equal(await respaldoPendiente({ pool, config: { ...base, workspace: { ...base.workspace, respaldos: false } } }), false);
+        assert.equal(await respaldoPendiente({ pool, config: { ...base, workspace: { ...base.workspace, cuentaSistema: '' } } }, new Date('2026-11-02T07:00:00Z')), false);
         assert.equal(await respaldoPendiente({ pool, config: base }, new Date('2026-11-02T05:30:00Z')), false, 'la 1:30 en RD: todavía no');
         assert.equal(await respaldoPendiente({ pool, config: base }, new Date('2026-11-02T07:00:00Z')), false, 'sin cuenta del sistema conectada');
     });
@@ -1073,22 +1083,17 @@ describe('ARM: motor de eventos, flujos, cuotas y rotación de la clave', async 
         assert.equal(camposExpediente({ id: 'c2' }, {}, { email: 'a@x.com' }, 'hoy').casa, '', 'sin casa queda vacío, no se inventa');
     });
 
-    test('asegurarPlantillaCasaComercial: solo casas reales, solo con carpeta, y copia de la plantilla general si la hay', async () => {
+    test('asegurarPlantillaCasaComercial: solo casas reales, en "Plantillas" del Drive del CRM y copia de la base', async () => {
         const pedidas = [];
         const google = { plantillaDeCasa: async (token, alRenovar, datos) => { pedidas.push({ token, datos }); return { id: 'p1', enlace: 'e', creada: true }; } };
-        const conGoogleDe = (tarea) => tarea('token-ana', async () => {});
-        const config = { workspace: { documentosCarpetaId: 'docs1' }, reportes: { plantillaId: 'general1', carpetaId: 'rep1' } };
-        assert.match((await asegurarPlantillaCasaComercial({ google, config }, conGoogleDe, 'Genome')).omitido, /desconocida/, 'el nombre real es Genome Seeds');
-        assert.match((await asegurarPlantillaCasaComercial({ google, config }, conGoogleDe, '')).omitido, /no tiene casa/);
-        assert.match((await asegurarPlantillaCasaComercial({ google, config: { workspace: {}, reportes: {} } }, conGoogleDe, 'Fitó')).omitido, /Sin carpeta/);
-        assert.equal(pedidas.length, 0, 'sin casa real o sin carpeta no se llama a Google');
-        assert.deepEqual(await asegurarPlantillaCasaComercial({ google, config }, conGoogleDe, 'Hexagon Seeds'), { id: 'p1', enlace: 'e', creada: true });
+        const conDrive = (tarea) => tarea('token-sistema', async () => {}, { plantillas: 'plantillas1', base: 'base1' });
+        assert.match((await asegurarPlantillaCasaComercial({ google }, conDrive, 'Genome')).omitido, /desconocida/, 'el nombre real es Genome Seeds');
+        assert.match((await asegurarPlantillaCasaComercial({ google }, conDrive, '')).omitido, /no tiene casa/);
+        assert.equal(pedidas.length, 0, 'sin casa real no se llama a Google');
+        assert.deepEqual(await asegurarPlantillaCasaComercial({ google }, conDrive, 'Hexagon Seeds'), { id: 'p1', enlace: 'e', creada: true });
         assert.deepEqual([pedidas[0].token, pedidas[0].datos.carpetaId, pedidas[0].datos.casa, pedidas[0].datos.copiarDe, pedidas[0].datos.titulo],
-            ['token-ana', 'docs1', 'Hexagon Seeds', 'general1', 'Plantilla del expediente · Hexagon Seeds']);
-        // Sin DOCUMENTOS_CARPETA_ID vale la carpeta de reportes; sin plantilla general, se crea con los marcadores
-        await asegurarPlantillaCasaComercial({ google, config: { workspace: {}, reportes: { carpetaId: 'rep1' } } }, conGoogleDe, 'Fitó');
-        assert.deepEqual([pedidas[1].datos.carpetaId, pedidas[1].datos.copiarDe], ['rep1', '']);
-        assert.match(pedidas[1].datos.texto, /\{\{cliente\}\}[\s\S]*\{\{rendimientos\}\}/);
+            ['token-sistema', 'plantillas1', 'Hexagon Seeds', 'base1', 'Plantilla del expediente · Hexagon Seeds']);
+        assert.match(pedidas[0].datos.texto, /\{\{cliente\}\}[\s\S]*\{\{rendimientos\}\}/);
     });
 
     test('plantilla en Drive: la encuentra por su marca; la nueva solo se marca con el texto puesto (si falla, se borra)', async () => {
@@ -1130,6 +1135,130 @@ describe('ARM: motor de eventos, flujos, cuotas y rotación de la clave', async 
         d = drive();
         assert.deepEqual(await plantillaDeCasaEn(d.unidad, d.documentos, { ...opciones, copiarDe: 'general1' }), { id: 'copia1', enlace: 'l-copia', creada: true });
         assert.deepEqual(hechas[1], ['copy', 'general1', { semencesPlantilla: 'Fitó' }], 'la copia de la general ya trae su contenido');
+    });
+
+    test('Drive del CRM (drive.file): la estructura se crea una vez, se reutiliza por su marca y lo borrado se rehace', async () => {
+        const { estructuraEn } = await import('../src/google.js');
+        const hechas = [];
+        let siguiente = 0;
+        const existentes = new Map(); // id → { trashed, marca, padre }
+        const unidad = { files: {
+            get: async ({ fileId }) => {
+                hechas.push(['get', fileId]);
+                if (!existentes.has(fileId)) throw Object.assign(new Error('File not found'), { code: 404 });
+                return { data: { id: fileId, trashed: existentes.get(fileId).trashed } };
+            },
+            list: async ({ q }) => {
+                hechas.push(['list', q]);
+                const [, marca] = q.match(/semences(?:Crm|Plantilla)' and value = '(\w+)'/) || [];
+                const encontrada = [...existentes].find(([, f]) => f.marca === marca && !f.trashed);
+                return { data: { files: encontrada ? [{ id: encontrada[0], webViewLink: 'l' }] : [] } };
+            },
+            create: async ({ requestBody }) => {
+                const id = `id-${++siguiente}`;
+                const marca = requestBody.appProperties ? requestBody.appProperties.semencesCrm : '';
+                existentes.set(id, { trashed: false, marca, padre: (requestBody.parents || [''])[0] });
+                hechas.push(['create', requestBody.name, marca, (requestBody.parents || [''])[0]]);
+                return { data: { id, webViewLink: `l-${id}` } };
+            },
+            update: async ({ fileId, requestBody }) => { existentes.get(fileId).marca = requestBody.appProperties.semencesPlantilla; return { data: {} }; },
+            delete: async () => ({ data: {} })
+        } };
+        const documentos = { documents: { batchUpdate: async () => ({}) } };
+        const nombres = { raiz: 'Semences del Caribe · CRM', documentos: 'Clientes', reportes: 'Reportes', respaldos: 'Respaldos', plantillas: 'Plantillas' };
+        const opciones = { nombres, textoBase: 'Cliente: {{cliente}}', tituloBase: 'Plantilla base' };
+
+        const ids = await estructuraEn(unidad, documentos, opciones);
+        assert.deepEqual(hechas.filter(h => h[0] === 'create').map(h => [h[1], h[3]]), [
+            ['Semences del Caribe · CRM', ''], ['Clientes', ids.raiz], ['Reportes', ids.raiz], ['Respaldos', ids.raiz], ['Plantillas', ids.raiz], ['Plantilla base', ids.plantillas]
+        ], 'la raíz en Mi unidad; lo demás dentro de ella; la plantilla base en Plantillas');
+        assert.equal(existentes.get(ids.base).marca, 'base', 'la base queda marcada (con su texto puesto)');
+
+        // Con lo guardado vigente: solo se comprueba, no se crea nada
+        hechas.length = 0;
+        assert.deepEqual(await estructuraEn(unidad, documentos, { ...opciones, previa: ids }), ids);
+        assert.equal(hechas.filter(h => h[0] === 'create').length, 0);
+
+        // Alguien mandó "Reportes" a la papelera: solo esa carpeta se vuelve a crear, dentro de la misma raíz
+        existentes.get(ids.reportes).trashed = true;
+        hechas.length = 0;
+        const rehecha = await estructuraEn(unidad, documentos, { ...opciones, previa: ids });
+        assert.deepEqual(hechas.filter(h => h[0] === 'create').map(h => [h[1], h[3]]), [['Reportes', ids.raiz]]);
+        assert.deepEqual({ ...rehecha, reportes: 'x' }, { ...ids, reportes: 'x' });
+
+        // Los ids se perdieron (base de datos restaurada) pero las carpetas siguen: se encuentran por su marca
+        hechas.length = 0;
+        assert.deepEqual(await estructuraEn(unidad, documentos, opciones), rehecha);
+        assert.equal(hechas.filter(h => h[0] === 'create').length, 0);
+    });
+
+    test('Drive del CRM: cuenta del sistema, ids guardados, reintento si algo se borró y compartir sin romper nada', async () => {
+        const { carpetasDelCrm, conDriveDelCrm, compartirCon, cuentaDelSistema: cuenta } = await import('../src/drive.js');
+        const sistema = { id: 9, email: 'jefa@gmail.com', token_google: cifrar('refresco-sistema', CLAVE, 'google:jefa@gmail.com') };
+        let ajuste = null;
+        let conectado = true;
+        const pool = poolFalso([
+            [/FROM usuarios WHERE email = \? AND token_google/, () => (conectado ? [sistema] : [])],
+            [/SELECT valor FROM ajustes WHERE clave = 'drive'/, () => (ajuste ? [{ valor: ajuste }] : [])],
+            [/INSERT INTO ajustes/, (p) => { ajuste = p[1]; return []; }]
+        ]);
+        const config = { claveCifrado: CLAVE, workspace: { cuentaSistema: 'jefa@gmail.com' } };
+        let estructuras = 0;
+        const compartidas = [];
+        let fallaCompartir = false;
+        const google = {
+            estructuraDrive: async (token, alRenovar, { previa }) => {
+                estructuras++;
+                assert.equal(token, 'refresco-sistema');
+                return { raiz: 'r1', documentos: 'c1', reportes: 'p1', respaldos: 's1', plantillas: 't1', base: previa.base && estructuras < 3 ? previa.base : `b${estructuras}` };
+            },
+            compartir: async (token, alRenovar, datos) => {
+                if (fallaCompartir) throw Object.assign(new Error('Sharing is restricted'), { code: 403 });
+                compartidas.push(datos);
+            }
+        };
+        const contexto = { pool, config, google };
+        assert.equal((await cuenta(pool, config)).email, 'jefa@gmail.com');
+
+        // Dos a la vez la primera vez: una sola estructura
+        const [a, b] = await Promise.all([carpetasDelCrm(contexto), carpetasDelCrm(contexto)]);
+        assert.equal(estructuras, 1);
+        assert.deepEqual(a.ids, b.ids);
+        assert.equal(JSON.parse(ajuste).cuenta, 'jefa@gmail.com');
+        await carpetasDelCrm(contexto);
+        assert.equal(estructuras, 1, 'guardada: no se vuelve a pedir');
+
+        // 404 (alguien vació la papelera): se comprueba la estructura y se reintenta una vez con los ids nuevos
+        const usados = [];
+        const r = await conDriveDelCrm(contexto, async (token, alRenovar, ids) => {
+            usados.push(ids.base);
+            if (usados.length === 1) throw Object.assign(new Error('File not found: b1'), { code: 404 });
+            return 'hecho';
+        });
+        assert.equal(r, 'hecho');
+        assert.equal(estructuras, 2);
+        assert.equal(usados.length, 2);
+        // Otro error no reintenta
+        await assert.rejects(conDriveDelCrm(contexto, async () => { throw Object.assign(new Error('Bad Request'), { code: 400 }); }), /Bad Request/);
+        assert.equal(estructuras, 2);
+
+        // Compartir: una vez por carpeta y persona; nunca con la propia cuenta del sistema; si Google no deja, no rompe
+        assert.equal(await compartirCon(contexto, 'carpeta-1', 'Ana@semillasdata.com'), true);
+        assert.equal(await compartirCon(contexto, 'carpeta-1', 'ana@semillasdata.com'), true);
+        assert.equal(await compartirCon(contexto, 'carpeta-1', 'jefa@gmail.com'), true);
+        assert.deepEqual(compartidas, [{ id: 'carpeta-1', email: 'ana@semillasdata.com' }]);
+        fallaCompartir = true;
+        const errorOriginal = console.error;
+        console.error = () => {};
+        try {
+            assert.equal(await compartirCon(contexto, 'carpeta-2', 'luis@gmail.com'), false);
+        } finally {
+            console.error = errorOriginal;
+        }
+
+        // Sin la cuenta del sistema conectada: se dice qué falta (para el Master, no para quien pulsó)
+        conectado = false;
+        await assert.rejects(carpetasDelCrm(contexto), (e) => e.estado === 503 && /CUENTA_GOOGLE_SISTEMA/.test(e.message));
     });
 
     test('lote sin conexión: cada operación se revisa por separado y solo admite la etapa', () => {

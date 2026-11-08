@@ -20,6 +20,8 @@ import { REGLAS } from './flujos.js';
 import { enZona } from './fechas.js';
 import { darBienvenida } from './bienvenida.js';
 import { sincronizarAgenda, respaldar, documentoValido, avisarPorCorreo, enSegundoPlano } from './workspace.js';
+import { whatsappDadoDeBaja } from './bajas.js';
+import { carpetaDe, carpetaDelCliente, compartirCon, conDriveDelCrm, crearReporteDelCrm, driveActivo, plantillaDeCasa } from './drive.js';
 import { avisarEnvio, actualizarEnvio } from './envios.js';
 import { accionInstagram } from './instagram.js';
 import { accionReporte } from './reportes.js';
@@ -48,6 +50,8 @@ async function avisarCliente({ pool, avisos, config }, telefono, texto) {
     if (!telefono || !avisos.whatsappClientesActivo) return false;
     const numero = normalizarTelefono(telefono);
     if (!numero) return false;
+    // Pidió la baja (escribió BAJA o el equipo marcó su ficha): no se le envía nada por WhatsApp (bajas.js)
+    if (await whatsappDadoDeBaja(pool, numero)) return false;
     return (await encolar(pool, 'whatsapp', [numero], texto, config.whatsapp.plantillaClientes)) > 0;
 }
 
@@ -168,7 +172,6 @@ async function clienteVisible({ pool, ambito }, clienteId) {
     return ficha;
 }
 
-const carpetaDe = (cliente) => ({ id: cliente.id, nombre: String(cliente.nombre || cliente.id).replace(/[\r\n/\\]/g, ' ').trim().slice(0, 150) || cliente.id });
 
 // Envíos registrados o con estado cambiado a mano: aviso a quien le toca (envios.js)
 async function avisarEnvios(contexto, guardados) {
@@ -331,29 +334,25 @@ export const ACCIONES = {
         return { ok: true, id, avisoWhatsapp: whatsapp };
     },
 
-    // Reporte PDF desde la plantilla de Google Docs ({ titulo, campos: { nombre: valor }, cliente: { id, nombre } })
+    // Reporte PDF desde la plantilla de Google Docs ({ titulo, campos: { nombre: valor }, cliente: { id, nombre } }), en el
+    // Drive del CRM (drive.js). Con cliente, en su carpeta y con la plantilla de su casa comercial; sin él, en "Reportes"
     async reporte(datos, contexto) {
-        const plantillaId = datos.plantillaId || contexto.config.reportes.plantillaId;
-        if (!plantillaId) throw errorApp('No hay plantilla de reporte configurada (REPORTE_PLANTILLA_ID)', 503, 'configuracion');
-        if (!/^[\w-]{20,100}$/.test(plantillaId)) throw errorApp('El id de la plantilla no es válido');
-        const campos = datos.campos && typeof datos.campos === 'object' && !Array.isArray(datos.campos) ? datos.campos : {};
+        const campos = datos.campos && typeof datos.campos === 'object' && !Array.isArray(datos.campos) ? { ...datos.campos } : {};
         if (Object.keys(campos).length > 100) throw errorApp('Demasiados campos (máximo 100)');
         for (const campo of Object.keys(campos)) if (!/^[\wáéíóúñÁÉÍÓÚÑ]{1,40}$/.test(campo)) throw errorApp(`Nombre de campo no válido: ${campo}`);
         const titulo = String(datos.titulo || 'Reporte · Semences del Caribe').replace(/[\r\n/\\]/g, ' ').slice(0, 150);
-        // Carpeta propia del cliente dentro de la de reportes ({ id, nombre } del registro de clientes)
-        let carpetaCliente = null;
+        if (!driveActivo(contexto.config)) throw errorApp('Drive del CRM apagado: falta la cuenta del Master (CUENTA_GOOGLE_SISTEMA)', 503, 'configuracion');
+        let cliente = null;
+        let plantillaId = '';
         if (datos.cliente && datos.cliente.id) {
-            if (!/^[\w-]{1,100}$/.test(String(datos.cliente.id))) throw errorApp('El id del cliente no es válido');
-            const ficha = await db.leerRegistro(contexto.pool, 'clientes', datos.cliente.id);
-            if (ficha && (!puedeLeer(contexto.ambito, 'clientes') || !dentroDelAmbito(contexto.ambito, 'clientes', ficha))) {
-                throw errorApp('Ese cliente no es de tu país o casa comercial', 403, 'permiso');
-            }
-            const nombre = String(datos.cliente.nombre || datos.cliente.id).replace(/[\r\n/\\]/g, ' ').trim().slice(0, 150);
-            carpetaCliente = { id: String(datos.cliente.id), nombre: nombre || String(datos.cliente.id) };
+            const ficha = await clienteVisible(contexto, datos.cliente.id);
+            cliente = carpetaDe(ficha);
+            // Lo que la plantilla de la casa pide y la app no manda (país y casa) sale de la ficha
+            if (campos.pais === undefined) campos.pais = NOMBRE_PAIS[ficha.pais] || ficha.pais || '';
+            if (campos.casa === undefined) campos.casa = ficha.casa || '';
+            if (CASAS.includes(ficha.casa)) plantillaId = (await plantillaDeCasa(contexto, ficha.casa)).id;
         }
-        const archivo = await conGoogle(contexto, (token, alRenovar) => contexto.google.crearReporte(token, alRenovar, {
-            plantillaId, carpetaId: contexto.config.reportes.carpetaId, titulo, campos, carpetaCliente
-        }));
+        const archivo = await crearReporteDelCrm(contexto, { plantillaId, titulo, campos, cliente, para: contexto.usuario.email });
         return { ok: true, archivoId: archivo.id, enlace: archivo.enlace };
     },
 
@@ -654,26 +653,31 @@ export const ACCIONES = {
 
     // ----- Google Workspace (workspace.js) -----
 
-    // Documento de un cliente a su carpeta de Drive: { clienteId, nombre, tipo, base64, descripcion }
+    // Documento de un cliente a su carpeta del Drive del CRM (drive.js): { clienteId, nombre, tipo, base64, descripcion }.
+    // Lo sube la cuenta del sistema; quien lo sube recibe acceso de lectura a la carpeta del cliente
     async subirDocumento(datos, contexto) {
-        const carpetaId = contexto.config.workspace.documentosCarpetaId;
-        if (!carpetaId) throw errorApp('No hay carpeta de documentos configurada (DOCUMENTOS_CARPETA_ID)', 503, 'configuracion');
+        if (!driveActivo(contexto.config)) throw errorApp('Drive del CRM apagado: falta la cuenta del Master (CUENTA_GOOGLE_SISTEMA)', 503, 'configuracion');
         const cliente = await clienteVisible(contexto, datos.clienteId);
         const documento = documentoValido(datos);
-        const archivo = await conGoogle(contexto, (token, alRenovar) => contexto.google.subirArchivo(token, alRenovar, {
-            carpetaId, carpetaCliente: carpetaDe(cliente), nombre: documento.nombre, tipo: documento.tipo, datos: documento.datos,
+        const carpeta = await carpetaDelCliente(contexto, cliente, contexto.usuario.email);
+        const archivo = await conDriveDelCrm(contexto, (token, alRenovar) => contexto.google.subirArchivo(token, alRenovar, {
+            carpetaId: carpeta.id, nombre: documento.nombre, tipo: documento.tipo, datos: documento.datos,
             descripcion: String(datos.descripcion || '').slice(0, 500), propiedades: { semencesCliente: cliente.id }
         }));
-        return { ok: true, archivo };
+        return { ok: true, archivo, carpeta: carpeta.enlace };
     },
 
-    // Documentos de la carpeta de un cliente: { clienteId } → { archivos: [{ id, nombre, tipo, enlace, fecha, tamano }] }
+    // Documentos de la carpeta de un cliente: { clienteId } → { archivos: [{ id, nombre, tipo, enlace, fecha, tamano }], carpeta }
     async documentos(datos, contexto) {
-        const carpetaId = contexto.config.workspace.documentosCarpetaId;
-        if (!carpetaId) throw errorApp('No hay carpeta de documentos configurada (DOCUMENTOS_CARPETA_ID)', 503, 'configuracion');
+        if (!driveActivo(contexto.config)) throw errorApp('Drive del CRM apagado: falta la cuenta del Master (CUENTA_GOOGLE_SISTEMA)', 503, 'configuracion');
         const cliente = await clienteVisible(contexto, datos.clienteId);
-        const archivos = await conGoogle(contexto, (token, alRenovar) => contexto.google.archivosDelCliente(token, alRenovar, { carpetaId, carpetaCliente: carpetaDe(cliente) }));
-        return { ok: true, archivos };
+        const carpeta = await conDriveDelCrm(contexto, (token, alRenovar, ids) =>
+            contexto.google.carpetaCliente(token, alRenovar, { carpetaId: ids.documentos, carpetaCliente: carpetaDe(cliente), crear: false }));
+        if (!carpeta) return { ok: true, archivos: [], carpeta: '' };
+        // Para que los enlaces le abran en Drive: lectura de la carpeta del cliente (una vez)
+        await compartirCon(contexto, carpeta.id, contexto.usuario.email);
+        const archivos = await conDriveDelCrm(contexto, (token, alRenovar) => contexto.google.archivosDelCliente(token, alRenovar, { carpetaId: carpeta.id }));
+        return { ok: true, archivos, carpeta: carpeta.enlace };
     },
 
     // Mis seguimientos, tareas y trasplantes a mi Google Calendar ahora (también se hace solo cada mañana)

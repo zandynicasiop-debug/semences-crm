@@ -36,19 +36,27 @@ cp "$APP/manifest.webmanifest" "$OBRA/assets/www/"
 cp "$AQUI"/lib/*.js "$OBRA/assets/www/lib/"
 cp "$AQUI/android.js" "$OBRA/assets/www/"
 # Las librerías van dentro del APK (la app abre sin conexión) y se añade android.js
-python3 - "$OBRA/assets/www/index.html" <<'PY'
+python3 - "$OBRA/assets/www/index.html" "$OBRA/assets/www/app.js" <<'PY'
 import sys
 ruta = sys.argv[1]
 html = open(ruta, encoding='utf-8').read()
 import re
 cambios = {
-    'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js': 'lib/three.min.js',
-    'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js': 'lib/OrbitControls.js',
     'https://cdn.jsdelivr.net/npm/jspdf@4.2.1/dist/jspdf.umd.min.js': 'lib/jspdf.umd.min.js',
 }
 for cdn, local in cambios.items():
     assert cdn in html, f'No encuentro {cdn} en index.html'
     html = html.replace(cdn, local)
+# three.js lo carga app.js al abrir el Simulador 3D: dentro del APK, de lib/ (sin huella: va firmada con la app)
+ruta_app = sys.argv[2]
+app = open(ruta_app, encoding='utf-8').read()
+for cdn, local in {
+    'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js': 'lib/three.min.js',
+    'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js': 'lib/OrbitControls.js',
+}.items():
+    assert f"'{cdn}'" in app, f'No encuentro {cdn} en app.js'
+    app = app.replace(f"'{cdn}'", f"'{local}'")
+open(ruta_app, 'w', encoding='utf-8').write(app)
 # Dentro del APK las librerías van firmadas con la app: la huella (integrity) del CDN sobra
 html = re.sub(r'(src="lib/[^"]+")\s+integrity="[^"]+"\s+crossorigin="anonymous"', r'\1', html)
 assert 'integrity=' not in html, 'Quedó un integrity en index.html del APK'

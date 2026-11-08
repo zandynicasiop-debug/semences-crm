@@ -98,20 +98,14 @@ export function leerConfig(entorno = process.env) {
         // Avisos de Google Chat como tarjetas con botones (CHAT_TARJETAS=no para texto simple)
         chatTarjetas: !/^no$/i.test(entorno.CHAT_TARJETAS || ''),
 
-        reportes: {
-            plantillaId: entorno.REPORTE_PLANTILLA_ID || '',
-            carpetaId: entorno.REPORTE_CARPETA_ID || ''
-        },
-
-        // Google Workspace sin nadie delante (workspace.js). La cuenta del sistema es una persona del equipo
-        // (mejor un Master) que entró en la app y conectó Google: con su permiso se hacen los respaldos del
-        // CRM en Drive y se envían los correos de aviso. Sin ella, eso se apaga
+        // Google Workspace sin nadie delante (workspace.js y drive.js). La cuenta del sistema es la del Master que
+        // entró en la app y conectó Google: con ella se crea y guarda todo el Drive del CRM (carpetas por cliente,
+        // plantillas, reportes y respaldos, con el permiso mínimo drive.file) y se envían los correos de aviso.
+        // Sin ella, eso se apaga
         workspace: {
             cuentaSistema: String(entorno.CUENTA_GOOGLE_SISTEMA || '').trim().toLowerCase(),
-            // Documentos de los clientes (certificados, facturas, fotos): una carpeta por cliente dentro de esta
-            documentosCarpetaId: entorno.DOCUMENTOS_CARPETA_ID || entorno.REPORTE_CARPETA_ID || '',
-            // Respaldo diario de todo el CRM (JSON) en esta carpeta, a la hora local RESPALDO_HORA
-            respaldoCarpetaId: entorno.RESPALDO_CARPETA_ID || '',
+            // Respaldo diario de todo el CRM (JSON) en la carpeta "Respaldos" del Drive del CRM, a la hora local RESPALDO_HORA
+            respaldos: !/^no$/i.test(String(entorno.RESPALDOS || '').trim()),
             respaldoHora: Math.min(23, Math.max(0, Math.trunc(Number(entorno.RESPALDO_HORA ?? 2)) || 0)),
             respaldoConservar: Number(entorno.RESPALDO_CONSERVAR) || 30,
             // Correos de aviso (solicitudes de acceso, accesos aprobados, germinación baja), además de push y WhatsApp
@@ -154,7 +148,8 @@ export function leerConfig(entorno = process.env) {
 const CORREO = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/;
 // Origen: esquema://servidor[:puerto], sin ruta (https://…, y capacitor://localhost o app://semences de las apps)
 const ORIGEN = /^[a-z][a-z0-9+.-]*:\/\/[^/\s?#]+$/i;
-const ID_DRIVE = /^[\w-]{10,100}$/;
+// Variables de las carpetas hechas a mano (antes de drive.file): si siguen en el .env, solo se avisa
+export const VARIABLES_DRIVE_ANTIGUAS = ['REPORTE_PLANTILLA_ID', 'REPORTE_CARPETA_ID', 'DOCUMENTOS_CARPETA_ID', 'RESPALDO_CARPETA_ID'];
 
 /**
  * Comprueba el formato de cada variable. errores: impiden arrancar (con ellos el servidor no sería seguro o
@@ -200,12 +195,13 @@ export function validarEntorno(e = {}) {
     if (valor('ANTHROPIC_API_KEY') && !/^sk-ant-[\w-]{20,}$/.test(valor('ANTHROPIC_API_KEY'))) avisos.push('ANTHROPIC_API_KEY no parece una clave de la API de Anthropic (empieza por sk-ant-)');
     if (valor('IA_MODELO') && !/^claude-[a-z0-9-]+$/.test(valor('IA_MODELO'))) avisos.push('IA_MODELO debe ser un id de modelo de Claude, p. ej. claude-opus-5-5');
     if (valor('RESUMEN_HORA') && !/^no$/i.test(valor('RESUMEN_HORA'))) entero('RESUMEN_HORA', 0, 23);
-    for (const nombre of ['CUENTAS_PERSONALES', 'CHAT_TARJETAS', 'CORREOS_AVISOS', 'AGENDA_AUTOMATICA', 'REPORTE_SEMANAL']) siNo(nombre);
+    for (const nombre of ['CUENTAS_PERSONALES', 'CHAT_TARJETAS', 'CORREOS_AVISOS', 'AGENDA_AUTOMATICA', 'REPORTE_SEMANAL', 'RESPALDOS']) siNo(nombre);
 
     if (valor('URL_APP') && !/^https:\/\/[^\s]+$/.test(valor('URL_APP'))) avisos.push('URL_APP debe empezar por https://');
     if (valor('CHAT_WEBHOOK') && !valor('CHAT_WEBHOOK').startsWith('https://chat.googleapis.com/')) avisos.push('CHAT_WEBHOOK no parece un webhook de Google Chat (https://chat.googleapis.com/…)');
-    for (const nombre of ['REPORTE_PLANTILLA_ID', 'REPORTE_CARPETA_ID', 'DOCUMENTOS_CARPETA_ID', 'RESPALDO_CARPETA_ID']) {
-        if (valor(nombre) && !ID_DRIVE.test(valor(nombre))) avisos.push(`${nombre}: el id de Drive es lo que va después de /d/ o /folders/ en su dirección`);
+    // Con drive.file la app no ve carpetas ni plantillas hechas a mano: el servidor crea las suyas con la cuenta del Master
+    for (const nombre of VARIABLES_DRIVE_ANTIGUAS) {
+        if (valor(nombre)) avisos.push(`${nombre} ya no se usa: con el permiso drive.file el servidor crea sus carpetas y su plantilla base en el Drive de CUENTA_GOOGLE_SISTEMA (puedes borrarla del .env)`);
     }
     if (Boolean(valor('VAPID_PUBLICA')) !== Boolean(valor('VAPID_PRIVADA'))) avisos.push('VAPID_PUBLICA y VAPID_PRIVADA van juntas (npm run vapid): sin las dos, los avisos push están apagados');
     if (valor('VAPID_CONTACTO') && !/^(mailto:|https:\/\/)/.test(valor('VAPID_CONTACTO'))) avisos.push('VAPID_CONTACTO debe empezar por mailto: o https://');
@@ -217,7 +213,6 @@ export function validarEntorno(e = {}) {
     if (valor('META_VERSION') && !/^v\d+\.\d+$/.test(valor('META_VERSION'))) avisos.push('META_VERSION tiene la forma v21.0');
     if (Boolean(valor('FEDEX_CLIENT_ID')) !== Boolean(valor('FEDEX_CLIENT_SECRET'))) avisos.push('FEDEX_CLIENT_ID y FEDEX_CLIENT_SECRET van juntas: sin las dos, el rastreo de FedEx está apagado');
     if (valor('FEDEX_URL') && !/^https:\/\/[^\s]+$/.test(valor('FEDEX_URL'))) errores.push('FEDEX_URL debe empezar por https:// (las credenciales de FedEx viajan a esa dirección)');
-    if (valor('RESPALDO_CARPETA_ID') && !valor('CUENTA_GOOGLE_SISTEMA')) avisos.push('RESPALDO_CARPETA_ID necesita CUENTA_GOOGLE_SISTEMA: sin ella no se hacen respaldos');
     return { errores, avisos };
 }
 

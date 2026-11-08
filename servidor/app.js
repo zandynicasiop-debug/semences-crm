@@ -18,6 +18,7 @@ import { iniciarRecordatorios } from './src/reportes.js';
 import { crearIA } from './src/ia.js';
 import { asignarEjecutores } from './src/pedidos.js';
 import { iniciarCampo } from './src/campo.js';
+import { avisarFallidos } from './src/latido.js';
 
 try { process.loadEnvFile(new URL('./.env', import.meta.url)); } catch (e) { /* Sin .env: se usan las variables del panel */ }
 
@@ -52,7 +53,8 @@ const app = crearApp({ config, pool, google, avisos, transportistas, instagram: 
 iniciarCola(pool, avisos); // Envía los avisos pendientes (WhatsApp y push) cada 5 segundos
 iniciarResumenes({ pool, config, google, avisos }); // "Borja": el resumen de la mañana de cada persona
 iniciarWorkspace({ pool, config, google, avisos }); // Respaldo diario en Drive y agenda del CRM en Google Calendar
-iniciarEventos({ pool, config, google, avisos }, MANEJADORES); // Flujos automáticos (p. ej. cliente en Reunión), cada 3 s
+// Flujos automáticos (p. ej. cliente en Reunión), cada 3 s; si uno falla del todo, aviso inmediato a los Master
+iniciarEventos({ pool, config, google, avisos }, MANEJADORES, { alFallar: () => avisarFallidos({ pool, config, google, avisos }) });
 iniciarRastreo({ pool, config, avisos, transportistas }); // Guías de DHL y FedEx (si están sus claves)
 iniciarCampo({ pool, config, avisos }); // Lote A: clientes dormidos (cada hora)
 iniciarRecordatorios({ pool, config, avisos, ia }); // Reporte semanal: recordatorio del viernes; con IA, revisiones y resumen del lunes

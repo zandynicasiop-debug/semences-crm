@@ -143,6 +143,60 @@ describe('pedidos (fase 2): confirmar exige semillas y precio en US$', () => {
     });
 });
 
+describe('Editar en el sitio (salida a producción): corregir sin borrar ni duplicar', () => {
+    const app = cargar(['crm.js']);
+    const CRM = app.global('CRM');
+    const MODULOS = app.global('MODULOS_CRM');
+    const formulario = (modulo, valores) => {
+        const elementos = {};
+        for (const campo of MODULOS[modulo].campos) elementos[campo.id] = { id: campo.id, value: '', checked: false, focus() {}, removeAttribute() {} };
+        Object.entries(valores).forEach(([k, v]) => { if (elementos[k]) elementos[k].value = String(v); });
+        return { elements: elementos };
+    };
+
+    test('clientes, visitas, procesos, rendimientos, germinador, envíos y pedidos tienen "Editar"', () => {
+        const conEditar = Object.keys(MODULOS).filter(m => MODULOS[m].editar);
+        assert.deepEqual(conEditar.sort(), ['agronomia', 'clientes', 'envios', 'germinador', 'pedidos', 'rendimiento', 'visitas']);
+        assert.equal(MODULOS.cotizaciones.editar, undefined, 'las cotizaciones se abren en su propio editor (aprobación)');
+    });
+
+    test('el nombre del cliente no choca consigo mismo al editarlo, pero sí con otro cliente', () => {
+        const clientes = [{ id: 'c1', nombre: 'Finca Los Robles' }, { id: 'c2', nombre: 'Agro Constanza' }];
+        const errores = [];
+        const yo = { datos: { clientes }, limpiarError() {}, mostrarError: (control, mensaje) => errores.push([control.id, mensaje]) };
+        const form = formulario('clientes', { nombre: 'finca los robles', telefono: '809 555 1234' });
+        assert.equal(CRM.prototype.validar.call(yo, 'clientes', form), false, 'nuevo con el mismo nombre: no');
+        errores.length = 0;
+        assert.equal(CRM.prototype.validar.call(yo, 'clientes', form, clientes[0]), true, 'editando el mismo: sí');
+        assert.equal(CRM.prototype.validar.call(yo, 'clientes', form, clientes[1]), false, 'renombrar otro a un nombre ya usado: no');
+    });
+
+    test('al editar se conserva el registro (id, alta, quién lo registró) y Calendar solo se toca si cambió la fecha', () => {
+        const agendados = [];
+        const guardados = [];
+        const yo = {
+            db: { guardar: (modulo, r) => { guardados.push([modulo, { ...r }]); return true; } },
+            google: { agendarCalendar: (e) => agendados.push(e.titulo), enviarNotificacionMovil() {}, conBackend: false },
+            renderTodo() {}, actualizarListas() {}, unirRegistrosSueltos() {}, cliente: () => null
+        };
+        const base = { id: 'c1', creado: '2026-01-02T10:00:00.000Z', responsable: 'Ana', nombre: 'Finca Los Robles', seguimiento: '2026-11-20', telefono: '8095551234' };
+        CRM.prototype.guardar.call(yo, 'clientes', formulario('clientes', { ...base, telefono: '8095559999' }), base);
+        assert.equal(agendados.length, 0, 'misma fecha de seguimiento: no se agenda otra vez');
+        const [, editado] = guardados.at(-1);
+        assert.deepEqual([editado.id, editado.creado, editado.responsable, editado.telefono], ['c1', base.creado, 'Ana', '8095559999']);
+        CRM.prototype.guardar.call(yo, 'clientes', formulario('clientes', { ...base, seguimiento: '2026-11-25' }), base);
+        assert.deepEqual(agendados, ['Seguimiento · Finca Los Robles'], 'fecha nueva: se agenda');
+
+        const proceso = { id: 'p1', creado: '2026-01-02T10:00:00.000Z', responsable: 'Tec', clienteId: 'c1', lote: 'L1', variedad: 'Tomate', proceso: 'Trasplante', fechaInicio: '2026-11-10', fechaFin: '' };
+        agendados.length = 0;
+        CRM.prototype.guardar.call(yo, 'agronomia', formulario('agronomia', { ...proceso, comentarios: 'corregido' }), proceso);
+        assert.equal(agendados.length, 0, 'solo cambió el comentario');
+        CRM.prototype.guardar.call(yo, 'agronomia', formulario('agronomia', { ...proceso, fechaInicio: '2026-11-12' }), proceso);
+        assert.equal(agendados.length, 1);
+        assert.equal(guardados.at(-1)[1].id, 'p1');
+    });
+});
+
 describe('Lote A: calculadora agronómica y plantulación en el pedido', () => {
     const app = cargar(['crm.js']);
     const calcular = app.global('calculoAgronomico');

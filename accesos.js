@@ -253,7 +253,7 @@ class Accesos {
     }
 
     // ----- Campana -----
-    static ICONO_AVISO = { mensaje: 'mensajes', cliente: 'equipo', tarea: 'tareas', reunion: 'video', germinador: 'invernadero', envio: 'paquete', instagram: 'camara', reporte: 'tareas', meta: 'metas', cotizacion: 'tareas' };
+    static ICONO_AVISO = { mensaje: 'mensajes', cliente: 'equipo', tarea: 'tareas', reunion: 'video', germinador: 'invernadero', envio: 'paquete', instagram: 'camara', reporte: 'tareas', meta: 'metas', cotizacion: 'tareas', sistema: 'avisos' };
 
     async alternarCampana() {
         if (this.campana.abierto) return this.campana.cerrar();
@@ -346,7 +346,9 @@ class Accesos {
                 const amb = window.responsable && window.responsable.ambito;
                 if (a2) (amb && (amb.master || amb.cargo === 'administrativo') ? a2.abrirEquipo() : a2.abrir());
             },
-            meta: () => window.reunionesMetas && window.reunionesMetas.abrirMetas()
+            meta: () => window.reunionesMetas && window.reunionesMetas.abrirMetas(),
+            // Un flujo automático que falló (solo le llega al Master): se revisa en la Torre de control
+            sistema: () => window.torreDeControl && window.torreDeControl.abrir()
         };
         (destinos[a.tipo] || (() => {}))();
     }

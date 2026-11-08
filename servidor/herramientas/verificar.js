@@ -5,13 +5,15 @@
  *   node herramientas/verificar.js https://api.semillasdata.com
  *   npm run verificar -- https://api.semillasdata.com --origen=https://semillasdata.com
  *
- * Solo lee: no entra con ninguna cuenta ni escribe en la base. Comprueba, con las rutas reales del servidor:
+ * No entra con ninguna cuenta. Lo único que puede escribir es lo que haría el Cron de cPanel con /api/latido (una vuelta
+ * de lo pendiente, idempotente). Comprueba, con las rutas reales del servidor:
  *   1. /api/salud responde, con la base conectada, y en cuánto tiempo (avisa si pasa de 1 s).
  *   2. Los webhooks de Meta (WhatsApp e Instagram) rechazan con 401 lo que llega sin firma.
  *   3. La verificación GET de los webhooks no acepta un token equivocado (403, sin devolver el reto).
  *   4. Sin sesión, la API no da datos (401).
  *   5. La web (semillasdata.com y GitHub Pages) puede llamar a la API (CORS) y un origen ajeno no.
  *   6. Cabeceras de seguridad de helmet, y HTTPS fuera de este equipo.
+ *   7. El latido del Cron de cPanel (/api/latido) responde y su vuelta no falla.
  * También enseña qué integraciones están activas y si hay flujos o avisos fallidos. Sale con código 1 si algo falla.
  */
 import { pathToFileURL } from 'node:url';
@@ -50,10 +52,10 @@ function fallidos(resumen) {
 /**
  * Ejecuta todas las comprobaciones contra el servidor publicado.
  * @param {string} urlBase  p. ej. https://api.semillasdata.com
- * @param {{ origenes?: string[] }} [opciones]
+ * @param {{ origenes?: string[], latido?: boolean }} [opciones]  latido: false para no llamar a /api/latido
  * @returns {Promise<{ ok: boolean, resultados: Resultado[], integraciones: Record<string, unknown> | null }>}
  */
-export async function verificarServidor(urlBase, { origenes = ORIGENES_WEB } = {}) {
+export async function verificarServidor(urlBase, { origenes = ORIGENES_WEB, latido = true } = {}) {
     const base = urlBase.replace(/\/+$/, '');
     /** @type {Resultado[]} */
     const resultados = [];
@@ -104,6 +106,16 @@ export async function verificarServidor(urlBase, { origenes = ORIGENES_WEB } = {
             anotar(`Verificación de ${nombre} con token falso`, bien, bien ? 'rechazada (403)' : `HTTP ${r.estado}: debería ser 403`);
         });
     }
+
+    // El despertador del Cron de cPanel (latido.js): responde y su vuelta no falla (frenada si ya se hizo hace poco)
+    if (latido) await comprobar('Latido del Cron (/api/latido)', async () => {
+        const r = await pedir(`${base}/api/latido`);
+        const bien = r.estado === 200 && r.json && r.json.ok === true;
+        const detalle = !bien
+            ? `HTTP ${r.estado}${r.json && r.json.fallos && r.json.fallos.length ? `; falló: ${r.json.fallos.join(', ')}` : ''}`
+            : r.json.vuelta === 'hecha' ? `vuelta hecha${r.json.fallidosAvisados ? `; ${r.json.fallidosAvisados} flujo(s) fallido(s) avisados al Master` : ''}` : 'responde (vuelta reciente)';
+        anotar('Latido del Cron (/api/latido)', bien, detalle);
+    });
 
     await comprobar('Datos sin sesión', async () => {
         const r = await pedir(`${base}/api/yo`);

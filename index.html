@@ -35,10 +35,8 @@
     <!-- Librerías de jsDelivr (copia exacta de npm, versión fija). integrity (SRI): el navegador comprueba la
          huella del archivo y no lo ejecuta si el CDN lo cambiara; así un CDN comprometido no puede robar la
          sesión del CRM. Al cambiar de versión, recalcula la huella (ver DOCUMENTACION_COMPLETA.md) -->
-    <!-- Three.js para el entorno 3D WebGL -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js" integrity="sha384-CI3ELBVUz9XQO+97x6nwMDPosPR5XvsxW2ua7N1Xeygeh1IxtgqtCkGfQY9WWdHu" crossorigin="anonymous"></script>
-    <!-- Controles de cámara (girar, acercar, desplazar) de la misma versión de Three.js -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js" integrity="sha384-wagZhIFgY4hD+7awjQjR4e2E294y6J2HSnd8eTNc15ZubTeQeVRZwhQJ+W6hnBsf" crossorigin="anonymous"></script>
+    <!-- Three.js (entorno 3D) ya no se carga aquí: app.js lo descarga, con la misma huella SRI, al entrar en el
+         Simulador 3D. La app arranca directa en el CRM -->
     <!-- jsPDF para descargar las cotizaciones (4.2.1: corrige las vulnerabilidades de la 2.5.1) -->
     <script src="https://cdn.jsdelivr.net/npm/jspdf@4.2.1/dist/jspdf.umd.min.js" integrity="sha384-qovJwSBbRDPP5cEjCp8S0UP66wrvnjaa60XMOGzTNanrThcrGfXfnZkvgY8N1KT3" crossorigin="anonymous"></script>
 </head>
@@ -69,11 +67,11 @@
             <div class="menu-modulos">
                 <button type="button" id="btn-modulos" class="btn-modulos" aria-expanded="false" aria-controls="lista-modulos">
                     <svg class="btn-modulos-icono" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-                    <span class="solo-lector">Módulo: </span><span class="btn-modulos-texto">Simulador 3D</span>
+                    <span class="solo-lector">Módulo: </span><span class="btn-modulos-texto">Clientes</span>
                     <svg class="btn-modulos-flecha" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
                 </button>
                 <div id="lista-modulos" class="nav-tabs menu-desplegable" hidden>
-                    <button class="nav-tab" type="button" id="tab-simulador" aria-controls="mod-simulador" aria-current="true">Simulador 3D</button>
+                    <button class="nav-tab" type="button" id="tab-simulador" aria-controls="mod-simulador">Simulador 3D</button>
                 </div>
             </div>
             <!-- Responsable que usa la app en este navegador (usuario.js) -->
@@ -82,7 +80,7 @@
 
         <div id="modules-container">
             <!-- Módulo 1: Simulador 3D -->
-            <section id="mod-simulador" class="app-module" role="region" aria-labelledby="tab-simulador">
+            <section id="mod-simulador" class="app-module" role="region" aria-labelledby="tab-simulador" hidden>
                 <!-- Métricas de la finca -->
                 <header id="metrics-panel">
                     <div class="metric-card">

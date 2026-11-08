@@ -9,7 +9,8 @@
  * Qué hace (lo mismo que android/build.sh para la app Android propia):
  * - Copia la página, los estilos, los scripts, iconos y logos.
  * - Las librerías (Three.js, OrbitControls, jsPDF) van dentro de la app (android/lib): abre sin conexión.
- *   Se cambian las direcciones del CDN por lib/… y se quitan los integrity (la app va firmada entera).
+ *   Se cambian las direcciones del CDN por lib/… (jsPDF en index.html; three.js en app.js, que lo carga al abrir
+ *   el Simulador 3D) y se quitan los integrity (la app va firmada entera).
  * - Añade nativo.js antes de los demás scripts: el puente con la app (window.AppNativa).
  * - En Capacitor añade android.js (el botón "atrás" de Android).
  * - Con la variable SEMENCES_API escribe la dirección del backend en googleSync.js (como el flujo de GitHub).
@@ -37,16 +38,30 @@ export const ARCHIVOS = [
 ];
 export const CARPETAS = ['iconos', 'marcas'];
 // Mismas direcciones que index.html → copia local (idéntica byte a byte a la de npm, ver DOCUMENTACION_COMPLETA.md)
-export const LIBRERIAS = {
-    'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js': 'lib/three.min.js',
-    'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js': 'lib/OrbitControls.js',
+export const LIBRERIAS_INDEX = {
     'https://cdn.jsdelivr.net/npm/jspdf@4.2.1/dist/jspdf.umd.min.js': 'lib/jspdf.umd.min.js'
 };
+// Las del Simulador 3D las carga app.js al abrirlo (LIBRERIAS_3D): en la app, su copia local
+export const LIBRERIAS_3D = {
+    'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js': 'lib/three.min.js',
+    'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js': 'lib/OrbitControls.js'
+};
+export const LIBRERIAS = { ...LIBRERIAS_INDEX, ...LIBRERIAS_3D };
+
+// app.js para la app: el Simulador 3D carga three.js de lib/ (app.js no pide huella a lo local)
+export function adaptarApp(js) {
+    let salida = js;
+    for (const [cdn, local] of Object.entries(LIBRERIAS_3D)) {
+        if (!salida.includes(`'${cdn}'`)) throw new Error(`No encuentro ${cdn} en app.js`);
+        salida = salida.replace(`'${cdn}'`, `'${local}'`);
+    }
+    return salida;
+}
 
 // index.html para la app: librerías locales, sin integrity, con nativo.js primero (y android.js en Capacitor)
 export function adaptarIndex(html, { plataforma }) {
     let salida = html;
-    for (const [cdn, local] of Object.entries(LIBRERIAS)) {
+    for (const [cdn, local] of Object.entries(LIBRERIAS_INDEX)) {
         if (!salida.includes(cdn)) throw new Error(`No encuentro ${cdn} en index.html`);
         salida = salida.replace(cdn, local);
     }
@@ -80,6 +95,8 @@ function preparar() {
 
     const index = path.join(destino, 'index.html');
     fs.writeFileSync(index, adaptarIndex(fs.readFileSync(index, 'utf8'), { plataforma }));
+    const app = path.join(destino, 'app.js');
+    fs.writeFileSync(app, adaptarApp(fs.readFileSync(app, 'utf8')));
     const conector = path.join(destino, 'googleSync.js');
     const api = process.env.SEMENCES_API || '';
     fs.writeFileSync(conector, configurarConector(fs.readFileSync(conector, 'utf8'), api));

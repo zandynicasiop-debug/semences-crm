@@ -89,6 +89,16 @@ El antivirus del cPanel de FastComet rechaza los `.zip` y `.tar.gz` con archivos
 
 `.cpanel.yml` lanza `herramientas/desplegar-cpanel.sh`: copia la web, ya conectada a `https://api.semillasdata.com`, a `public_html` (sin borrar `.well-known` ni `cgi-bin`), y el código del backend a `~/semences-servidor` (sin tocar su `.env` ni `node_modules`) y pide reiniciarlo. Cada actualización posterior son esos dos botones. Si cambian las dependencias, además **Run NPM Install**.
 
+### Despertador: Cron de cPanel cada 5 minutos (obligatorio en FastComet)
+
+Passenger duerme la app de Node cuando nadie la usa, y con ella se paran los flujos automáticos, la cola de avisos, Borja y los clientes dormidos. cPanel › **Cron Jobs** › *Add New Cron Job* › *Common Settings*: **Once Per Five Minutes** (`*/5 * * * *`), y el comando:
+
+```bash
+curl -fsS --max-time 120 https://api.semillasdata.com/api/latido > /dev/null 2>&1
+```
+
+`/api/latido` (`src/latido.js`) despierta el proceso y hace ahí mismo una vuelta de lo pendiente: flujos (eventos), avisos encolados (WhatsApp y push), el resumen de Borja, los clientes dormidos y el recordatorio del viernes. Todo es idempotente (repetirlo no duplica nada) y como mucho hace una vuelta por minuto y proceso. Si un flujo queda **fallido** (definitivo, ya no se reintenta), cada Master recibe al momento un aviso en la campana y un correo desde la cuenta del sistema, una sola vez por evento. `npm run verificar` comprueba también el latido.
+
 ### 5. Conectar la app
 
 En GitHub › Settings › Secrets and variables › Actions, crea el secreto `SEMENCES_API` = `https://api.semillasdata.com` y vuelve a ejecutar el flujo "Compilar APK y publicar la app". La web y el APK nuevos salen conectados. Desde la carpeta del proyecto:
@@ -105,14 +115,15 @@ En el espacio del equipo: nombre del espacio › Apps e integraciones › Webhoo
 
 Los avisos llegan como **tarjetas**: la primera línea es el título, el resto el texto, y llevan botones para **unirse al Meet** (si el aviso trae un enlace de Meet) y **abrir la app** (`URL_APP`, por defecto el primer origen de `ORIGENES`). El texto de cada persona va escapado: no puede colar formato ni enlaces en la tarjeta. Con `CHAT_TARJETAS=no` vuelven a ser texto simple.
 
-### Reportes PDF
-1. Crea en Google Docs la plantilla del reporte de cliente con estos textos donde quieras cada dato: `{{cliente}}`, `{{ubicacion}}`, `{{telefono}}`, `{{whatsapp}}`, `{{marca}}`, `{{seguimiento}}`, `{{fecha}}`, `{{responsable}}`, `{{procesos}}`, `{{visitas}}`, `{{rendimientos}}`.
-2. Compártela con el equipo (lector basta) y crea una carpeta de Drive compartida para los PDF (editor).
-3. El id de cada una (lo que va en la URL tras `/d/` o `/folders/`) va en `REPORTE_PLANTILLA_ID` y `REPORTE_CARPETA_ID`.
+### Reportes PDF, documentos y respaldos en Drive (`drive.file`)
+La app solo pide el permiso mínimo de Drive (`drive.file`: los archivos que crea ella). No hay que crear carpetas ni copiar ids:
+1. Un Master entra en la app y conecta Google; su correo va en `CUENTA_GOOGLE_SISTEMA`. Reinicia la app Node.
+2. A los pocos segundos aparece en su Drive **Semences del Caribe · CRM** con `Clientes` (una carpeta por cliente), `Reportes`, `Respaldos` y `Plantillas`.
+3. En `Plantillas › Plantilla base del expediente` (Google Docs) dale el diseño de la empresa sin quitar los `{{campos}}`: `{{cliente}}`, `{{pais}}`, `{{casa}}`, `{{ubicacion}}`, `{{telefono}}`, `{{whatsapp}}`, `{{marca}}`, `{{seguimiento}}`, `{{fecha}}`, `{{responsable}}`, `{{procesos}}`, `{{visitas}}`, `{{rendimientos}}`. La de cada casa comercial se copia de ella la primera vez.
 
-Dentro de esa carpeta, cada cliente tiene la suya (se crea con su nombre la primera vez) y ahí se guardan todos sus reportes. La carpeta se reconoce por el id del cliente, no por el nombre: se puede renombrar sin que se cree otra.
+Quien sube un documento, abre los documentos o genera un reporte de un cliente que puede ver recibe acceso de **lectura** a la carpeta de ese cliente. Las carpetas se reconocen por su marca, no por el nombre: se pueden renombrar; si alguien las borra, se vuelven a crear. `REPORTE_PLANTILLA_ID`, `REPORTE_CARPETA_ID`, `DOCUMENTOS_CARPETA_ID` y `RESPALDO_CARPETA_ID` ya no se usan.
 
-En la app: ficha del cliente › **Reporte PDF en Drive**.
+En la app: ficha del cliente › **Reporte PDF en Drive** y **Documentos en Drive**.
 
 ### Avisos push (gratis)
 1. En tu ordenador, dentro de `servidor/`: `npm run vapid`. Copia las dos líneas en las variables `VAPID_PUBLICA` y `VAPID_PRIVADA` del panel (la privada es secreta; si se cambia, cada quien vuelve a activar los avisos). Opcional: `VAPID_CONTACTO` (`mailto:` de quien administra).
@@ -154,7 +165,7 @@ Cada persona escribe su WhatsApp en la app (al entrar, o en menú del logo › C
 
 - **Ámbito:** clientes, visitas, procesos y rendimientos llevan su propio **país** y **casa comercial** (al elegir el cliente se proponen los suyos). Cada persona solo ve y escribe registros de sus países **y** sus casas. Lo que no tiene país o casa (datos de antes) solo lo ve quien tiene todo.
 - **Lo comprueba el servidor:** lo que no se puede ver no sale de la base (tampoco en la exportación a Sheets ni en los reportes), y un cambio fuera del ámbito se rechaza entero; la app lo descarta y avisa.
-- **Quién puede pedir acceso:** con la pantalla de consentimiento **Interna** de Google, solo las cuentas del Workspace de la empresa. Para admitir Gmail personales habría que pasarla a **Externa**, y Google exige entonces verificar la app (los permisos de Gmail y Drive pasan una revisión de seguridad).
+- **Quién puede pedir acceso:** la pantalla de consentimiento de Google es **Externa** porque parte del equipo usa cuentas @gmail.com; toda cuenta nueva pasa por la sala de espera hasta que un Master la aprueba. Para la verificación de Google la app pide lo mínimo: Gmail (solo enviar), Calendar (eventos y libre/ocupado) y Drive con `drive.file` (no restringido: no exige la auditoría de seguridad de los permisos completos de Drive).
 
 ## Envíos (DHL y FedEx)
 
